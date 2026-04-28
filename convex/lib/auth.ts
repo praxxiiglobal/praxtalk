@@ -28,15 +28,23 @@ async function pbkdf2(
   salt: Uint8Array,
   iterations: number,
 ): Promise<Uint8Array> {
+  // TS now treats Uint8Array as generic over its backing buffer
+  // (ArrayBuffer | SharedArrayBuffer); WebCrypto wants ArrayBuffer-backed
+  // BufferSource. Cast at the boundary — bytes are identical at runtime.
   const baseKey = await crypto.subtle.importKey(
     "raw",
-    enc.encode(password),
+    enc.encode(password) as BufferSource,
     { name: "PBKDF2" },
     false,
     ["deriveBits"],
   );
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations, hash: HASH_NAME },
+    {
+      name: "PBKDF2",
+      salt: salt as BufferSource,
+      iterations,
+      hash: HASH_NAME,
+    },
     baseKey,
     KEY_LEN_BYTES * 8,
   );
@@ -81,7 +89,10 @@ export function generateSessionToken(): string {
 }
 
 export async function hashToken(token: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", enc.encode(token));
+  const buf = await crypto.subtle.digest(
+    "SHA-256",
+    enc.encode(token) as BufferSource,
+  );
   return bytesToHex(buf);
 }
 

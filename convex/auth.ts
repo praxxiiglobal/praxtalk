@@ -50,21 +50,12 @@ export const logout = mutation({
   args: { sessionToken: v.string() },
   returns: v.null(),
   handler: async (ctx, { sessionToken }) => {
-    const session = await ctx.db
-      .query("sessions")
-      .withIndex("by_token_hash", (q) =>
-        q.eq("tokenHash", "" /* placeholder */),
-      )
-      .first();
-    // Real lookup uses the hashed token (Convex indexes are exact match,
-    // so we hash first then query):
     const tokenHash = await hashToken(sessionToken);
-    const real = await ctx.db
+    const session = await ctx.db
       .query("sessions")
       .withIndex("by_token_hash", (q) => q.eq("tokenHash", tokenHash))
       .first();
-    if (real) await ctx.db.delete(real._id);
-    void session;
+    if (session) await ctx.db.delete(session._id);
     return null;
   },
 });
