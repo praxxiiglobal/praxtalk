@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PraxTalk
 
-## Getting Started
+AI-native customer messaging platform — live chat, email, WhatsApp, voice and in-app, unified into one inbox with **Atlas**, an autonomous agent that resolves conversations end to end.
 
-First, run the development server:
+A product of [Praxxii Global](https://praxxiiglobal.com).
+
+- **Live**: [praxtalk.com](https://praxtalk.com)
+- **Status**: Open beta · 2026
+
+## Stack
+
+| Layer    | Choice                                       |
+| -------- | -------------------------------------------- |
+| Framework| Next.js 16 (App Router, Turbopack, RSC)      |
+| Language | TypeScript 5 — end-to-end, 0 `any`           |
+| UI       | Tailwind 4 (oklch `@theme` tokens)           |
+| Database | Convex (TS-native, document-based, reactive) |
+| Auth     | Custom token (per Praxxii convention)        |
+| Hosting  | Vercel                                       |
+| Type     | Inter Tight · JetBrains Mono · Instrument Serif |
+
+## Surfaces (planned)
+
+| Subdomain               | Purpose                                          |
+| ----------------------- | ------------------------------------------------ |
+| `www.praxtalk.com`      | Marketing site (this repo, `/app`)               |
+| `app.praxtalk.com`      | Operator dashboard (auth, workspace-scoped)      |
+| `cdn.praxtalk.com/widget.js` | Public embeddable widget keyed by workspaceId |
+
+## Local development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev   # → http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+```bash
+npm run build # production build (next build, Turbopack)
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+app/                   Next.js App Router (marketing routes)
+  layout.tsx           Fonts, metadata
+  page.tsx             Marketing homepage (composes sections)
+  icon.tsx             Generated favicon
+  opengraph-image.tsx  Generated OG card
+  globals.css          Tailwind 4 + @theme tokens
+components/marketing/  Marketing sections (Nav, Hero, etc.)
+design/                Original design reference snapshot
+lib/                   Shared utilities (cn, etc.)
+```
 
-## Learn More
+## Repo conventions
 
-To learn more about Next.js, take a look at the following resources:
+- **No SQL** — Convex documents only (when added)
+- **Multi-tenant from day one** — every entity workspace-scoped
+- **Honest copy** — no fabricated metrics, logos, or unearned compliance badges. "Open beta" framing, "GDPR ready · SOC 2 in progress" only
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## License
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Proprietary © 2026 Praxxii Global. All rights reserved.

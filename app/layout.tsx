@@ -37,6 +37,12 @@ export const metadata: Metadata = {
     siteName: "PraxTalk",
     type: "website",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "PraxTalk — Conversations that close themselves",
+    description:
+      "AI-native customer messaging. One inbox for chat, email, WhatsApp, voice and in-app — Atlas resolves the rest.",
+  },
 };
 
 export default function RootLayout({
