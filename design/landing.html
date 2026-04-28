@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PraxTalk — Conversations that close themselves</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0F1A12;
+    --ink-2:#16241A;
+    --paper:#F1EFE3;
+    --paper-2:#E5E1CD;
+    --rule:rgba(15,26,18,.10);
+    --rule-2:rgba(15,26,18,.20);
+    --muted:rgba(15,26,18,.58);
+    --accent: oklch(0.76 0.15 95);
+    --accent-soft: oklch(0.76 0.15 95 / .18);
+    --accent-deep: oklch(0.55 0.13 145);
+    --good: oklch(0.62 0.14 150);
+    --warn: oklch(0.74 0.14 80);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:"Inter Tight", ui-sans-serif, system-ui, sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    font-feature-settings:"ss01","ss02","cv11";
+  }
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:radial-gradient(rgba(11,15,18,.045) 1px, transparent 1px);
+    background-size:3px 3px;mix-blend-mode:multiply;opacity:.55;
+  }
+  .wrap{max-width:1320px;margin:0 auto;padding:0 32px;position:relative;z-index:1}
+  .mono{font-family:"JetBrains Mono", ui-monospace, monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  .serif{font-family:"Instrument Serif", serif;font-style:italic;font-weight:400}
+  a{color:inherit;text-decoration:none}
+  hr.rule{border:0;border-top:1px solid var(--rule);margin:0}
+</style>
+</head>
+<body>
+<!--
+  ============================================================
+  PRAXTALK · LANDING PAGE DESIGN REFERENCE
+  ============================================================
+  Source: claude.ai/design output, 2026-04-28.
+  This file is a SNAPSHOT for reference only — not the live site.
+  The live site is built in Next.js 16 + Tailwind 4 + Convex
+  and lives in /app and /components/marketing.
+
+  Design tokens (kept as the source of truth):
+  --ink:    #0F1A12        --paper:   #F1EFE3
+  --ink-2:  #16241A        --paper-2: #E5E1CD
+  --accent: oklch(0.76 0.15 95)   (warm amber)
+  --good:   oklch(0.62 0.14 150)  (signal green)
+  --warn:   oklch(0.74 0.14 80)   (signal amber)
+
+  Fonts:
+  - Inter Tight  (display + body)
+  - JetBrains Mono (mono labels, captions, code)
+  - Instrument Serif italic (italic accents in headlines)
+
+  Section layout (composed in app/page.tsx):
+  01 — Nav (sticky, blurred, brand mark + dropdown links)
+  02 — Hero (display headline + console mockup + floating cards)
+  03 — Logo strip
+  04 — AI Features grid (7 Atlas agents, 12-col asymmetric)
+  05 — Product Mockup (full inbox UI)
+  06 — Compare (vs Intercom / HubSpot / LiveChat / Drift / Crisp / Tawk.to)
+  07 — Metrics row
+  08 — Integrations grid
+  09 — Tech stack (Next.js 16, Convex, Tailwind 4, TS) + code preview
+  10 — Pricing (Spark / Team / Scale / Enterprise + $0.04/AI res)
+  11 — CTA block
+  12 — Footer
+
+  Honesty rules applied to the live site (NOT to this snapshot):
+  - No fabricated customer counts, logos, or compliance badges
+  - "Open beta" framing instead of vanity metrics
+  - Compliance: "GDPR ready · SOC 2 in progress" only
+-->
+
+<!--
+  Original full markup follows. Encoding artifacts (mojibake from
+  the source export) are preserved as-is. The Next.js components
+  use proper Unicode (—, →, ✓, ▾, ❤️).
+-->
+
+<main style="padding:48px;font-family:'JetBrains Mono';line-height:1.6">
+<pre style="white-space:pre-wrap">
+This file is the design reference snapshot.
+
+The Next.js implementation lives in:
+  ~/praxtalk/app/page.tsx
+  ~/praxtalk/components/marketing/*
+
+Open the live dev server (npm run dev) to view the implemented site.
+</pre>
+</main>
+
+</body>
+</html>

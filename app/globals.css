@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0F1A12;
+  --color-ink-2: #16241A;
+  --color-paper: #F1EFE3;
+  --color-paper-2: #E5E1CD;
+  --color-rule: rgba(15, 26, 18, 0.10);
+  --color-rule-2: rgba(15, 26, 18, 0.20);
+  --color-muted: rgba(15, 26, 18, 0.58);
+  --color-accent: oklch(0.76 0.15 95);
+  --color-accent-soft: oklch(0.76 0.15 95 / 0.18);
+  --color-accent-deep: oklch(0.55 0.13 145);
+  --color-good: oklch(0.62 0.14 150);
+  --color-warn: oklch(0.74 0.14 80);
+
+  --font-sans: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+  --font-serif: var(--font-instrument), ui-serif, serif;
+}
+
+html, body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01", "ss02", "cv11";
+}
+
+/* Paper grain — fixed dotted overlay */
+.paper-grain::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: radial-gradient(rgba(11, 15, 18, 0.045) 1px, transparent 1px);
+  background-size: 3px 3px;
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+}
+
+/* Console card glow — radial amber from top-right */
+.console-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(800px 200px at 80% -10%, oklch(0.76 0.15 95 / 0.40), transparent 60%);
+}
+
+/* CTA block glow — large amber pool from top-center */
+.cta-glow::before {
+  content: "";
+  position: absolute;
+  inset: auto -10% -60% -10%;
+  height: 120%;
+  background: radial-gradient(60% 60% at 50% 0%, oklch(0.76 0.15 95 / 0.45), transparent 70%);
+  pointer-events: none;
+}
+
+/* AI card radial highlight */
+.ai-card-glow::after {
+  content: "";
+  position: absolute;
+  inset: auto -40% -40% auto;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, var(--color-accent), transparent 60%);
+  opacity: 0.5;
+}
+
+/* Mono uppercase eyebrow */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Typing dots — animated */
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-3px); opacity: 1; }
+}
+.typing-dot {
+  animation: typing-bounce 1.2s infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes pulse-soft {
+  50% { transform: scale(1.3); opacity: 0.6; }
+}
+.pulse-dot {
+  animation: pulse-soft 1.6s infinite;
+}
+
+/* Plan list bullet — outlined dot */
+.plan-bullet {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  border: 1px solid currentColor;
+  flex: 0 0 auto;
+  margin-top: 3px;
+  background: radial-gradient(circle, currentColor 40%, transparent 42%);
+}
+
+/* Hide scrollbar for tidy mockups */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
