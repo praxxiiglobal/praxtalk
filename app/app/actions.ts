@@ -18,5 +18,5 @@ export async function logoutAction() {
     }
   }
   await clearSessionCookie();
-  redirect("/setup");
+  redirect("/login");
 }
