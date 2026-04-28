@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 
 /**
  * Public — called from the embeddable widget. Identifies (or creates)
@@ -125,5 +125,49 @@ export const sendVisitorMessage = mutation({
 
     await ctx.db.patch(args.conversationId, { lastMessageAt: now });
     return messageId;
+  },
+});
+
+/**
+ * Public — reactive message stream for the visitor's own conversation.
+ * Authenticated by (widgetId, visitorKey, conversationId) all matching
+ * the conversation's stored workspace + visitor. The widget subscribes
+ * to this so operator replies stream live into the chat panel.
+ */
+export const listMessagesForVisitor = query({
+  args: {
+    widgetId: v.string(),
+    visitorKey: v.string(),
+    conversationId: v.id("conversations"),
+  },
+  handler: async (ctx, args) => {
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_widget_id", (q) => q.eq("widgetId", args.widgetId))
+      .unique();
+    if (!workspace) return [];
+
+    const convo = await ctx.db.get(args.conversationId);
+    if (!convo || convo.workspaceId !== workspace._id) return [];
+
+    const visitor = await ctx.db.get(convo.visitorId);
+    if (!visitor || visitor.visitorKey !== args.visitorKey) return [];
+
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation_created", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
+      .order("asc")
+      .take(200);
+
+    // Strip operator id and other internal fields — visitor only sees
+    // role + body + createdAt.
+    return messages.map((m) => ({
+      _id: m._id,
+      role: m.role,
+      body: m.body,
+      createdAt: m.createdAt,
+    }));
   },
 });
