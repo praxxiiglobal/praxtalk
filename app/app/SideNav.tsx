@@ -15,6 +15,7 @@ export const navItems: { href: string; label: string; icon: NavIconName }[] = [
   { href: "/app/analytics", label: "Analytics", icon: "chart" },
   { href: "/app/brands", label: "Brands", icon: "brand" },
   { href: "/app/team", label: "Team", icon: "team" },
+  { href: "/app/saved-replies", label: "Saved replies", icon: "reply" },
   { href: "/app/integrations", label: "Integrations", icon: "plug" },
   { href: "/app/settings", label: "Settings", icon: "settings" },
   { href: "/app/billing", label: "Billing", icon: "card" },
@@ -118,6 +119,7 @@ type NavIconName =
   | "chart"
   | "brand"
   | "team"
+  | "reply"
   | "plug"
   | "settings"
   | "card";
@@ -180,6 +182,12 @@ function NavIcon({ name, active }: { name: NavIconName; active?: boolean }) {
           <path d="M2 13c0-2 1.8-3.5 4-3.5s4 1.5 4 3.5" />
           <circle cx="11.5" cy="5" r="2" />
           <path d="M10 12.5c0-1.5 1.4-2.5 3-2.5" />
+        </svg>
+      );
+    case "reply":
+      return (
+        <svg {...common} aria-hidden>
+          <path d="M5 3l-3 3 3 3M3 6h7a4 4 0 0 1 0 8H6" />
         </svg>
       );
     case "plug":

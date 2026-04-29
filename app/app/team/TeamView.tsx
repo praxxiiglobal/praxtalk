@@ -54,8 +54,298 @@ export function TeamView() {
         )}
       </Card>
 
+      {canManage && <PendingInvitesCard />}
+      {canManage && <InviteOperatorCard />}
       {canManage && <AddOperatorCard />}
     </>
+  );
+}
+
+function PendingInvitesCard() {
+  const { sessionToken } = useDashboardAuth();
+  const invites = useQuery(api.invites.list, { sessionToken });
+  const revoke = useMutation(api.invites.revoke);
+
+  if (!invites || invites.length === 0) return null;
+
+  const onRevoke = async (id: Id<"operatorInvites">) => {
+    if (!confirm("Revoke this invite? The link will stop working.")) return;
+    await revoke({ sessionToken, inviteId: id });
+  };
+
+  return (
+    <Card
+      title="Pending invites"
+      description="Sent but not accepted yet. Revoke to invalidate the link."
+    >
+      <ul className="divide-y divide-rule">
+        {invites.map((i) => (
+          <li
+            key={i._id}
+            className="flex flex-wrap items-center gap-3 py-3"
+          >
+            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-paper-2 font-mono text-[11px] font-semibold text-muted">
+              ✉
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="truncate font-medium text-ink">
+                  {i.name ?? i.email}
+                </span>
+                <span className="rounded-full border border-rule-2 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+                  {i.role}
+                </span>
+              </div>
+              <div className="truncate font-mono text-[11px] text-muted">
+                {i.email}
+              </div>
+              <div className="mt-0.5 font-mono text-[10px] text-muted">
+                expires{" "}
+                {Math.max(
+                  0,
+                  Math.ceil(
+                    (i.expiresAt - Date.now()) / (24 * 60 * 60 * 1000),
+                  ),
+                )}
+                d
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onRevoke(i._id)}
+              className="inline-flex h-8 shrink-0 items-center rounded-full border border-rule-2 px-3 text-[12px] font-medium text-warn transition hover:-translate-y-px"
+            >
+              Revoke
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function InviteOperatorCard() {
+  const { sessionToken } = useDashboardAuth();
+  const sendInvite = useMutation(api.invites.send);
+  const brands = useQuery(api.brands.listMine, { sessionToken });
+
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"admin" | "agent">("agent");
+  const [scope, setScope] = useState<"all" | "scoped">("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState<{ email: string; link: string } | null>(
+    null,
+  );
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const access =
+        scope === "all"
+          ? ("all" as const)
+          : (Array.from(selected) as unknown as Id<"brands">[]);
+      const result = await sendInvite({
+        sessionToken,
+        email: email.trim(),
+        name: name.trim() || undefined,
+        role,
+        brandAccess: access,
+      });
+      setSent({ email: email.trim(), link: result.inviteLink });
+      setName("");
+      setEmail("");
+      setRole("agent");
+      setScope("all");
+      setSelected(new Set());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't send invite.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card
+      title="Invite by email"
+      description="Send a one-time link. Recipient sets their own password — no temp credentials passed around."
+    >
+      {sent ? (
+        <div className="rounded-xl border border-good bg-good/10 p-4 text-sm">
+          <div className="font-medium text-ink">
+            Invite sent to {sent.email} ✓
+          </div>
+          <div className="mt-2 text-[12px] text-muted">
+            If the email never arrives, share this link directly:
+          </div>
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-rule bg-paper p-3">
+            <code className="flex-1 break-all font-mono text-[12px] text-ink">
+              {sent.link}
+            </code>
+            <button
+              type="button"
+              onClick={() => navigator.clipboard.writeText(sent.link)}
+              className="inline-flex h-8 shrink-0 items-center rounded-full border border-rule-2 px-3 text-[12px] font-medium"
+            >
+              Copy
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSent(null)}
+            className="mt-3 text-[12px] font-medium text-muted underline-offset-2 hover:underline"
+          >
+            Send another →
+          </button>
+        </div>
+      ) : !open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex h-10 items-center rounded-full bg-ink px-5 text-sm font-medium text-paper transition hover:-translate-y-px"
+        >
+          + Invite teammate
+        </button>
+      ) : (
+        <form onSubmit={onSubmit} className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              Name (optional)
+            </span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Maya Acker"
+              className="h-10 rounded-lg border border-rule-2 bg-paper px-3 text-sm outline-none focus:border-ink"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              Email
+            </span>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="maya@acme.com"
+              className="h-10 rounded-lg border border-rule-2 bg-paper px-3 text-sm outline-none focus:border-ink"
+            />
+          </label>
+          <label className="flex flex-col gap-1 sm:col-span-2">
+            <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              Role
+            </span>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as "admin" | "agent")}
+              className="h-10 rounded-lg border border-rule-2 bg-paper px-3 text-sm outline-none focus:border-ink"
+            >
+              <option value="agent">Agent</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+
+          <div className="sm:col-span-2">
+            <div className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              Brand access
+            </div>
+            <div className="mt-2 flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => setScope("all")}
+                className={cn(
+                  "rounded-full px-3 py-1 font-mono text-[11px] uppercase tracking-[0.06em] transition",
+                  scope === "all"
+                    ? "bg-ink text-paper"
+                    : "border border-rule-2 text-muted hover:text-ink",
+                )}
+              >
+                All brands
+              </button>
+              <button
+                type="button"
+                onClick={() => setScope("scoped")}
+                className={cn(
+                  "rounded-full px-3 py-1 font-mono text-[11px] uppercase tracking-[0.06em] transition",
+                  scope === "scoped"
+                    ? "bg-ink text-paper"
+                    : "border border-rule-2 text-muted hover:text-ink",
+                )}
+              >
+                Specific brands
+              </button>
+            </div>
+            {scope === "scoped" && brands ? (
+              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                {brands.map((b) => {
+                  const checked = selected.has(String(b._id));
+                  return (
+                    <li key={b._id}>
+                      <label
+                        className={cn(
+                          "flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition",
+                          checked
+                            ? "border-ink bg-paper"
+                            : "border-rule-2 hover:border-ink",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-ink"
+                          checked={checked}
+                          onChange={(e) => {
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(String(b._id));
+                              else next.delete(String(b._id));
+                              return next;
+                            });
+                          }}
+                        />
+                        <span
+                          className="size-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: b.primaryColor }}
+                        />
+                        <span className="truncate text-sm text-ink">{b.name}</span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </div>
+
+          {error ? (
+            <p className="sm:col-span-2 text-[12px] text-warn">{error}</p>
+          ) : null}
+
+          <div className="flex justify-end gap-2 sm:col-span-2">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              disabled={busy}
+              className="inline-flex h-10 items-center rounded-full border border-rule-2 px-4 text-sm font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="inline-flex h-10 items-center rounded-full bg-ink px-5 text-sm font-medium text-paper transition hover:-translate-y-px disabled:opacity-60"
+            >
+              {busy ? "Sending…" : "Send invite"}
+            </button>
+          </div>
+        </form>
+      )}
+    </Card>
   );
 }
 

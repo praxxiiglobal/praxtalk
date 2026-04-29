@@ -119,6 +119,14 @@ export function generateApiKey(): string {
 }
 
 /**
+ * Operator invite token — 32 random bytes hex, prefixed `inv_`.
+ * Stored hashed; raw value goes in the email link only.
+ */
+export function generateInviteToken(): string {
+  return "inv_" + bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
+}
+
+/**
  * Webhook signing secret — 32 random bytes hex.
  */
 export function generateWebhookSecret(): string {

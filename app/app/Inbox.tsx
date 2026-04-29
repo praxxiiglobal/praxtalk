@@ -195,8 +195,11 @@ function ConversationPane({
   });
   const sendMessage = useMutation(api.messages.send);
   const setStatus = useMutation(api.conversations.setStatus);
+  const savedReplies = useQuery(api.savedReplies.list, { sessionToken });
 
   const [body, setBody] = useState("");
+  const [internal, setInternal] = useState(false);
+  const [showReplies, setShowReplies] = useState(false);
 
   if (convo === undefined || messages === undefined) {
     return (
@@ -221,11 +224,19 @@ function ConversationPane({
     const trimmed = body.trim();
     if (!trimmed) return;
     setBody("");
+    const wasInternal = internal;
+    setInternal(false);
     await sendMessage({
       sessionToken,
       conversationId,
       body: trimmed,
+      internal: wasInternal,
     });
+  };
+
+  const insertReply = (text: string) => {
+    setBody((cur) => (cur ? cur + (cur.endsWith("\n") ? "" : "\n") + text : text));
+    setShowReplies(false);
   };
 
   const visitor = convo.visitor;
@@ -342,28 +353,130 @@ function ConversationPane({
 
       <form
         onSubmit={onSubmit}
-        className="flex items-end gap-2 border-t border-rule bg-paper-2/60 px-4 py-3"
+        className={cn(
+          "flex flex-col gap-2 border-t border-rule px-4 py-3 transition",
+          internal ? "bg-warn/10" : "bg-paper-2/60",
+        )}
       >
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              onSubmit(e as unknown as FormEvent);
+        <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.06em]">
+          <button
+            type="button"
+            onClick={() => setInternal(false)}
+            className={cn(
+              "rounded-full px-2.5 py-1 transition",
+              !internal
+                ? "bg-ink text-paper"
+                : "border border-rule-2 text-muted hover:text-ink",
+            )}
+          >
+            Reply
+          </button>
+          <button
+            type="button"
+            onClick={() => setInternal(true)}
+            className={cn(
+              "rounded-full px-2.5 py-1 transition",
+              internal
+                ? "bg-warn text-ink"
+                : "border border-rule-2 text-muted hover:text-ink",
+            )}
+            title="Internal note — only your team sees this"
+          >
+            Internal note
+          </button>
+          <div className="ml-auto relative">
+            {savedReplies && savedReplies.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowReplies((v) => !v)}
+                className="rounded-full border border-rule-2 px-2.5 py-1 text-muted transition hover:text-ink"
+                aria-haspopup="listbox"
+                aria-expanded={showReplies}
+              >
+                Saved replies ▾
+              </button>
+            ) : (
+              <a
+                href="/app/saved-replies"
+                className="rounded-full border border-rule-2 px-2.5 py-1 text-muted transition hover:text-ink"
+                title="No saved replies yet — create one"
+              >
+                + Saved reply
+              </a>
+            )}
+            {showReplies && savedReplies && savedReplies.length > 0 ? (
+              <div
+                role="listbox"
+                className="absolute right-0 bottom-full z-20 mb-2 w-72 max-h-60 overflow-y-auto rounded-xl border border-rule bg-paper p-1 shadow-2xl"
+              >
+                {savedReplies.map((r) => (
+                  <button
+                    key={r._id}
+                    type="button"
+                    role="option"
+                    onClick={() => insertReply(r.body)}
+                    className="flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left transition hover:bg-paper-2"
+                  >
+                    <span className="text-sm font-medium text-ink">
+                      {r.title}
+                      {r.shortcut ? (
+                        <span className="ml-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+                          {r.shortcut}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="line-clamp-2 text-[12px] leading-[1.4] text-muted">
+                      {r.body}
+                    </span>
+                  </button>
+                ))}
+                <div className="border-t border-rule">
+                  <a
+                    href="/app/saved-replies"
+                    className="block px-3 py-2 text-[11px] font-medium text-muted hover:text-ink"
+                  >
+                    Manage saved replies →
+                  </a>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex items-end gap-2">
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                onSubmit(e as unknown as FormEvent);
+              }
+            }}
+            placeholder={
+              internal
+                ? "Internal note — only the team sees this. (⌘+Enter to save)"
+                : "Reply… (⌘+Enter to send)"
             }
-          }}
-          placeholder="Reply… (⌘+Enter to send)"
-          rows={2}
-          className="flex-1 resize-none rounded-xl border border-rule bg-paper px-3 py-2 text-[14px] outline-none transition placeholder:text-muted/70 focus:border-ink focus:shadow-[0_0_0_4px_var(--color-accent-soft)]"
-        />
-        <button
-          type="submit"
-          disabled={!body.trim()}
-          className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-paper transition hover:-translate-y-px disabled:opacity-40"
-        >
-          Send <span aria-hidden>↵</span>
-        </button>
+            rows={2}
+            className={cn(
+              "flex-1 resize-none rounded-xl border bg-paper px-3 py-2 text-[14px] outline-none transition placeholder:text-muted/70",
+              internal
+                ? "border-warn/40 focus:border-warn focus:shadow-[0_0_0_4px_rgba(255,200,80,0.18)]"
+                : "border-rule focus:border-ink focus:shadow-[0_0_0_4px_var(--color-accent-soft)]",
+            )}
+          />
+          <button
+            type="submit"
+            disabled={!body.trim()}
+            className={cn(
+              "inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-medium transition hover:-translate-y-px disabled:opacity-40",
+              internal ? "bg-warn text-ink" : "bg-ink text-paper",
+            )}
+          >
+            {internal ? "Save note" : "Send"}{" "}
+            <span aria-hidden>↵</span>
+          </button>
+        </div>
       </form>
     </div>
   );
@@ -406,10 +519,22 @@ function Bubble({
   body,
   emailDelivery,
 }: {
-  role: "visitor" | "operator" | "atlas" | "system";
+  role: "visitor" | "operator" | "atlas" | "system" | "internal_note";
   body: string;
   emailDelivery?: EmailDelivery;
 }) {
+  if (role === "internal_note") {
+    return (
+      <div className="flex max-w-[78%] flex-col items-end self-end gap-1">
+        <div className="rounded-2xl border border-warn/40 bg-warn/15 px-3.5 py-2.5 text-[14px] leading-[1.45] text-ink whitespace-pre-wrap break-words">
+          {body}
+        </div>
+        <span className="px-1 font-mono text-[10px] uppercase tracking-[0.08em] text-warn">
+          ⓘ Internal note · only your team sees this
+        </span>
+      </div>
+    );
+  }
   const base =
     "max-w-[78%] rounded-2xl px-3.5 py-2.5 text-[14px] leading-[1.45] whitespace-pre-wrap break-words";
   if (role === "operator") {

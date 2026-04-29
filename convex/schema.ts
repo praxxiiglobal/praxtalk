@@ -68,6 +68,31 @@ export default defineSchema({
     .index("by_workspace_email", ["workspaceId", "email"])
     .index("by_email", ["email"]),
 
+  // Pending operator invites — email + role + brand access + signed token.
+  // The raw token is hashed at rest; the dashboard never re-shows it. The
+  // recipient clicks the link in their email, lands on /invite/<token>,
+  // sets a password, and the row is consumed (acceptedAt set, operator
+  // doc inserted).
+  operatorInvites: defineTable({
+    workspaceId: v.id("workspaces"),
+    email: v.string(),
+    name: v.optional(v.string()),
+    role: v.union(v.literal("admin"), v.literal("agent")),
+    brandAccess: v.optional(
+      v.union(v.literal("all"), v.array(v.id("brands"))),
+    ),
+    tokenHash: v.string(), // SHA-256 of the random invite token
+    tokenPrefix: v.string(), // first 12 chars of token; UI lookup
+    invitedBy: v.id("operators"),
+    invitedAt: v.number(),
+    expiresAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_token_prefix", ["tokenPrefix"])
+    .index("by_email", ["email"]),
+
   // Operator browser sessions — bearer token in httpOnly cookie
   sessions: defineTable({
     operatorId: v.id("operators"),
@@ -315,6 +340,11 @@ export default defineSchema({
       v.literal("operator"),
       v.literal("atlas"),
       v.literal("system"),
+      // Internal team note — only operators with brand access can see
+      // these. Filtered out of the visitor-side stream and never sent
+      // via email/whatsapp/voice. Used for "@karan can you take this?"
+      // style coordination on a conversation.
+      v.literal("internal_note"),
     ),
     senderOperatorId: v.optional(v.id("operators")),
     body: v.string(),
@@ -395,6 +425,23 @@ export default defineSchema({
   })
     .index("by_conversation_created", ["conversationId", "createdAt"])
     .index("by_workspace_created", ["workspaceId", "createdAt"]),
+
+  // ── Saved replies ──────────────────────────────────────────────────
+  // Operator boilerplate. Optionally brand-scoped (visible only on a
+  // particular brand's conversations) or global to the workspace.
+  savedReplies: defineTable({
+    workspaceId: v.id("workspaces"),
+    brandId: v.optional(v.id("brands")), // null = workspace-global
+    title: v.string(), // shown in the picker, e.g. "Refund kicked off"
+    body: v.string(), // text inserted into the composer
+    shortcut: v.optional(v.string()), // e.g. "/refund"
+    createdBy: v.id("operators"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_brand", ["workspaceId", "brandId"])
+    .index("by_workspace_shortcut", ["workspaceId", "shortcut"]),
 
   // ── Email integration ─────────────────────────────────────────────
   // Per-workspace email provider config. Drives both inbound parsing

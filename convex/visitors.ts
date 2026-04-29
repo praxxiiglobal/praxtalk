@@ -240,11 +240,14 @@ export const listMessagesForVisitor = query({
       .order("asc")
       .take(200);
 
-    return messages.map((m) => ({
-      _id: m._id,
-      role: m.role,
-      body: m.body,
-      createdAt: m.createdAt,
-    }));
+    // Internal notes never leak to the visitor.
+    return messages
+      .filter((m) => m.role !== "internal_note")
+      .map((m) => ({
+        _id: m._id,
+        role: m.role,
+        body: m.body,
+        createdAt: m.createdAt,
+      }));
   },
 });
