@@ -217,6 +217,42 @@ export default defineSchema({
     .index("by_subscription_created", ["subscriptionId", "createdAt"])
     .index("by_status_created", ["status", "createdAt"]),
 
+  // ── Activity notifications ────────────────────────────────────────
+  // General-purpose notification feed, distinct from chat unread state.
+  // Producers: lead created, webhook permanent-failure, email permanent-
+  // failure, Atlas error, brand created, operator added, etc. Surfaced
+  // in the Topbar bell + dedicated /app/notifications page.
+  notifications: defineTable({
+    workspaceId: v.id("workspaces"),
+    // null = visible to every operator. Set to a specific operator for
+    // targeted notifications (e.g. "you were assigned this conversation").
+    operatorId: v.optional(v.id("operators")),
+    kind: v.union(
+      v.literal("lead_created"),
+      v.literal("conversation_assigned"),
+      v.literal("webhook_failed"),
+      v.literal("email_failed"),
+      v.literal("atlas_error"),
+      v.literal("brand_created"),
+      v.literal("operator_added"),
+      v.literal("api_key_created"),
+      v.literal("system"),
+    ),
+    severity: v.union(
+      v.literal("info"),
+      v.literal("success"),
+      v.literal("warn"),
+      v.literal("error"),
+    ),
+    title: v.string(),
+    body: v.optional(v.string()),
+    link: v.optional(v.string()), // dashboard URL to open on click
+    readAt: v.optional(v.number()), // workspace-wide; first operator to read marks for all
+    createdAt: v.number(),
+  })
+    .index("by_workspace_created", ["workspaceId", "createdAt"])
+    .index("by_workspace_unread", ["workspaceId", "readAt"]),
+
   // ── Leads ──────────────────────────────────────────────────────────
   // A "lead" is a saved snapshot of a visitor + their conversation context,
   // promoted by an operator from the inbox. Used as a lightweight CRM —

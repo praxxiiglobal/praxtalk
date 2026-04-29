@@ -1,36 +1,133 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { requireOperator } from "./auth";
 import { hasBrandAccess } from "./brands";
 
 /**
- * Notifications surface for the dashboard topbar.
+ * Unified notifications surface for the dashboard topbar and the
+ * dedicated /app/notifications page.
  *
- * "Unread" = open conversation whose `lastMessageAt > lastOperatorReadAt`
- * (or where lastOperatorReadAt is unset and the conversation has any
- * visitor messages). It's workspace-level — when any operator opens a
- * conversation, it counts as read for everyone. Per-operator read
- * state lives behind a feature flag (deferred until a customer asks).
+ * There are two sources of unread state:
+ *   1. **Chat unreads** — derived from open conversations whose
+ *      `lastMessageAt > lastOperatorReadAt`. Already implemented;
+ *      handles real-time message delivery via Convex websockets.
+ *   2. **Activity** — rows in the `notifications` table written by
+ *      producers for events like lead created, webhook failed, etc.
  *
- * Reactive: the dashboard topbar subscribes to `summary`, so a new
- * visitor message triggers a re-render in <500ms via Convex websockets.
- * The browser-Notification fan-out is the React side's job.
+ * The summary query merges both into one chronologically-ordered feed
+ * and exposes a single `unreadCount` for the bell badge.
  */
+
+// ── Activity helpers (used by other Convex modules) ───────────────────
+
+const NotificationKindValidator = v.union(
+  v.literal("lead_created"),
+  v.literal("conversation_assigned"),
+  v.literal("webhook_failed"),
+  v.literal("email_failed"),
+  v.literal("atlas_error"),
+  v.literal("brand_created"),
+  v.literal("operator_added"),
+  v.literal("api_key_created"),
+  v.literal("system"),
+);
+
+const SeverityValidator = v.union(
+  v.literal("info"),
+  v.literal("success"),
+  v.literal("warn"),
+  v.literal("error"),
+);
+
+/**
+ * Internal-only: insert a notification row. Use the `pushActivity`
+ * helper from other Convex mutations rather than calling this directly.
+ */
+export const insertActivity = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    operatorId: v.optional(v.id("operators")),
+    kind: NotificationKindValidator,
+    severity: SeverityValidator,
+    title: v.string(),
+    body: v.optional(v.string()),
+    link: v.optional(v.string()),
+  },
+  returns: v.id("notifications"),
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("notifications", {
+      workspaceId: args.workspaceId,
+      operatorId: args.operatorId,
+      kind: args.kind,
+      severity: args.severity,
+      title: args.title,
+      body: args.body,
+      link: args.link,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * In-mutation helper for producers. Use from any Convex mutation:
+ *   await pushActivity(ctx, { workspaceId, kind, severity, title, ... })
+ *
+ * Inlines the insert (no scheduler hop) so the activity row is visible
+ * the moment the originating mutation commits.
+ */
+export async function pushActivity(
+  ctx: { db: { insert: (table: "notifications", row: Doc<"notifications">) => Promise<Id<"notifications">> } },
+  args: {
+    workspaceId: Id<"workspaces">;
+    operatorId?: Id<"operators">;
+    kind: Doc<"notifications">["kind"];
+    severity: Doc<"notifications">["severity"];
+    title: string;
+    body?: string;
+    link?: string;
+  },
+): Promise<Id<"notifications">> {
+  return await ctx.db.insert("notifications", {
+    workspaceId: args.workspaceId,
+    operatorId: args.operatorId,
+    kind: args.kind,
+    severity: args.severity,
+    title: args.title,
+    body: args.body,
+    link: args.link,
+    createdAt: Date.now(),
+  } as unknown as Doc<"notifications">);
+}
+
+// ── Combined summary (used by the topbar bell) ────────────────────────
 
 export const summary = query({
   args: { sessionToken: v.string() },
   returns: v.object({
     unreadCount: v.number(),
+    chatUnreadCount: v.number(),
+    activityUnreadCount: v.number(),
     recent: v.array(
       v.object({
-        conversationId: v.id("conversations"),
-        brandId: v.union(v.null(), v.id("brands")),
-        brandName: v.union(v.null(), v.string()),
+        id: v.string(),
+        kind: v.string(), // "chat" or one of the activity kinds
+        severity: v.union(
+          v.literal("info"),
+          v.literal("success"),
+          v.literal("warn"),
+          v.literal("error"),
+        ),
+        title: v.string(),
+        body: v.union(v.null(), v.string()),
+        link: v.union(v.null(), v.string()),
+        createdAt: v.number(),
+        readAt: v.union(v.null(), v.number()),
+        // Chat-only:
         brandColor: v.union(v.null(), v.string()),
-        visitorName: v.string(),
-        lastMessageAt: v.number(),
+        brandName: v.union(v.null(), v.string()),
         channel: v.union(
+          v.null(),
           v.literal("web_chat"),
           v.literal("email"),
           v.literal("whatsapp"),
@@ -42,22 +139,18 @@ export const summary = query({
   handler: async (ctx, { sessionToken }) => {
     const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
 
-    // Pull the brand index so we can both gate access AND hydrate the
-    // notification rows with brand name + color.
+    // ── Chat unreads ──
     const allBrands = await ctx.db
       .query("brands")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .collect();
-    const brandIndex = new Map(
-      allBrands.map((b) => [String(b._id), b]),
-    );
+    const brandIndex = new Map(allBrands.map((b) => [String(b._id), b]));
     const accessibleBrandIds = new Set(
       allBrands
         .filter((b) => hasBrandAccess(operator, b._id))
         .map((b) => String(b._id)),
     );
 
-    // Open conversations only — resolved/snoozed/closed don't ping.
     const open = await ctx.db
       .query("conversations")
       .withIndex("by_workspace_status_lastmsg", (q) =>
@@ -66,44 +159,82 @@ export const summary = query({
       .order("desc")
       .take(100);
 
-    // Filter by brand access. Email-channel conversations have no brand
-    // and are workspace-scoped, so they pass through.
-    const visible = open.filter(
+    const visibleChats = open.filter(
       (c) => !c.brandId || accessibleBrandIds.has(String(c.brandId)),
     );
+    const unreadChats = visibleChats.filter(isChatUnread);
 
-    const unread = visible.filter(isUnread);
-
-    // Pull the freshest 5 to show in the dropdown — but only those that
-    // are actually unread, so the bell never lies.
-    const top = unread.slice(0, 5);
-    const hydrated = await Promise.all(
-      top.map(async (c) => {
+    const chatRows = await Promise.all(
+      unreadChats.slice(0, 20).map(async (c) => {
         const visitor = await ctx.db.get(c.visitorId);
         const brand = c.brandId
           ? brandIndex.get(String(c.brandId)) ?? null
           : null;
+        const visitorName =
+          visitor?.name ?? visitor?.email ?? "Anonymous visitor";
         return {
-          conversationId: c._id,
-          brandId: brand ? brand._id : null,
-          brandName: brand ? brand.name : null,
-          brandColor: brand ? brand.primaryColor : null,
-          visitorName:
-            visitor?.name ?? visitor?.email ?? "Anonymous visitor",
-          lastMessageAt: c.lastMessageAt,
+          id: String(c._id),
+          kind: "chat",
+          severity: "info" as const,
+          title: visitorName,
+          body: brand?.name ?? null,
+          link: "/app",
+          createdAt: c.lastMessageAt,
+          readAt: null,
+          brandColor: brand?.primaryColor ?? null,
+          brandName: brand?.name ?? null,
           channel: c.channel,
         };
       }),
     );
 
-    return { unreadCount: unread.length, recent: hydrated };
+    // ── Activity rows ──
+    const activity = await ctx.db
+      .query("notifications")
+      .withIndex("by_workspace_created", (q) =>
+        q.eq("workspaceId", workspaceId),
+      )
+      .order("desc")
+      .take(50);
+
+    const visibleActivity = activity.filter(
+      (n) => !n.operatorId || n.operatorId === operator._id,
+    );
+
+    const activityRows = visibleActivity.map((n) => ({
+      id: String(n._id),
+      kind: n.kind,
+      severity: n.severity,
+      title: n.title,
+      body: n.body ?? null,
+      link: n.link ?? null,
+      createdAt: n.createdAt,
+      readAt: n.readAt ?? null,
+      brandColor: null,
+      brandName: null,
+      channel: null,
+    }));
+
+    const activityUnreadCount = activityRows.filter(
+      (n) => n.readAt === null,
+    ).length;
+
+    // Merge + sort by createdAt descending, cap at 20.
+    const recent = [...chatRows, ...activityRows]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 20);
+
+    return {
+      unreadCount: chatRows.length + activityUnreadCount,
+      chatUnreadCount: chatRows.length,
+      activityUnreadCount,
+      recent,
+    };
   },
 });
 
-/**
- * Mark a single conversation read. Called automatically when the
- * operator selects it in the inbox.
- */
+// ── Per-conversation chat read state ──────────────────────────────────
+
 export const markRead = mutation({
   args: {
     sessionToken: v.string(),
@@ -125,9 +256,23 @@ export const markRead = mutation({
   },
 });
 
-/**
- * "Mark all read" — convenience for the bell-icon dropdown footer.
- */
+export const markActivityRead = mutation({
+  args: {
+    sessionToken: v.string(),
+    notificationId: v.id("notifications"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { workspaceId } = await requireOperator(ctx, args.sessionToken);
+    const n = await ctx.db.get(args.notificationId);
+    if (!n || n.workspaceId !== workspaceId) return null;
+    if (!n.readAt) {
+      await ctx.db.patch(args.notificationId, { readAt: Date.now() });
+    }
+    return null;
+  },
+});
+
 export const markAllRead = mutation({
   args: { sessionToken: v.string() },
   returns: v.object({ updated: v.number() }),
@@ -136,6 +281,8 @@ export const markAllRead = mutation({
       ctx,
       args.sessionToken,
     );
+
+    // Mark every accessible open conversation read.
     const allBrands = await ctx.db
       .query("brands")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -145,29 +292,75 @@ export const markAllRead = mutation({
         .filter((b) => hasBrandAccess(operator, b._id))
         .map((b) => String(b._id)),
     );
-
     const open = await ctx.db
       .query("conversations")
       .withIndex("by_workspace_status_lastmsg", (q) =>
         q.eq("workspaceId", workspaceId).eq("status", "open"),
       )
       .collect();
-
     const now = Date.now();
     let updated = 0;
     for (const c of open) {
       if (c.brandId && !accessibleBrandIds.has(String(c.brandId))) continue;
-      if (!isUnread(c)) continue;
+      if (!isChatUnread(c)) continue;
       await ctx.db.patch(c._id, { lastOperatorReadAt: now });
       updated++;
     }
+
+    // Mark every unread activity notification read.
+    const activity = await ctx.db
+      .query("notifications")
+      .withIndex("by_workspace_unread", (q) =>
+        q.eq("workspaceId", workspaceId).eq("readAt", undefined),
+      )
+      .collect();
+    for (const n of activity) {
+      await ctx.db.patch(n._id, { readAt: now });
+      updated++;
+    }
+
     return { updated };
+  },
+});
+
+// ── Activity feed (full /app/notifications page) ──────────────────────
+
+export const listActivity = query({
+  args: {
+    sessionToken: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const limit = Math.min(args.limit ?? 100, 500);
+    const rows = await ctx.db
+      .query("notifications")
+      .withIndex("by_workspace_created", (q) =>
+        q.eq("workspaceId", workspaceId),
+      )
+      .order("desc")
+      .take(limit);
+    return rows
+      .filter((n) => !n.operatorId || n.operatorId === operator._id)
+      .map((n) => ({
+        _id: n._id,
+        kind: n.kind,
+        severity: n.severity,
+        title: n.title,
+        body: n.body,
+        link: n.link,
+        readAt: n.readAt,
+        createdAt: n.createdAt,
+      }));
   },
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-function isUnread(c: Doc<"conversations">): boolean {
+function isChatUnread(c: Doc<"conversations">): boolean {
   if (c.lastOperatorReadAt === undefined) return true;
   return c.lastMessageAt > c.lastOperatorReadAt;
 }

@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 
 export const navItems: { href: string; label: string; icon: NavIconName }[] = [
   { href: "/app", label: "Inbox", icon: "inbox" },
+  { href: "/app/notifications", label: "Notifications", icon: "bell" },
   { href: "/app/leads", label: "Leads", icon: "lead" },
   { href: "/app/atlas", label: "Atlas AI", icon: "atlas" },
   { href: "/app/analytics", label: "Analytics", icon: "chart" },
@@ -111,6 +112,7 @@ export function MobileNavList({ onNavigate }: { onNavigate?: () => void }) {
 
 type NavIconName =
   | "inbox"
+  | "bell"
   | "lead"
   | "atlas"
   | "chart"
@@ -137,6 +139,13 @@ function NavIcon({ name, active }: { name: NavIconName; active?: boolean }) {
       return (
         <svg {...common} aria-hidden>
           <path d="M2 8.5h3l1 2h4l1-2h3M2 4h12v8H2z" />
+        </svg>
+      );
+    case "bell":
+      return (
+        <svg {...common} aria-hidden>
+          <path d="M3 11h10l-1.2-2.4V6a3.8 3.8 0 0 0-7.6 0v2.6L3 11z" />
+          <path d="M6.5 12.5a1.5 1.5 0 0 0 3 0" />
         </svg>
       );
     case "lead":

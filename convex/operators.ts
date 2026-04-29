@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireOperator } from "./auth";
 import { generateSessionToken, hashPassword, hashToken } from "./lib/auth";
+import { pushActivity } from "./notifications";
 
 const roleValidator = v.union(
   v.literal("owner"),
@@ -193,6 +194,15 @@ export const create = mutation({
       brandAccess: args.brandAccess ?? "all",
       passwordHash: await hashPassword(args.temporaryPassword),
       createdAt: now,
+    });
+
+    await pushActivity(ctx, {
+      workspaceId,
+      kind: "operator_added",
+      severity: "info",
+      title: `Operator added: ${args.name.trim()}`,
+      body: `${args.role} · ${email}`,
+      link: "/app/team",
     });
 
     return { operatorId };

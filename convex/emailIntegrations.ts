@@ -10,6 +10,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireOperator } from "./auth";
 import { slugify } from "./lib/auth";
+import { pushActivity } from "./notifications";
 
 const providerValidator = v.union(
   v.literal("postmark"),
@@ -454,6 +455,14 @@ export const recordDeliveryFailure = internalMutation({
           attempts,
           error: args.error,
         },
+      });
+      await pushActivity(ctx, {
+        workspaceId: message.workspaceId,
+        kind: "email_failed",
+        severity: "error",
+        title: `Email delivery failed (${attempts} attempts)`,
+        body: args.error,
+        link: "/app",
       });
       return null;
     }

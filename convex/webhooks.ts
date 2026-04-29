@@ -10,6 +10,7 @@ import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireOperator } from "./auth";
 import { generateWebhookSecret, hmacSha256 } from "./lib/auth";
+import { pushActivity } from "./notifications";
 
 // Allowed event types. Add to this list when you wire a new event.
 export const EVENT_TYPES = [
@@ -249,6 +250,17 @@ export const recordDelivery = internalMutation({
         error: args.error,
         attempts,
         nextRetryAt: undefined,
+      });
+      const sub = await ctx.db.get(event.subscriptionId);
+      await pushActivity(ctx, {
+        workspaceId: event.workspaceId,
+        kind: "webhook_failed",
+        severity: "error",
+        title: `Webhook delivery failed (${attempts} attempts)`,
+        body: `${event.eventType} → ${sub?.url ?? "unknown URL"}${
+          args.error ? ` · ${args.error}` : ""
+        }`,
+        link: "/app/integrations",
       });
       return null;
     }

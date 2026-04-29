@@ -10,6 +10,7 @@ import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireOperator } from "./auth";
 import { hasBrandAccess } from "./brands";
+import { pushActivity } from "./notifications";
 import { fireEvent } from "./webhooks";
 
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
@@ -470,11 +471,22 @@ export const failRun = internalMutation({
   args: { runId: v.id("atlasRuns"), error: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
     await ctx.db.patch(args.runId, {
       status: "failed",
       error: args.error,
       completedAt: Date.now(),
     });
+    if (run) {
+      await pushActivity(ctx, {
+        workspaceId: run.workspaceId,
+        kind: "atlas_error",
+        severity: "warn",
+        title: "Atlas evaluation failed",
+        body: args.error,
+        link: "/app/atlas",
+      });
+    }
     return null;
   },
 });

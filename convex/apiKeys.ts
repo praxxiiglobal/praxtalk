@@ -8,6 +8,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireOperator } from "./auth";
 import { generateApiKey, hashToken } from "./lib/auth";
+import { pushActivity } from "./notifications";
 
 /**
  * List API keys for the caller's workspace. Returns prefix + name + scope —
@@ -83,6 +84,16 @@ export const create = mutation({
       createdBy: operator._id,
       createdAt: Date.now(),
     });
+
+    await pushActivity(ctx, {
+      workspaceId,
+      kind: "api_key_created",
+      severity: "info",
+      title: `API key minted: ${name}`,
+      body: `${args.scope} scope${args.brandId ? " · brand-scoped" : " · workspace-scoped"}`,
+      link: "/app/integrations",
+    });
+
     return { keyId, secret };
   },
 });

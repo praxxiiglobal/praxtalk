@@ -1,23 +1,22 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { useDashboardAuth } from "./DashboardShell";
 import { cn } from "@/lib/cn";
 
 /**
- * Notifications bell — lives in the Topbar. Subscribes to
- * `notifications.summary`, surfaces new visitor messages with:
- *   1. Badge count on the bell
- *   2. Dropdown of the most recent unread conversations
- *   3. Browser Notification (when document.hidden + permission granted)
- *   4. Optional sound (uses an embedded base64 PCM blip — no asset)
+ * Topbar bell — unified feed of:
+ *   - chat unreads (kind === "chat")
+ *   - activity events (lead_created, webhook_failed, email_failed,
+ *     atlas_error, brand_created, operator_added, api_key_created,
+ *     system, conversation_assigned)
  *
- * Reactive: Convex websocket pushes new state into `summary` whenever
- * a `messages.created` event lands; the diff against the previous
- * snapshot drives the OS notification.
+ * Reactive via Convex: when any producer pushes a new notification or
+ * a new visitor message lands, the dropdown re-renders and (when the
+ * tab is hidden + permission granted) fires a browser Notification.
  */
 export function NotificationsBell() {
   const { sessionToken } = useDashboardAuth();
@@ -48,13 +47,9 @@ export function NotificationsBell() {
   // only fire OS-level toasts for *new* arrivals.
   useEffect(() => {
     if (!summary) return;
-    const currentIds = new Set(
-      summary.recent.map((r) => String(r.conversationId)),
-    );
+    const currentIds = new Set(summary.recent.map((r) => r.id));
 
     if (!hasInitialised.current) {
-      // First load — don't pop a notification for every existing
-      // unread row, just remember them.
       previousIds.current = currentIds;
       hasInitialised.current = true;
       return;
@@ -66,31 +61,25 @@ export function NotificationsBell() {
     previousIds.current = currentIds;
     if (newIds.length === 0) return;
 
-    // Sound — short blip generated via Web Audio so we don't ship an asset.
     playBlip();
 
-    // Browser Notification — only when window is hidden so we don't
-    // pop redundant OS toasts on top of the in-page bell.
     if (
       typeof document !== "undefined" &&
       document.visibilityState !== "visible" &&
       permission === "granted"
     ) {
       for (const id of newIds) {
-        const row = summary.recent.find((r) => String(r.conversationId) === id);
+        const row = summary.recent.find((r) => r.id === id);
         if (!row) continue;
         try {
-          const n = new Notification(
-            row.brandName ? `${row.brandName} · new message` : "New message",
-            {
-              body: `${row.visitorName} on ${channelLabel(row.channel)}`,
-              tag: id,
-              icon: "/praxtalk-logo.png",
-            },
-          );
+          const n = new Notification(row.title, {
+            body: row.body ?? kindLabel(row.kind),
+            tag: id,
+            icon: "/praxtalk-logo.png",
+          });
           n.onclick = () => {
             window.focus();
-            window.location.href = "/app";
+            window.location.href = row.link ?? "/app";
             n.close();
           };
         } catch {
@@ -120,7 +109,7 @@ export function NotificationsBell() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label={
-          showCount ? `${count} unread conversations` : "Notifications"
+          showCount ? `${count} unread notifications` : "Notifications"
         }
         aria-expanded={open}
         className="relative inline-flex size-9 items-center justify-center rounded-full border border-rule-2 bg-paper text-ink transition hover:-translate-y-px"
@@ -136,11 +125,14 @@ export function NotificationsBell() {
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-full z-30 mt-2 w-[320px] overflow-hidden rounded-xl border border-rule bg-paper shadow-2xl"
+          className="absolute right-0 top-full z-30 mt-2 w-[360px] overflow-hidden rounded-xl border border-rule bg-paper shadow-2xl"
         >
           <div className="flex items-center justify-between border-b border-rule px-4 py-3">
             <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted">
-              Inbox
+              Notifications
+              {summary
+                ? ` · ${summary.chatUnreadCount} chat · ${summary.activityUnreadCount} activity`
+                : null}
             </span>
             {showCount ? (
               <button
@@ -165,56 +157,148 @@ export function NotificationsBell() {
 
           {recent.length === 0 ? (
             <div className="px-4 py-6 text-center text-[12px] text-muted">
-              {count === 0
-                ? "All caught up. New conversations will show up here."
-                : "Loading…"}
+              All caught up. New events show up here.
             </div>
           ) : (
-            <ul className="divide-y divide-rule">
+            <ul className="max-h-[420px] divide-y divide-rule overflow-y-auto">
               {recent.map((r) => (
-                <li key={r.conversationId}>
-                  <a
-                    href="/app"
+                <li key={r.id}>
+                  <Link
+                    href={r.link ?? "/app"}
                     onClick={() => setOpen(false)}
                     className="flex items-start gap-3 px-4 py-3 transition hover:bg-paper-2"
                   >
-                    <span
-                      className="mt-1 size-2 shrink-0 rounded-full"
-                      style={{
-                        backgroundColor: r.brandColor ?? "var(--color-rule-2)",
-                      }}
-                      aria-hidden
+                    <NotificationGlyph
+                      kind={r.kind}
+                      severity={r.severity}
+                      brandColor={r.brandColor}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="truncate text-[13px] font-medium text-ink">
-                          {r.visitorName}
+                          {r.title}
                         </span>
+                        {r.readAt === null ? (
+                          <span className="size-1.5 shrink-0 rounded-full bg-warn" />
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-2 truncate font-mono text-[11px] text-muted">
-                        {r.brandName ? <span>{r.brandName}</span> : null}
-                        {r.brandName ? <span>·</span> : null}
-                        <span>{channelLabel(r.channel)}</span>
+                        <span>{kindLabel(r.kind)}</span>
+                        {r.body ? (
+                          <>
+                            <span>·</span>
+                            <span className="truncate">{r.body}</span>
+                          </>
+                        ) : null}
                         <span>·</span>
-                        <span>{timeAgo(r.lastMessageAt)}</span>
+                        <span>{timeAgo(r.createdAt)}</span>
                       </div>
                     </div>
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>
           )}
 
-          <a
-            href="/app"
+          <Link
+            href="/app/notifications"
             className="block border-t border-rule bg-paper-2/40 px-4 py-2.5 text-center text-[12px] font-medium text-ink hover:bg-paper-2"
           >
-            Open inbox →
-          </a>
+            See all notifications →
+          </Link>
         </div>
       ) : null}
     </div>
   );
+}
+
+function NotificationGlyph({
+  kind,
+  severity,
+  brandColor,
+}: {
+  kind: string;
+  severity: "info" | "success" | "warn" | "error";
+  brandColor: string | null;
+}) {
+  if (kind === "chat") {
+    return (
+      <span
+        className="mt-1 size-2 shrink-0 rounded-full"
+        style={{ backgroundColor: brandColor ?? "var(--color-rule-2)" }}
+        aria-hidden
+      />
+    );
+  }
+  const cls =
+    severity === "error"
+      ? "bg-warn/20 text-warn"
+      : severity === "warn"
+        ? "bg-warn/15 text-warn"
+        : severity === "success"
+          ? "bg-good/15 text-good"
+          : "bg-paper-2 text-ink";
+  return (
+    <span
+      className={cn(
+        "inline-flex size-7 shrink-0 items-center justify-center rounded-full font-mono text-[11px]",
+        cls,
+      )}
+      aria-hidden
+    >
+      {kindEmoji(kind)}
+    </span>
+  );
+}
+
+function kindLabel(kind: string): string {
+  switch (kind) {
+    case "chat":
+      return "New message";
+    case "lead_created":
+      return "Lead";
+    case "conversation_assigned":
+      return "Assigned";
+    case "webhook_failed":
+      return "Webhook";
+    case "email_failed":
+      return "Email";
+    case "atlas_error":
+      return "Atlas";
+    case "brand_created":
+      return "Brand";
+    case "operator_added":
+      return "Team";
+    case "api_key_created":
+      return "API key";
+    case "system":
+      return "System";
+    default:
+      return kind;
+  }
+}
+
+function kindEmoji(kind: string): string {
+  switch (kind) {
+    case "lead_created":
+      return "✦";
+    case "conversation_assigned":
+      return "→";
+    case "webhook_failed":
+      return "↯";
+    case "email_failed":
+      return "✉";
+    case "atlas_error":
+      return "!";
+    case "brand_created":
+      return "◆";
+    case "operator_added":
+      return "+";
+    case "api_key_created":
+      return "⌖";
+    default:
+      return "•";
+  }
 }
 
 function BellIcon({ ringing }: { ringing?: boolean }) {
@@ -240,19 +324,6 @@ function BellIcon({ ringing }: { ringing?: boolean }) {
   );
 }
 
-function channelLabel(c: string): string {
-  switch (c) {
-    case "email":
-      return "Email";
-    case "whatsapp":
-      return "WhatsApp";
-    case "voice":
-      return "Voice";
-    default:
-      return "Web chat";
-  }
-}
-
 function timeAgo(ms: number): string {
   const diff = Date.now() - ms;
   const m = Math.floor(diff / 60_000);
@@ -265,11 +336,6 @@ function timeAgo(ms: number): string {
 }
 
 // ── Sound ─────────────────────────────────────────────────────────────
-//
-// Generates a short two-tone blip via Web Audio. No asset, no preload,
-// no autoplay-policy issues (fires only after a user gesture has
-// landed earlier in the session, which is true any time the operator
-// is actually in the dashboard).
 
 let _audioCtx: AudioContext | null = null;
 function playBlip() {

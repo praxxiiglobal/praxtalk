@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireOperator } from "./auth";
 import { hasBrandAccess } from "./brands";
+import { pushActivity } from "./notifications";
 import { fireEvent } from "./webhooks";
 
 const leadStatuses = [
@@ -211,6 +212,15 @@ export const create = mutation({
       phone: args.phone,
       location,
       status: args.status ?? "new",
+    });
+
+    await pushActivity(ctx, {
+      workspaceId,
+      kind: "lead_created",
+      severity: "success",
+      title: `New lead: ${name}`,
+      body: args.email ?? args.phone ?? undefined,
+      link: "/app/leads",
     });
 
     return { leadId };

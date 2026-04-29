@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { generateWidgetId, slugify } from "./lib/auth";
 import { requireOperator } from "./auth";
+import { pushActivity } from "./notifications";
 
 /**
  * List every brand the caller can access. Admins/owners (`brandAccess: "all"`)
@@ -87,6 +88,15 @@ export const create = mutation({
         args.welcomeMessage ?? `Hi! How can the ${name} team help?`,
       position: args.position ?? "br",
       createdAt: Date.now(),
+    });
+
+    await pushActivity(ctx, {
+      workspaceId,
+      kind: "brand_created",
+      severity: "info",
+      title: `Brand created: ${name}`,
+      body: `Widget id ${widgetId}`,
+      link: "/app/brands",
     });
 
     return { brandId, widgetId };
