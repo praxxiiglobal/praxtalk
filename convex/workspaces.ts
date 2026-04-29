@@ -50,20 +50,26 @@ export const create = mutation({
 
     const widgetId = generateWidgetId();
     const now = Date.now();
+    const workspaceName = args.workspaceName.trim();
 
     const workspaceId = await ctx.db.insert("workspaces", {
       slug,
-      name: args.workspaceName.trim(),
+      name: workspaceName,
       plan: "spark",
-      widgetId,
       createdAt: now,
     });
 
-    await ctx.db.insert("widgetConfigs", {
+    // Seed a default "main" brand. New workspaces get a single brand
+    // out of the gate; admins can add more from /app/brands.
+    await ctx.db.insert("brands", {
       workspaceId,
+      slug: "main",
+      name: workspaceName,
+      widgetId,
       primaryColor: "#0F1A12",
-      welcomeMessage: `Hi! How can the ${args.workspaceName.trim()} team help?`,
+      welcomeMessage: `Hi! How can the ${workspaceName} team help?`,
       position: "br",
+      createdAt: now,
     });
 
     const operatorId = await ctx.db.insert("operators", {
@@ -71,6 +77,7 @@ export const create = mutation({
       email,
       name: args.ownerName.trim(),
       role: "owner",
+      brandAccess: "all",
       passwordHash: await hashPassword(args.ownerPassword),
       createdAt: now,
     });
@@ -102,7 +109,6 @@ export const getBySlug = query({
         v.literal("scale"),
         v.literal("enterprise"),
       ),
-      widgetId: v.string(),
       createdAt: v.number(),
     }),
   ),

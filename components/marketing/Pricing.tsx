@@ -77,7 +77,7 @@ const plans: Plan[] = [
 export function Pricing() {
   return (
     <section id="pricing" className="relative pb-[120px]">
-      <div className="mx-auto max-w-[1320px] px-8">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
         <SectionHead
           number="06"
           label="Pricing"

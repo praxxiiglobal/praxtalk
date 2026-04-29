@@ -67,7 +67,7 @@ const rows: Array<{
 export function Compare() {
   return (
     <section id="compare" className="relative pb-[120px]">
-      <div className="mx-auto max-w-[1320px] px-8">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
         <SectionHead
           number="03"
           label="Why Prax"
@@ -78,7 +78,8 @@ export function Compare() {
           your stack.
         </SectionHead>
 
-        <div className="overflow-hidden rounded-3xl border border-rule-2 bg-paper">
+        <div className="overflow-x-auto rounded-3xl border border-rule-2 bg-paper">
+          <div className="min-w-[860px]">
           {/* Header row */}
           <div className="grid grid-cols-[1.6fr_repeat(7,1fr)] items-center">
             {competitors.map((name, i) => (
@@ -122,6 +123,7 @@ export function Compare() {
               ))}
             </div>
           ))}
+          </div>
         </div>
 
         <p className="mt-6 text-center text-[12px] text-muted">

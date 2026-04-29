@@ -11,7 +11,7 @@ const stack = [
 export function LogoStrip() {
   return (
     <div className="mt-16 border-y border-rule py-12">
-      <div className="mx-auto max-w-[1320px] px-8">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
         <div className="grid items-center gap-10 md:grid-cols-[200px_1fr]">
           <div className="eyebrow max-w-[180px] leading-snug text-muted">
             Open beta — built on

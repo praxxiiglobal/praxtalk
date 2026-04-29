@@ -1,55 +1,85 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { fireEvent } from "./webhooks";
+
+const locationValidator = v.object({
+  country: v.optional(v.string()),
+  countryCode: v.optional(v.string()),
+  region: v.optional(v.string()),
+  city: v.optional(v.string()),
+  lat: v.optional(v.number()),
+  lng: v.optional(v.number()),
+  timezone: v.optional(v.string()),
+});
 
 /**
- * Public — called from the embeddable widget. Identifies (or creates)
- * a visitor for a workspace and starts a fresh conversation if the
- * visitor doesn't have an open one.
+ * Public — called from the embeddable widget after the visitor submits
+ * the pre-chat form (Name / Email / Phone / Message).
  *
- * Authorisation: workspace is identified by its public widgetId. No
- * session token — this is the entry point for end-users on customer
- * websites who have no account.
+ * Identifies (or creates) a visitor for a brand and starts a fresh
+ * conversation if the visitor doesn't have an open one.
+ *
+ * Authorisation: brand is identified by its public widgetId. No session
+ * token — this is the entry point for end-users on customer websites
+ * who have no account.
  */
 export const identifyAndStartConversation = mutation({
   args: {
     widgetId: v.string(),
     visitorKey: v.string(),
+    // Pre-chat form fields — required by the widget UI before chat starts.
     name: v.optional(v.string()),
     email: v.optional(v.string()),
+    phone: v.optional(v.string()),
     customData: v.optional(v.string()),
+    // Captured by the widget (or the Next.js API route in front of it).
+    ip: v.optional(v.string()),
+    location: v.optional(locationValidator),
   },
   returns: v.object({
     conversationId: v.id("conversations"),
     visitorId: v.id("visitors"),
+    brandId: v.id("brands"),
   }),
   handler: async (ctx, args) => {
-    const workspace = await ctx.db
-      .query("workspaces")
+    const brand = await ctx.db
+      .query("brands")
       .withIndex("by_widget_id", (q) => q.eq("widgetId", args.widgetId))
       .unique();
-    if (!workspace) throw new Error("Unknown widget.");
+    if (!brand) throw new Error("Unknown widget.");
 
     const now = Date.now();
 
+    // Look for existing visitor for THIS brand. A visitor on Brand A is a
+    // separate identity from the same person on Brand B by design.
     let visitor = await ctx.db
       .query("visitors")
-      .withIndex("by_workspace_visitor_key", (q) =>
-        q.eq("workspaceId", workspace._id).eq("visitorKey", args.visitorKey),
+      .withIndex("by_brand_visitor_key", (q) =>
+        q.eq("brandId", brand._id).eq("visitorKey", args.visitorKey),
       )
       .unique();
 
     if (visitor) {
-      await ctx.db.patch(visitor._id, {
-        lastSeenAt: now,
-        ...(args.name && !visitor.name ? { name: args.name } : {}),
-        ...(args.email && !visitor.email ? { email: args.email } : {}),
-      });
+      // Update fields the visitor newly provided. Don't clobber existing
+      // values with empty ones from a re-prompt.
+      const patch: Record<string, unknown> = { lastSeenAt: now };
+      if (args.name && !visitor.name) patch.name = args.name;
+      if (args.email && !visitor.email) patch.email = args.email;
+      if (args.phone && !visitor.phone) patch.phone = args.phone;
+      if (args.ip) patch.ip = args.ip;
+      if (args.location) patch.location = args.location;
+      await ctx.db.patch(visitor._id, patch);
     } else {
       const visitorId = await ctx.db.insert("visitors", {
-        workspaceId: workspace._id,
+        workspaceId: brand.workspaceId,
+        brandId: brand._id,
         visitorKey: args.visitorKey,
         name: args.name,
         email: args.email,
+        phone: args.phone,
+        ip: args.ip,
+        location: args.location,
         customData: args.customData,
         firstSeenAt: now,
         lastSeenAt: now,
@@ -61,30 +91,58 @@ export const identifyAndStartConversation = mutation({
     const existing = await ctx.db
       .query("conversations")
       .withIndex("by_workspace_visitor", (q) =>
-        q.eq("workspaceId", workspace._id).eq("visitorId", visitor._id),
+        q.eq("workspaceId", brand.workspaceId).eq("visitorId", visitor._id),
       )
       .filter((q) => q.eq(q.field("status"), "open"))
       .first();
 
     if (existing) {
-      return { conversationId: existing._id, visitorId: visitor._id };
+      // Backfill brandId on the existing conversation if it predates the
+      // multi-brand migration on this row.
+      if (!existing.brandId) {
+        await ctx.db.patch(existing._id, { brandId: brand._id });
+      }
+      return {
+        conversationId: existing._id,
+        visitorId: visitor._id,
+        brandId: brand._id,
+      };
     }
 
     const conversationId = await ctx.db.insert("conversations", {
-      workspaceId: workspace._id,
+      workspaceId: brand.workspaceId,
+      brandId: brand._id,
       visitorId: visitor._id,
+      channel: "web_chat",
       status: "open",
       lastMessageAt: now,
       createdAt: now,
     });
 
-    return { conversationId, visitorId: visitor._id };
+    await fireEvent(ctx, brand.workspaceId, "conversation.created", {
+      conversationId,
+      brandId: brand._id,
+      visitorId: visitor._id,
+      visitor: {
+        name: visitor.name,
+        email: visitor.email,
+        phone: visitor.phone,
+        ip: visitor.ip,
+        location: visitor.location,
+      },
+    });
+
+    return {
+      conversationId,
+      visitorId: visitor._id,
+      brandId: brand._id,
+    };
   },
 });
 
 /**
  * Public — visitor sends a message. No auth (widget side); the conversation
- * id + visitorKey are validated against the workspace's widgetId.
+ * id + visitorKey are validated against the brand's widgetId.
  */
 export const sendVisitorMessage = mutation({
   args: {
@@ -95,14 +153,14 @@ export const sendVisitorMessage = mutation({
   },
   returns: v.id("messages"),
   handler: async (ctx, args) => {
-    const workspace = await ctx.db
-      .query("workspaces")
+    const brand = await ctx.db
+      .query("brands")
       .withIndex("by_widget_id", (q) => q.eq("widgetId", args.widgetId))
       .unique();
-    if (!workspace) throw new Error("Unknown widget.");
+    if (!brand) throw new Error("Unknown widget.");
 
     const convo = await ctx.db.get(args.conversationId);
-    if (!convo || convo.workspaceId !== workspace._id) {
+    if (!convo || convo.workspaceId !== brand.workspaceId) {
       throw new Error("Conversation not found.");
     }
 
@@ -117,13 +175,35 @@ export const sendVisitorMessage = mutation({
     const now = Date.now();
     const messageId = await ctx.db.insert("messages", {
       conversationId: args.conversationId,
-      workspaceId: workspace._id,
+      workspaceId: brand.workspaceId,
+      brandId: convo.brandId ?? brand._id,
+      channel: convo.channel ?? "web_chat",
       role: "visitor",
       body,
       createdAt: now,
     });
 
     await ctx.db.patch(args.conversationId, { lastMessageAt: now });
+
+    await fireEvent(ctx, brand.workspaceId, "message.created", {
+      messageId,
+      conversationId: args.conversationId,
+      brandId: convo.brandId ?? brand._id,
+      channel: convo.channel ?? "web_chat",
+      role: "visitor",
+      body,
+      createdAt: now,
+    });
+
+    // Atlas evaluates every visitor message. The action checks whether
+    // the workspace has a configured key; if not it logs a "skipped"
+    // run for the dashboard banner and does nothing else.
+    await ctx.scheduler.runAfter(0, internal.atlas.evaluate, {
+      workspaceId: brand.workspaceId,
+      conversationId: args.conversationId,
+      triggerMessageId: messageId,
+    });
+
     return messageId;
   },
 });
@@ -131,8 +211,7 @@ export const sendVisitorMessage = mutation({
 /**
  * Public — reactive message stream for the visitor's own conversation.
  * Authenticated by (widgetId, visitorKey, conversationId) all matching
- * the conversation's stored workspace + visitor. The widget subscribes
- * to this so operator replies stream live into the chat panel.
+ * the conversation's stored brand + visitor.
  */
 export const listMessagesForVisitor = query({
   args: {
@@ -141,14 +220,14 @@ export const listMessagesForVisitor = query({
     conversationId: v.id("conversations"),
   },
   handler: async (ctx, args) => {
-    const workspace = await ctx.db
-      .query("workspaces")
+    const brand = await ctx.db
+      .query("brands")
       .withIndex("by_widget_id", (q) => q.eq("widgetId", args.widgetId))
       .unique();
-    if (!workspace) return [];
+    if (!brand) return [];
 
     const convo = await ctx.db.get(args.conversationId);
-    if (!convo || convo.workspaceId !== workspace._id) return [];
+    if (!convo || convo.workspaceId !== brand.workspaceId) return [];
 
     const visitor = await ctx.db.get(convo.visitorId);
     if (!visitor || visitor.visitorKey !== args.visitorKey) return [];
@@ -161,8 +240,6 @@ export const listMessagesForVisitor = query({
       .order("asc")
       .take(200);
 
-    // Strip operator id and other internal fields — visitor only sees
-    // role + body + createdAt.
     return messages.map((m) => ({
       _id: m._id,
       role: m.role,

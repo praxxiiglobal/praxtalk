@@ -1,5 +1,6 @@
+import Image from "next/image";
 import Link from "next/link";
-import { Mark } from "@/components/marketing/Mark";
+import { AuthMobileMenu } from "@/components/marketing/AuthMobileMenu";
 import { LoginForm } from "./LoginForm";
 
 export const metadata = {
@@ -16,15 +17,22 @@ export default async function LoginPage({
   return (
     <main className="relative flex min-h-screen flex-col">
       <header className="border-b border-rule">
-        <div className="mx-auto flex h-16 max-w-[1320px] items-center px-8">
+        <div className="mx-auto flex h-16 max-w-[1320px] items-center px-4 sm:h-20 sm:px-8">
           <Link
             href="/"
-            className="flex items-center gap-2.5 font-semibold tracking-tight text-ink"
+            className="relative flex items-center"
+            aria-label="PraxTalk home"
           >
-            <Mark className="text-ink" />
-            <span>PraxTalk</span>
+            <Image
+              src="/praxtalk-logo.png"
+              alt="PraxTalk"
+              width={1419}
+              height={336}
+              priority
+              className="h-10 w-auto sm:h-12"
+            />
           </Link>
-          <div className="ml-auto text-sm text-muted">
+          <div className="ml-auto hidden text-sm text-muted sm:block">
             New here?{" "}
             <Link
               href="/setup"
@@ -32,6 +40,14 @@ export default async function LoginPage({
             >
               Create a workspace
             </Link>
+          </div>
+          <div className="ml-auto sm:hidden">
+            <AuthMobileMenu
+              items={[
+                { label: "Home", href: "/" },
+                { label: "Create a workspace", href: "/setup", primary: true },
+              ]}
+            />
           </div>
         </div>
       </header>

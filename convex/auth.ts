@@ -84,7 +84,6 @@ export const me = query({
         _id: v.id("workspaces"),
         slug: v.string(),
         name: v.string(),
-        widgetId: v.string(),
         plan: v.union(
           v.literal("spark"),
           v.literal("team"),
@@ -114,7 +113,6 @@ export const me = query({
         _id: workspace._id,
         slug: workspace.slug,
         name: workspace.name,
-        widgetId: workspace.widgetId,
         plan: workspace.plan,
       },
     };

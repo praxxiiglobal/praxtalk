@@ -26,7 +26,7 @@ const integrations: Integration[] = [
 export function Integrations() {
   return (
     <section id="integrations" className="relative pb-[120px]">
-      <div className="mx-auto max-w-[1320px] px-8">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
         <SectionHead
           number="04"
           label="Integrations"

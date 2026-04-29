@@ -107,6 +107,50 @@ export function generateWidgetId(): string {
 }
 
 /**
+ * API key — `ptk_live_<32 hex>`. The leading "ptk_live_" prefix lets us
+ * tell the source at a glance; the hex tail is what the customer keeps
+ * secret. We store SHA-256 of the whole string and only ever return the
+ * raw value once, at mint time.
+ */
+export function generateApiKey(): string {
+  return (
+    "ptk_live_" + bytesToHex(crypto.getRandomValues(new Uint8Array(16)))
+  );
+}
+
+/**
+ * Webhook signing secret — 32 random bytes hex.
+ */
+export function generateWebhookSecret(): string {
+  return (
+    "whsec_" + bytesToHex(crypto.getRandomValues(new Uint8Array(24)))
+  );
+}
+
+/**
+ * HMAC-SHA256 of a payload with a shared secret. Returns hex digest.
+ * Used to sign outbound webhook bodies (Stripe-style).
+ */
+export async function hmacSha256(
+  secret: string,
+  payload: string,
+): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret) as BufferSource,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    enc.encode(payload) as BufferSource,
+  );
+  return bytesToHex(sig);
+}
+
+/**
  * Slugify a workspace name — lowercase, hyphens, alphanum only.
  */
 export function slugify(name: string): string {

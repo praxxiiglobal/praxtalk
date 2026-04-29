@@ -22,6 +22,7 @@
 html, body {
   background: var(--color-paper);
   color: var(--color-ink);
+  overflow-x: clip;
 }
 
 body {
@@ -113,3 +114,13 @@ body {
 /* Hide scrollbar for tidy mockups */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
+
+/* Bell-icon wiggle when there are unread notifications */
+@keyframes wiggle {
+  0%, 60%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(-12deg); }
+  20% { transform: rotate(12deg); }
+  30% { transform: rotate(-8deg); }
+  40% { transform: rotate(8deg); }
+  50% { transform: rotate(0deg); }
+}

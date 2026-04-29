@@ -23,7 +23,7 @@ const metrics = [
 
 export function Metrics() {
   return (
-    <div className="mx-auto max-w-[1320px] px-8">
+    <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
       <div className="mt-16 grid grid-cols-1 gap-px overflow-hidden rounded-3xl border border-rule bg-rule sm:grid-cols-2 lg:grid-cols-4">
         {metrics.map((m, i) => (
           <div key={i} className="bg-paper p-8">

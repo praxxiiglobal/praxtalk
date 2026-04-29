@@ -1,7 +1,7 @@
 export function Hero() {
   return (
     <header className="relative pt-20 pb-10">
-      <div className="mx-auto max-w-[1320px] px-8">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
         <div className="grid items-end gap-16 lg:grid-cols-[1.05fr_0.95fr]">
           {/* LEFT */}
           <div>
@@ -10,7 +10,7 @@ export function Hero() {
               Open beta · Atlas AI live
             </div>
 
-            <h1 className="font-sans font-semibold tracking-[-0.045em] leading-[0.92] text-[clamp(56px,7.6vw,116px)] m-0">
+            <h1 className="font-sans font-semibold tracking-[-0.045em] leading-[0.92] text-[clamp(40px,7.6vw,116px)] m-0">
               Conversations
               <br />
               that{" "}
@@ -75,7 +75,7 @@ export function Hero() {
           <div className="relative">
             <ConsoleCard />
 
-            <div className="absolute left-[-20px] top-[30%] flex items-center gap-2.5 rounded-2xl border border-rule-2 bg-paper px-3 py-2.5 text-xs shadow-[0_8px_24px_-12px_rgba(11,15,18,0.25)]">
+            <div className="absolute left-2 sm:left-[-20px] top-[30%] hidden sm:flex items-center gap-2.5 rounded-2xl border border-rule-2 bg-paper px-3 py-2.5 text-xs shadow-[0_8px_24px_-12px_rgba(11,15,18,0.25)]">
               <div>
                 <span className="eyebrow mb-0.5 block text-muted">
                   Status
@@ -86,7 +86,7 @@ export function Hero() {
               </div>
             </div>
 
-            <div className="absolute right-[-30px] bottom-[18%] flex items-center gap-2.5 rounded-2xl border border-rule-2 bg-paper px-3 py-2.5 text-xs shadow-[0_8px_24px_-12px_rgba(11,15,18,0.25)]">
+            <div className="absolute right-2 sm:right-[-30px] bottom-[18%] hidden sm:flex items-center gap-2.5 rounded-2xl border border-rule-2 bg-paper px-3 py-2.5 text-xs shadow-[0_8px_24px_-12px_rgba(11,15,18,0.25)]">
               <div>
                 <span className="eyebrow mb-0.5 block text-muted">
                   Free tier

@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 export function FeatureGrid() {
   return (
     <section id="ai" className="relative py-[120px]">
-      <div className="mx-auto max-w-[1320px] px-8">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
         <SectionHead
           number="01"
           label="The AI Layer"

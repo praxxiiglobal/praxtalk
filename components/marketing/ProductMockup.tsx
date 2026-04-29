@@ -17,7 +17,7 @@ const views = [
 export function ProductMockup() {
   return (
     <section id="product" className="relative pb-[120px]">
-      <div className="mx-auto max-w-[1320px] px-8">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
         <SectionHead
           number="02"
           label="The Workspace"

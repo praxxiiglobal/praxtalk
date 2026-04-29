@@ -8,6 +8,7 @@ import {
 } from "@/lib/session";
 import { DashboardShell } from "./DashboardShell";
 import { SessionGuard } from "./SessionGuard";
+import { SideNav } from "./SideNav";
 import { Topbar } from "./Topbar";
 
 export const metadata = {
@@ -40,9 +41,14 @@ export default async function AppLayout({
       }}
     >
       <SessionGuard>
-        <div className="flex min-h-screen flex-col bg-paper">
+        <div className="flex h-screen flex-col overflow-hidden bg-paper">
           <Topbar />
-          <main className="flex flex-1 flex-col">{children}</main>
+          <div className="flex flex-1 min-h-0">
+            <SideNav />
+            <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+              {children}
+            </main>
+          </div>
         </div>
       </SessionGuard>
     </DashboardShell>

@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 export function TechStack() {
   return (
     <section id="stack" className="relative pb-[120px]">
-      <div className="mx-auto max-w-[1320px] px-8">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
         <SectionHead
           number="05"
           label="Engineered for builders"

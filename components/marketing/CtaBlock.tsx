@@ -1,8 +1,8 @@
 export function CtaBlock() {
   return (
     <section className="relative pb-[120px]">
-      <div className="mx-auto max-w-[1320px] px-8">
-        <div className="cta-glow relative overflow-hidden rounded-[28px] bg-ink px-14 py-20 text-paper">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
+        <div className="cta-glow relative overflow-hidden rounded-[28px] bg-ink px-6 py-14 text-paper sm:px-14 sm:py-20">
           <h2 className="relative z-10 m-0 mb-5 max-w-[14ch] text-[clamp(48px,6vw,96px)] font-semibold leading-[0.95] tracking-[-0.04em]">
             Stop staffing tickets.
             <br />
@@ -35,7 +35,7 @@ export function CtaBlock() {
               Book a 20-min demo
             </a>
           </div>
-          <div className="absolute bottom-12 right-12 text-right font-mono text-[11px] uppercase tracking-[0.08em] text-paper/50">
+          <div className="mt-10 hidden text-right font-mono text-[11px] uppercase tracking-[0.08em] text-paper/50 sm:absolute sm:bottom-12 sm:right-12 sm:mt-0 sm:block">
             PRAXTALK · ATLAS
             <br />
             OPEN BETA · 2026

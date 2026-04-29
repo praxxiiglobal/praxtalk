@@ -20,7 +20,6 @@ export type DashboardAuth = {
     _id: string;
     slug: string;
     name: string;
-    widgetId: string;
     plan: "spark" | "team" | "scale" | "enterprise";
   };
 };
