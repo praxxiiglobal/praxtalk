@@ -103,6 +103,23 @@ export default defineSchema({
     .index("by_token_hash", ["tokenHash"])
     .index("by_operator", ["operatorId"]),
 
+  // Password reset tokens — single-use, 1-hour TTL. Operator clicks the
+  // link in their email, lands on /reset-password/<token>, sets a new
+  // password. On completion the token is consumed and every existing
+  // session for that operator is invalidated.
+  passwordResetTokens: defineTable({
+    operatorId: v.id("operators"),
+    workspaceId: v.id("workspaces"),
+    email: v.string(), // denormalised for "Reset for x@y" UI
+    tokenHash: v.string(),
+    tokenPrefix: v.string(), // first 12 chars; index lookup
+    requestedAt: v.number(),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+  })
+    .index("by_token_prefix", ["tokenPrefix"])
+    .index("by_operator", ["operatorId"]),
+
   // ── Visitors (end-users on the customer's site) ───────────────────
   visitors: defineTable({
     workspaceId: v.id("workspaces"),

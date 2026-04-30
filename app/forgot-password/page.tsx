@@ -1,19 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { AuthMobileMenu } from "@/components/marketing/AuthMobileMenu";
-import { LoginForm } from "./LoginForm";
+import { ForgotPasswordForm } from "./ForgotPasswordForm";
 
 export const metadata = {
-  title: "Sign in · PraxTalk",
+  title: "Reset your password · PraxTalk",
+  robots: { index: false, follow: false },
 };
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ expired?: string; reset?: string }>;
-}) {
-  const { expired, reset } = await searchParams;
-
+export default function ForgotPasswordPage() {
   return (
     <main className="relative flex min-h-screen flex-col">
       <header className="border-b border-rule">
@@ -33,19 +28,19 @@ export default async function LoginPage({
             />
           </Link>
           <div className="ml-auto hidden text-sm text-muted sm:block">
-            New here?{" "}
+            Remembered it?{" "}
             <Link
-              href="/setup"
+              href="/login"
               className="text-ink underline-offset-4 hover:underline"
             >
-              Create a workspace
+              Sign in
             </Link>
           </div>
           <div className="ml-auto sm:hidden">
             <AuthMobileMenu
               items={[
+                { label: "Sign in", href: "/login", primary: true },
                 { label: "Home", href: "/" },
-                { label: "Create a workspace", href: "/setup", primary: true },
               ]}
             />
           </div>
@@ -55,31 +50,24 @@ export default async function LoginPage({
       <section className="flex flex-1 items-center justify-center px-6 py-16">
         <div className="w-full max-w-[400px]">
           <h1 className="mb-2 text-[40px] font-semibold leading-[1] tracking-[-0.035em]">
-            Welcome <span className="font-serif italic font-normal">back.</span>
+            Reset your{" "}
+            <span className="font-serif italic font-normal">password.</span>
           </h1>
           <p className="mb-8 text-[15px] leading-[1.5] text-muted">
-            Sign in to your PraxTalk workspace.
+            Enter the email on your PraxTalk account. We&apos;ll send a link
+            you can use to set a new password.
           </p>
 
-          {expired === "1" && (
-            <div
-              role="status"
-              className="mb-5 rounded-xl border border-rule-2 bg-paper-2 px-4 py-3 text-sm text-ink"
-            >
-              Your session expired. Sign in again to continue.
-            </div>
-          )}
+          <ForgotPasswordForm />
 
-          {reset === "1" && (
-            <div
-              role="status"
-              className="mb-5 rounded-xl border border-rule-2 bg-paper-2 px-4 py-3 text-sm text-ink"
+          <p className="mt-8 text-[13px] text-muted">
+            <Link
+              href="/login"
+              className="text-ink underline-offset-4 hover:underline"
             >
-              Password updated. Sign in with your new password.
-            </div>
-          )}
-
-          <LoginForm />
+              Back to sign in
+            </Link>
+          </p>
         </div>
       </section>
     </main>

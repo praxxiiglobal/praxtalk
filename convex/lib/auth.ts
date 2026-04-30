@@ -127,6 +127,14 @@ export function generateInviteToken(): string {
 }
 
 /**
+ * Password reset token — 32 random bytes hex, prefixed `pwr_`.
+ * Stored hashed; raw value goes in the reset-link email only.
+ */
+export function generatePasswordResetToken(): string {
+  return "pwr_" + bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
+}
+
+/**
  * Webhook signing secret — 32 random bytes hex.
  */
 export function generateWebhookSecret(): string {

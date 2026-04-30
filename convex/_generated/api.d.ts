@@ -23,6 +23,7 @@ import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
 import type * as operators from "../operators.js";
+import type * as passwordReset from "../passwordReset.js";
 import type * as publicApi from "../publicApi.js";
 import type * as savedReplies from "../savedReplies.js";
 import type * as visitors from "../visitors.js";
@@ -52,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   migrations: typeof migrations;
   notifications: typeof notifications;
   operators: typeof operators;
+  passwordReset: typeof passwordReset;
   publicApi: typeof publicApi;
   savedReplies: typeof savedReplies;
   visitors: typeof visitors;

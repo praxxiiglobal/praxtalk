@@ -1,14 +1,33 @@
 "use client";
 
-import Link from "next/link";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
-import { loginAction, type LoginState } from "./actions";
+import {
+  requestPasswordResetAction,
+  type ForgotPasswordState,
+} from "./actions";
 
-const initial: LoginState = { status: "idle" };
+const initial: ForgotPasswordState = { status: "idle" };
 
-export function LoginForm() {
-  const [state, formAction] = useActionState(loginAction, initial);
+export function ForgotPasswordForm() {
+  const [state, formAction] = useActionState(
+    requestPasswordResetAction,
+    initial,
+  );
+
+  if (state.status === "sent") {
+    return (
+      <div className="rounded-xl border border-rule-2 bg-paper-2 px-4 py-4 text-sm text-ink">
+        <p className="font-medium">Check your inbox.</p>
+        <p className="mt-1 text-muted">
+          If <strong className="text-ink">{state.email}</strong> matches an
+          account, we&apos;ve sent a password-reset link. The link expires in
+          1 hour.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <form action={formAction} className="flex flex-col gap-5">
       <Field
@@ -20,25 +39,6 @@ export function LoginForm() {
         required
         autoFocus
       />
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-baseline justify-between">
-          <span className="eyebrow text-muted">Password</span>
-          <Link
-            href="/forgot-password"
-            className="text-[12px] font-medium text-muted underline-offset-4 hover:text-ink hover:underline"
-          >
-            Forgot password?
-          </Link>
-        </div>
-        <input
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          placeholder="Your password"
-          required
-          className="h-11 rounded-xl border border-rule-2 bg-paper px-4 text-[15px] text-ink outline-none transition placeholder:text-muted/70 focus:border-ink focus:shadow-[0_0_0_4px_var(--color-accent-soft)]"
-        />
-      </div>
 
       {state.status === "error" && (
         <div
@@ -79,7 +79,7 @@ function Submit() {
       disabled={pending}
       className="group inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-ink px-4 text-sm font-medium text-paper transition hover:-translate-y-px disabled:cursor-progress disabled:opacity-70"
     >
-      {pending ? "Signing in…" : "Sign in"}
+      {pending ? "Sending…" : "Send reset link"}
       <span aria-hidden className="transition group-hover:translate-x-0.5">
         →
       </span>
