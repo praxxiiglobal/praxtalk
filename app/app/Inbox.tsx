@@ -95,6 +95,7 @@ function ConversationList({
         lastMessageAt: number;
         status: Status;
         channel: Channel;
+        humanRequestedAt?: number;
         visitor: { name?: string; email?: string; phone?: string } | null;
         brand: { _id: Id<"brands">; name: string; primaryColor: string } | null;
       }>
@@ -137,6 +138,15 @@ function ConversationList({
               <div className="flex items-center justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-1.5">
                   <ChannelGlyph channel={c.channel} />
+                  {c.humanRequestedAt ? (
+                    <span
+                      title="Visitor asked to speak with a human"
+                      aria-label="Wants a human agent"
+                      className="inline-flex size-4 shrink-0 items-center justify-center text-[11px]"
+                    >
+                      🙋
+                    </span>
+                  ) : null}
                   <span className="truncate text-[13px] font-medium tracking-[-0.01em]">
                     {c.visitor?.name ??
                       c.visitor?.email ??
@@ -294,6 +304,17 @@ function ConversationPane({
           )}
         </div>
       </div>
+
+      {convo.humanRequestedAt ? (
+        <div className="flex items-center gap-2 border-b border-warn/30 bg-warn/15 px-5 py-2 text-[12px] text-ink">
+          <span className="text-base leading-none">🙋</span>
+          <span>
+            <strong className="font-medium">Visitor asked for a human.</strong>{" "}
+            Atlas is paused on this conversation —{" "}
+            {timeAgo(convo.humanRequestedAt)}.
+          </span>
+        </div>
+      ) : null}
 
       {(visitor?.phone || visitor?.ip || locationLabel) && (
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-rule bg-paper-2/40 px-5 py-2 font-mono text-[11px] text-muted">

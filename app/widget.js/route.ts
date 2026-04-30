@@ -40,6 +40,16 @@ const WIDGET_SHELL = `
     padding: 14px 16px; display: flex; align-items: center; gap: 10px;
   }
   .title { font-weight: 600; font-size: 15px; flex: 1; letter-spacing: -0.01em; }
+  .human {
+    background: rgba(255,255,255,0.15); color: #fff; border: none;
+    height: 26px; padding: 0 10px; border-radius: 999px;
+    cursor: pointer; font-size: 11.5px; font-weight: 500;
+    font-family: inherit;
+    transition: background 0.15s ease, opacity 0.15s ease;
+  }
+  .human:hover { background: rgba(255,255,255,0.25); }
+  .human:disabled { opacity: 0.7; cursor: default; }
+  .human.hidden { display: none; }
   .close { background: rgba(255,255,255,0.15); color: #fff; border: none;
     width: 28px; height: 28px; border-radius: 999px; cursor: pointer; font-size: 16px; line-height: 1; }
   .close:hover { background: rgba(255,255,255,0.25); }
@@ -111,6 +121,7 @@ const WIDGET_SHELL = `
 <div class="panel" role="dialog" aria-label="Chat">
   <div class="head">
     <div class="title">Chat</div>
+    <button class="human hidden" type="button" aria-label="Talk to a human">Talk to a human</button>
     <button class="close" aria-label="Close">×</button>
   </div>
   <div class="body">
@@ -249,6 +260,7 @@ const SOURCE = /* javascript */ `(() => {
     input: root.querySelector(".input"),
     sendBtn: root.querySelector(".send"),
     geoBtn: root.querySelector(".geo"),
+    humanBtn: root.querySelector(".human"),
     closeBtn: root.querySelector(".close"),
   };
 
@@ -270,11 +282,13 @@ const SOURCE = /* javascript */ `(() => {
   function showChat() {
     els.formView.classList.add("hidden");
     els.chatView.classList.remove("hidden");
+    els.humanBtn.classList.remove("hidden");
     setTimeout(() => els.input.focus(), 50);
   }
   function showForm() {
     els.chatView.classList.add("hidden");
     els.formView.classList.remove("hidden");
+    els.humanBtn.classList.add("hidden");
     setTimeout(() => els.name.focus(), 50);
   }
 
@@ -557,6 +571,33 @@ const SOURCE = /* javascript */ `(() => {
           },
           { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
         );
+      });
+
+      // "Talk to a human" button. Pauses Atlas on the conversation
+      // and pushes a workspace notification so an operator jumps in.
+      // Idempotent server-side, but we also lock the button locally
+      // after first success so the visitor knows the team's been alerted.
+      let humanRequested = false;
+      els.humanBtn.addEventListener("click", async () => {
+        if (!conversationId || humanRequested) return;
+        els.humanBtn.disabled = true;
+        const original = els.humanBtn.textContent;
+        els.humanBtn.textContent = "Alerting…";
+        try {
+          await client.mutation("visitors:requestHumanAgent", {
+            widgetId,
+            visitorKey,
+            conversationId,
+          });
+          humanRequested = true;
+          els.humanBtn.textContent = "✓ Team alerted";
+          showSystem("We've alerted the team — a human will join shortly.");
+        } catch (err) {
+          console.error("[PraxTalk] requestHumanAgent failed", err);
+          els.humanBtn.disabled = false;
+          els.humanBtn.textContent = original;
+          showSystem("Couldn't alert the team. Please try again.");
+        }
       });
     })
     .catch((err) => {
