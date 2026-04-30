@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -28,7 +28,7 @@ export const login = mutation({
     const ok =
       operator !== null &&
       (await verifyPassword(args.password, operator.passwordHash));
-    if (!ok || !operator) throw new Error("Invalid email or password.");
+    if (!ok || !operator) throw new ConvexError("Invalid email or password.");
 
     const sessionToken = generateSessionToken();
     await ctx.db.insert("sessions", {
@@ -143,10 +143,10 @@ export async function requireOperator(
   ctx: QueryCtx,
   sessionToken: string | undefined,
 ): Promise<{ operator: Doc<"operators">; workspaceId: Id<"workspaces"> }> {
-  if (!sessionToken) throw new Error("Not authenticated.");
+  if (!sessionToken) throw new ConvexError("Not authenticated.");
   const session = await loadSession(ctx, sessionToken);
-  if (!session) throw new Error("Session expired. Sign in again.");
+  if (!session) throw new ConvexError("Session expired. Sign in again.");
   const operator = await ctx.db.get(session.operatorId);
-  if (!operator) throw new Error("Operator not found.");
+  if (!operator) throw new ConvexError("Operator not found.");
   return { operator, workspaceId: session.workspaceId };
 }

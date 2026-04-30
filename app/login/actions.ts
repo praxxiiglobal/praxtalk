@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import { convexServer } from "@/lib/convexServer";
 import { setSessionCookie } from "@/lib/session";
@@ -28,9 +29,10 @@ export async function loginAction(
     });
     sessionToken = result.sessionToken;
   } catch (e) {
-    const message =
-      e instanceof Error ? e.message : "Could not sign in.";
-    return { status: "error", message };
+    if (e instanceof ConvexError) {
+      return { status: "error", message: String(e.data) };
+    }
+    return { status: "error", message: "Could not sign in. Please try again." };
   }
 
   await setSessionCookie(sessionToken);
