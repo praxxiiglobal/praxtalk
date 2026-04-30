@@ -108,12 +108,19 @@ export const send = mutation({
       });
 
       // For email-channel conversations, schedule the outbound email send.
-      // Web chat replies stream live via Convex websockets and need no extra
+      // For WhatsApp-channel, schedule the Meta Cloud API send. Web chat
+      // replies stream live via Convex websockets and need no extra
       // dispatch.
       if (channel === "email") {
         await ctx.scheduler.runAfter(
           0,
           internal.emailIntegrations.sendOperatorReply,
+          { messageId },
+        );
+      } else if (channel === "whatsapp") {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.whatsappIntegrations.sendOperatorReply,
           { messageId },
         );
       }

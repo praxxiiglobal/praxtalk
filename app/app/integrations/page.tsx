@@ -1,6 +1,9 @@
 import { ApiKeysSection } from "./ApiKeysSection";
+import { BotimIntegrationSection } from "./BotimIntegrationSection";
 import { EmailIntegrationSection } from "./EmailIntegrationSection";
+import { VoiceIntegrationSection } from "./VoiceIntegrationSection";
 import { WebhooksSection } from "./WebhooksSection";
+import { WhatsappIntegrationSection } from "./WhatsappIntegrationSection";
 import { PageHeader, PageBody, Card } from "../PageHeader";
 
 export const metadata = {
@@ -12,10 +15,13 @@ export default function IntegrationsPage() {
     <>
       <PageHeader
         title="Integrations"
-        description="Connect PraxTalk to your CRM. Mint API keys for the REST API, configure webhooks to push events, or use the Convex client for real-time access."
+        description="Connect PraxTalk to your channels and your CRM. Configure inbound channels (email, WhatsApp, Botim) or wire your own systems via REST and webhooks."
       />
       <PageBody>
         <EmailIntegrationSection />
+        <WhatsappIntegrationSection />
+        <BotimIntegrationSection />
+        <VoiceIntegrationSection />
         <RestApiOverviewCard />
         <ApiKeysSection />
         <WebhooksSection />

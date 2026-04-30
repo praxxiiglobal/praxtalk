@@ -12,6 +12,7 @@ import type * as analytics from "../analytics.js";
 import type * as apiKeys from "../apiKeys.js";
 import type * as atlas from "../atlas.js";
 import type * as auth from "../auth.js";
+import type * as botimIntegrations from "../botimIntegrations.js";
 import type * as brands from "../brands.js";
 import type * as conversations from "../conversations.js";
 import type * as emailIntegrations from "../emailIntegrations.js";
@@ -27,7 +28,9 @@ import type * as passwordReset from "../passwordReset.js";
 import type * as publicApi from "../publicApi.js";
 import type * as savedReplies from "../savedReplies.js";
 import type * as visitors from "../visitors.js";
+import type * as voiceIntegrations from "../voiceIntegrations.js";
 import type * as webhooks from "../webhooks.js";
+import type * as whatsappIntegrations from "../whatsappIntegrations.js";
 import type * as widgets from "../widgets.js";
 import type * as workspaces from "../workspaces.js";
 
@@ -42,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   apiKeys: typeof apiKeys;
   atlas: typeof atlas;
   auth: typeof auth;
+  botimIntegrations: typeof botimIntegrations;
   brands: typeof brands;
   conversations: typeof conversations;
   emailIntegrations: typeof emailIntegrations;
@@ -57,7 +61,9 @@ declare const fullApi: ApiFromModules<{
   publicApi: typeof publicApi;
   savedReplies: typeof savedReplies;
   visitors: typeof visitors;
+  voiceIntegrations: typeof voiceIntegrations;
   webhooks: typeof webhooks;
+  whatsappIntegrations: typeof whatsappIntegrations;
   widgets: typeof widgets;
   workspaces: typeof workspaces;
 }>;

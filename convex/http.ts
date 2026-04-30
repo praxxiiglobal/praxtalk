@@ -569,6 +569,295 @@ http.route({
   }),
 });
 
+// ── WhatsApp inbound (Meta Cloud API) ────────────────────────────────
+//
+// GET  /api/inbound/whatsapp — webhook verification handshake.
+//   Meta calls with ?hub.mode=subscribe&hub.verify_token=...&hub.challenge=...
+//   We look up the integration by verify token; if it matches, echo the
+//   challenge back as plain text. Otherwise return 403.
+//
+// POST /api/inbound/whatsapp — message events.
+//   Meta posts a `entry[].changes[].value.messages[]` payload. We
+//   resolve the workspace by the metadata.phone_number_id, then persist
+//   each text message.
+//
+// Set this URL in Meta App Dashboard → WhatsApp → Configuration →
+// Webhooks → Callback URL:
+//   https://<deployment>.convex.site/api/inbound/whatsapp
+
+http.route({
+  path: "/api/inbound/whatsapp",
+  method: "GET",
+  handler: httpAction(async (ctx, req) => {
+    const url = new URL(req.url);
+    const mode = url.searchParams.get("hub.mode");
+    const token = url.searchParams.get("hub.verify_token");
+    const challenge = url.searchParams.get("hub.challenge");
+    if (mode !== "subscribe" || !token || !challenge) {
+      return errorResponse(400, "Bad verification request.");
+    }
+    // Try every WhatsApp integration whose verifyToken matches.
+    // (Convex doesn't have a global query without a workspace context,
+    // so we collect and match in JS — fine: there are very few rows.)
+    const all = await ctx.runQuery(
+      internal.whatsappIntegrations.findByVerifyToken,
+      { verifyToken: token },
+    );
+    if (!all) return errorResponse(403, "Invalid verify token.");
+    return new Response(challenge, {
+      status: 200,
+      headers: { "content-type": "text/plain" },
+    });
+  }),
+});
+
+http.route({
+  path: "/api/inbound/whatsapp",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    let payload: unknown;
+    try {
+      payload = await req.json();
+    } catch {
+      return errorResponse(400, "Invalid JSON.");
+    }
+
+    // Meta payload shape:
+    // { object: "whatsapp_business_account",
+    //   entry: [{ changes: [{ value: {
+    //     metadata: { phone_number_id, display_phone_number },
+    //     contacts: [{ profile: { name }, wa_id }],
+    //     messages: [{ from, id, timestamp, text: { body }, type }]
+    //   }}]}]}
+    const p = payload as {
+      entry?: Array<{
+        changes?: Array<{
+          value?: {
+            metadata?: { phone_number_id?: string };
+            contacts?: Array<{ profile?: { name?: string }; wa_id?: string }>;
+            messages?: Array<{
+              from?: string;
+              id?: string;
+              type?: string;
+              text?: { body?: string };
+            }>;
+          };
+        }>;
+      }>;
+    };
+
+    for (const entry of p.entry ?? []) {
+      for (const change of entry.changes ?? []) {
+        const value = change.value;
+        if (!value) continue;
+        const phoneNumberId = value.metadata?.phone_number_id;
+        if (!phoneNumberId) continue;
+        const integration = await ctx.runQuery(
+          internal.whatsappIntegrations.findByPhoneNumberId,
+          { phoneNumberId },
+        );
+        if (!integration) continue;
+        const profileName = value.contacts?.[0]?.profile?.name;
+        for (const msg of value.messages ?? []) {
+          if (msg.type !== "text" || !msg.text?.body || !msg.from) continue;
+          await ctx.runMutation(
+            internal.whatsappIntegrations.recordInboundMessage,
+            {
+              workspaceId: integration.workspaceId,
+              fromPhone: msg.from,
+              fromName: profileName,
+              body: msg.text.body,
+              messageId: msg.id,
+            },
+          );
+        }
+      }
+    }
+    // Always 200 so Meta doesn't retry. Errors are logged server-side.
+    return jsonResponse({ ok: true });
+  }),
+});
+
+// ── Voice inbound (provider-dispatched webhook) ──────────────────────
+//
+// POST /api/inbound/voice?secret=<webhookSecret>
+//
+// The same URL handles every provider — we route by the secret, then
+// dispatch to a provider-specific parser based on the integration's
+// `provider` field. CallHippo + TeleCMI post JSON; Twilio posts
+// form-urlencoded. Each provider names the same fields differently
+// (CallSid vs callId, From vs caller, RecordingUrl vs recording_url).
+//
+// Customer pastes the URL above into:
+//   CallHippo : Settings → Webhooks → Add Webhook
+//   TeleCMI   : App → Webhooks → Call Status
+//   Twilio    : Phone Numbers → <number> → Voice → Status Callback URL
+
+type NormalisedCall = {
+  fromPhone: string;
+  fromName?: string;
+  durationSec?: number;
+  recordingUrl?: string;
+  transcript?: string;
+  callType: "inbound" | "outbound" | "missed" | "voicemail";
+  externalCallId?: string;
+};
+
+http.route({
+  path: "/api/inbound/voice",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const url = new URL(req.url);
+    const secret = url.searchParams.get("secret");
+    if (!secret) return errorResponse(400, "Missing secret.");
+
+    const integration = await ctx.runQuery(
+      internal.voiceIntegrations.findByWebhookSecret,
+      { webhookSecret: secret },
+    );
+    if (!integration) return errorResponse(403, "Invalid secret.");
+
+    // Provider-aware body parsing. Twilio posts form-urlencoded; the
+    // others post JSON.
+    const contentType = req.headers.get("content-type") ?? "";
+    let normalised: NormalisedCall | null = null;
+    try {
+      if (integration.provider === "twilio") {
+        const text = await req.text();
+        const params = new URLSearchParams(text);
+        normalised = parseTwilioCallback(params);
+      } else if (contentType.includes("application/json")) {
+        const json = await req.json();
+        normalised =
+          integration.provider === "telecmi"
+            ? parseTeleCMICallback(json)
+            : parseCallHippoCallback(json);
+      } else {
+        // Fallback: try JSON anyway.
+        const json = await req.json();
+        normalised = parseCallHippoCallback(json);
+      }
+    } catch {
+      return errorResponse(400, "Couldn't parse webhook body.");
+    }
+
+    if (!normalised || !normalised.fromPhone) {
+      return jsonResponse({ ok: true, dropped: "no caller number" });
+    }
+
+    try {
+      await ctx.runMutation(
+        internal.voiceIntegrations.recordInboundCall,
+        {
+          workspaceId: integration.workspaceId,
+          ...normalised,
+        },
+      );
+      return jsonResponse({ ok: true });
+    } catch (err) {
+      return errorResponse(
+        500,
+        err instanceof Error ? err.message : "Failed to record call.",
+      );
+    }
+  }),
+});
+
+function parseCallHippoCallback(payload: unknown): NormalisedCall | null {
+  const p = payload as {
+    callId?: string;
+    from?: string;
+    caller?: string;
+    to?: string;
+    callee?: string;
+    direction?: string;
+    duration?: number;
+    status?: string;
+    recordingUrl?: string;
+    recording_url?: string;
+    transcript?: string;
+    callerName?: string;
+  };
+  const fromPhone =
+    p.from ?? p.caller ?? (p.direction === "outgoing" ? p.to : p.callee);
+  if (!fromPhone) return null;
+  return {
+    fromPhone,
+    fromName: p.callerName,
+    durationSec: p.duration,
+    recordingUrl: p.recordingUrl ?? p.recording_url,
+    transcript: p.transcript,
+    callType:
+      p.status === "voicemail"
+        ? "voicemail"
+        : p.status === "no-answer" || p.status === "missed"
+          ? "missed"
+          : p.direction === "outgoing"
+            ? "outbound"
+            : "inbound",
+    externalCallId: p.callId,
+  };
+}
+
+function parseTeleCMICallback(payload: unknown): NormalisedCall | null {
+  const p = payload as {
+    cmiid?: string;
+    pcmid?: string;
+    from?: string;
+    to?: string;
+    caller_id?: string;
+    direction?: string; // "inbound" | "outbound"
+    call_status?: string;
+    status?: string;
+    duration?: number;
+    duration_sec?: number;
+    recording_url?: string;
+    rec_url?: string;
+  };
+  const fromPhone =
+    p.from ?? p.caller_id ?? (p.direction === "outbound" ? p.to : undefined);
+  if (!fromPhone) return null;
+  const status = p.call_status ?? p.status ?? "";
+  return {
+    fromPhone,
+    durationSec: p.duration_sec ?? p.duration,
+    recordingUrl: p.recording_url ?? p.rec_url,
+    callType:
+      status === "voicemail"
+        ? "voicemail"
+        : status === "missed" || status === "no-answer"
+          ? "missed"
+          : p.direction === "outbound"
+            ? "outbound"
+            : "inbound",
+    externalCallId: p.cmiid ?? p.pcmid,
+  };
+}
+
+function parseTwilioCallback(params: URLSearchParams): NormalisedCall | null {
+  const From = params.get("From");
+  const To = params.get("To");
+  const Direction = params.get("Direction"); // inbound | outbound-api | outbound-dial
+  const CallStatus = params.get("CallStatus"); // completed | no-answer | busy | failed
+  const isOutbound = (Direction ?? "").startsWith("outbound");
+  const fromPhone = isOutbound ? To : From;
+  if (!fromPhone) return null;
+  const duration = params.get("CallDuration");
+  return {
+    fromPhone,
+    fromName: params.get("CallerName") ?? undefined,
+    durationSec: duration ? Number(duration) : undefined,
+    recordingUrl: params.get("RecordingUrl") ?? undefined,
+    callType:
+      CallStatus === "no-answer" || CallStatus === "busy" || CallStatus === "failed"
+        ? "missed"
+        : isOutbound
+          ? "outbound"
+          : "inbound",
+    externalCallId: params.get("CallSid") ?? undefined,
+  };
+}
+
 // ── Health probe ─────────────────────────────────────────────────────
 http.route({
   path: "/api/v1/ping",
