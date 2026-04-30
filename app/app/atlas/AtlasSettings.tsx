@@ -26,6 +26,7 @@ export function AtlasSettings() {
   const [model, setModel] = useState(MODELS[0].value);
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_PROMPT);
   const [knowledgeBase, setKnowledgeBase] = useState("");
+  const [voyageApiKey, setVoyageApiKey] = useState("");
   const [autoReplyThreshold, setAutoReplyThreshold] = useState(0.8);
   const [maxTokens, setMaxTokens] = useState(512);
   const [busy, setBusy] = useState(false);
@@ -55,10 +56,12 @@ export function AtlasSettings() {
         model,
         systemPrompt,
         knowledgeBase: knowledgeBase.trim() || undefined,
+        voyageApiKey: voyageApiKey.trim() || undefined,
         autoReplyThreshold,
         maxTokens,
       });
       setApiKey("");
+      setVoyageApiKey("");
       setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save.");
@@ -222,8 +225,40 @@ export function AtlasSettings() {
                 className="resize-y rounded-lg border border-rule-2 bg-paper p-3 font-mono text-[12.5px] leading-[1.55] outline-none focus:border-ink"
               />
               <span className="text-[11px] text-muted">
-                Plain text. For larger knowledge bases, the next iteration
-                will switch to vector retrieval.
+                {config?.hasVoyageKey
+                  ? `Vector retrieval is on. ${config.chunkCount ?? 0} chunk${
+                      (config.chunkCount ?? 0) === 1 ? "" : "s"
+                    } indexed (v${config.knowledgeBaseVersion ?? 0}). The KB is re-embedded automatically when you save changes here.`
+                  : "Plain text injected as-is into the system prompt. Add a Voyage AI key below to switch to vector retrieval (better for large KBs)."}
+              </span>
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+                Voyage AI key (optional — enables RAG)
+                {config?.hasVoyageKey ? (
+                  <span className="ml-2 normal-case text-good">
+                    configured ({config.voyageKeyPreview})
+                  </span>
+                ) : null}
+              </span>
+              <input
+                type="text"
+                value={voyageApiKey}
+                onChange={(e) => setVoyageApiKey(e.target.value)}
+                placeholder={
+                  config?.hasVoyageKey
+                    ? "Stored — leave blank to keep"
+                    : "pa-… (from voyageai.com)"
+                }
+                className="h-10 rounded-lg border border-rule-2 bg-paper px-3 font-mono text-[13px] outline-none focus:border-ink"
+              />
+              <span className="text-[11px] text-muted">
+                When set, the KB is chunked + embedded with{" "}
+                <code className="font-mono">voyage-3-lite</code> on save, and
+                Atlas retrieves the top 4 most relevant chunks per visitor
+                message instead of injecting the whole KB. Voyage is
+                Anthropic&apos;s recommended embeddings partner.
               </span>
             </label>
 

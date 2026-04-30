@@ -413,12 +413,35 @@ export default defineSchema({
     model: v.string(), // e.g. "claude-haiku-4-5-20251001"
     systemPrompt: v.string(), // brand voice, business context, do/don't
     knowledgeBase: v.optional(v.string()), // optional pasted FAQ/docs
+    // Optional Voyage AI key. When set, the KB is chunked + embedded
+    // on save and the evaluate action retrieves top-K relevant chunks
+    // per query (RAG). When unset, falls back to plain-text injection.
+    voyageApiKey: v.optional(v.string()),
+    // Bumped each time the KB is re-embedded. Lets us drop stale
+    // chunks from prior versions in a single index scan.
+    knowledgeBaseVersion: v.optional(v.number()),
     autoReplyThreshold: v.number(), // 0..1 — below this, draft only
     maxTokens: v.number(),
     createdBy: v.id("operators"),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
+
+  // Atlas knowledge-base chunks — text + embedding pairs produced by
+  // the re-embed action when a workspace has Voyage AI configured.
+  // Cosine similarity is computed in JS (Convex doesn't yet have a
+  // native vector index); fine up to a few thousand chunks per
+  // workspace. For larger KBs migrate to @convex-dev/vector.
+  atlasKnowledgeChunks: defineTable({
+    workspaceId: v.id("workspaces"),
+    sourceVersion: v.number(), // matches atlasConfigs.knowledgeBaseVersion
+    chunkIndex: v.number(),
+    chunkText: v.string(),
+    embedding: v.array(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_version", ["workspaceId", "sourceVersion"]),
 
   // Every Atlas evaluation logs a row here — both successful and
   // skipped runs. Used by the inbox suggestion panel ("latest run for
