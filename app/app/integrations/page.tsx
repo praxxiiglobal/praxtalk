@@ -4,6 +4,7 @@ import { EmailIntegrationSection } from "./EmailIntegrationSection";
 import { VoiceIntegrationSection } from "./VoiceIntegrationSection";
 import { WebhooksSection } from "./WebhooksSection";
 import { WhatsappIntegrationSection } from "./WhatsappIntegrationSection";
+import { WhatsappTemplatesSection } from "./WhatsappTemplatesSection";
 import { PageHeader, PageBody, Card } from "../PageHeader";
 
 export const metadata = {
@@ -20,6 +21,7 @@ export default function IntegrationsPage() {
       <PageBody>
         <EmailIntegrationSection />
         <WhatsappIntegrationSection />
+        <WhatsappTemplatesSection />
         <BotimIntegrationSection />
         <VoiceIntegrationSection />
         <RestApiOverviewCard />

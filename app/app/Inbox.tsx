@@ -211,6 +211,7 @@ function ConversationPane({
     sessionToken,
     conversationId,
   });
+  const sendTemplate = useAction(api.whatsappIntegrations.sendTemplate);
 
   const [body, setBody] = useState("");
   const [internal, setInternal] = useState(false);
@@ -474,6 +475,13 @@ function ConversationPane({
               </div>
             ) : null}
           </div>
+          {convo.channel === "whatsapp" ? (
+            <WhatsappTemplatePicker
+              conversationId={conversationId}
+              sendTemplate={sendTemplate}
+              sessionToken={sessionToken}
+            />
+          ) : null}
         </div>
         <div className="flex items-end gap-2">
           <textarea
@@ -725,6 +733,177 @@ function AtlasSuggestionPanel({
   }
 
   return null;
+}
+
+function WhatsappTemplatePicker({
+  conversationId,
+  sendTemplate,
+  sessionToken,
+}: {
+  conversationId: Id<"conversations">;
+  sendTemplate: (args: {
+    sessionToken: string;
+    conversationId: Id<"conversations">;
+    templateId: Id<"whatsappTemplates">;
+    variables: string[];
+  }) => Promise<{ ok: boolean; error?: string }>;
+  sessionToken: string;
+}) {
+  const templates = useQuery(api.whatsappIntegrations.listTemplates, {
+    sessionToken,
+  });
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<
+    | {
+        _id: Id<"whatsappTemplates">;
+        name: string;
+        body: string;
+        variableCount: number;
+      }
+    | null
+  >(null);
+  const [vars, setVars] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onPick = (
+    t: {
+      _id: Id<"whatsappTemplates">;
+      name: string;
+      body: string;
+      variableCount: number;
+    },
+  ) => {
+    setPicked(t);
+    setVars(new Array(t.variableCount).fill(""));
+    setError(null);
+  };
+
+  const onSend = async () => {
+    if (!picked) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await sendTemplate({
+        sessionToken,
+        conversationId,
+        templateId: picked._id,
+        variables: vars,
+      });
+      if (res.ok) {
+        setOpen(false);
+        setPicked(null);
+        setVars([]);
+      } else {
+        setError(res.error ?? "Send failed.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Send failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((v) => !v);
+          setPicked(null);
+          setError(null);
+        }}
+        className="rounded-full border border-rule-2 px-2.5 py-1 text-muted transition hover:text-ink"
+        title="Send a Meta-approved template (required outside the 24h window)"
+      >
+        Template ▾
+      </button>
+      {open ? (
+        <div className="absolute right-0 bottom-full z-20 mb-2 w-80 max-h-[420px] overflow-y-auto rounded-xl border border-rule bg-paper p-1 shadow-2xl">
+          {!picked ? (
+            templates === undefined ? (
+              <div className="px-3 py-2 text-[12px] text-muted">Loading…</div>
+            ) : templates.length === 0 ? (
+              <div className="px-3 py-3 text-[12px] text-muted">
+                No templates yet.{" "}
+                <a
+                  href="/app/integrations"
+                  className="text-ink underline-offset-2 hover:underline"
+                >
+                  Add one →
+                </a>
+              </div>
+            ) : (
+              templates.map((t) => (
+                <button
+                  key={t._id}
+                  type="button"
+                  onClick={() => onPick(t)}
+                  className="flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left transition hover:bg-paper-2"
+                >
+                  <span className="flex w-full items-center gap-2 text-sm font-medium text-ink">
+                    <span className="font-mono">{t.name}</span>
+                    <span className="rounded-full border border-rule-2 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+                      {t.variableCount} var
+                    </span>
+                  </span>
+                  <span className="line-clamp-2 text-[12px] leading-[1.4] text-muted">
+                    {t.body}
+                  </span>
+                </button>
+              ))
+            )
+          ) : (
+            <div className="space-y-2 p-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-ink">
+                <span className="font-mono">{picked.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setPicked(null)}
+                  className="ml-auto text-[11px] text-muted hover:text-ink"
+                >
+                  ← back
+                </button>
+              </div>
+              <pre className="whitespace-pre-wrap break-words rounded-lg border border-rule bg-paper-2/40 p-2 font-mono text-[11.5px] text-ink">
+                {picked.body}
+              </pre>
+              {picked.variableCount > 0 ? (
+                <div className="space-y-1.5">
+                  {vars.map((value, idx) => (
+                    <label key={idx} className="flex flex-col gap-0.5">
+                      <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+                        {`{{${idx + 1}}}`}
+                      </span>
+                      <input
+                        type="text"
+                        value={value}
+                        onChange={(e) => {
+                          const next = [...vars];
+                          next[idx] = e.target.value;
+                          setVars(next);
+                        }}
+                        className="h-9 rounded-lg border border-rule-2 bg-paper px-2 text-[13px] outline-none focus:border-ink"
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+              {error ? <p className="text-[11px] text-warn">{error}</p> : null}
+              <button
+                type="button"
+                onClick={onSend}
+                disabled={busy}
+                className="inline-flex h-8 w-full items-center justify-center rounded-full bg-ink px-3 text-[12px] font-medium text-paper transition hover:-translate-y-px disabled:opacity-60"
+              >
+                {busy ? "Sending…" : "Send via WhatsApp"}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function IntakeStrip({

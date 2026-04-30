@@ -536,6 +536,23 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_phone_number_id", ["phoneNumberId"]),
 
+  // WhatsApp templates registered with Meta. Templates must be
+  // approved on the Meta side first (Business Manager → Message
+  // Templates). We just store the name + language + body text +
+  // variable count so operators can compose them from the inbox.
+  // The actual approved content lives on Meta — body here is just
+  // for preview and variable counting.
+  whatsappTemplates: defineTable({
+    workspaceId: v.id("workspaces"),
+    name: v.string(), // exact name registered with Meta
+    language: v.string(), // BCP-47 like "en", "en_US", "hi"
+    category: v.optional(v.string()), // marketing | utility | authentication
+    body: v.string(), // body with {{1}} {{2}} placeholders, for preview
+    variableCount: v.number(),
+    createdBy: v.id("operators"),
+    createdAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
   // ── Voice integration (CallHippo) ─────────────────────────────────
   // Per-workspace voice/telephony config. Drives inbound call events
   // (CallHippo posts to our webhook → we create voice-channel
