@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { useEffect, useState, useMemo, type FormEvent } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -206,6 +206,7 @@ function ConversationPane({
   const sendMessage = useMutation(api.messages.send);
   const setStatus = useMutation(api.conversations.setStatus);
   const savedReplies = useQuery(api.savedReplies.list, { sessionToken });
+  const originateCall = useAction(api.voiceIntegrations.originateCall);
 
   const [body, setBody] = useState("");
   const [internal, setInternal] = useState(false);
@@ -319,7 +320,7 @@ function ConversationPane({
       {(visitor?.phone || visitor?.ip || locationLabel) && (
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-rule bg-paper-2/40 px-5 py-2 font-mono text-[11px] text-muted">
           {visitor?.phone ? (
-            <span>
+            <span className="inline-flex items-center gap-1.5">
               <span className="opacity-60">phone</span>{" "}
               <a
                 href={`tel:${visitor.phone}`}
@@ -327,6 +328,11 @@ function ConversationPane({
               >
                 {visitor.phone}
               </a>
+              <CallButton
+                phone={visitor.phone}
+                originateCall={originateCall}
+                sessionToken={sessionToken}
+              />
             </span>
           ) : null}
           {locationLabel ? (
@@ -713,6 +719,80 @@ function AtlasSuggestionPanel({
   }
 
   return null;
+}
+
+function CallButton({
+  phone,
+  originateCall,
+  sessionToken,
+}: {
+  phone: string;
+  originateCall: (args: {
+    sessionToken: string;
+    toPhone: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  sessionToken: string;
+}) {
+  const [state, setState] = useState<
+    | { status: "idle" }
+    | { status: "calling" }
+    | { status: "ok" }
+    | { status: "error"; message: string }
+  >({ status: "idle" });
+
+  const onClick = async () => {
+    setState({ status: "calling" });
+    try {
+      const res = await originateCall({ sessionToken, toPhone: phone });
+      if (res.ok) {
+        setState({ status: "ok" });
+        // Clear after a moment so the button is reusable.
+        setTimeout(() => setState({ status: "idle" }), 4000);
+      } else {
+        setState({
+          status: "error",
+          message: res.error ?? "Couldn't place call.",
+        });
+        setTimeout(() => setState({ status: "idle" }), 5000);
+      }
+    } catch (err) {
+      setState({
+        status: "error",
+        message: err instanceof Error ? err.message : "Couldn't place call.",
+      });
+      setTimeout(() => setState({ status: "idle" }), 5000);
+    }
+  };
+
+  if (state.status === "ok") {
+    return (
+      <span className="rounded-full border border-good px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.04em] text-good">
+        ✓ ringing
+      </span>
+    );
+  }
+  if (state.status === "error") {
+    return (
+      <span
+        title={state.message}
+        className="rounded-full border border-warn px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.04em] text-warn"
+      >
+        call failed
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={state.status === "calling"}
+      title="Call this number via your voice integration"
+      className="inline-flex h-6 items-center gap-1 rounded-full border border-rule-2 px-2 font-mono text-[10px] uppercase tracking-[0.04em] text-ink transition hover:-translate-y-px hover:border-ink disabled:opacity-60"
+    >
+      <span aria-hidden>📞</span>
+      {state.status === "calling" ? "calling…" : "call"}
+    </button>
+  );
 }
 
 function ChannelGlyph({ channel }: { channel: Channel }) {
