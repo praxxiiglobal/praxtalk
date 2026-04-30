@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { fireEvent } from "./webhooks";
@@ -205,6 +205,52 @@ export const sendVisitorMessage = mutation({
     });
 
     return messageId;
+  },
+});
+
+/**
+ * Public — visitor-initiated precise location share. Called from the
+ * widget after the visitor taps the location button and the browser's
+ * native geolocation prompt resolves with success.
+ *
+ * Merges into the existing `location` object — IP-derived city/country
+ * are kept (browser GPS doesn't provide reverse-geocoded names) and
+ * lat/lng are overwritten with the precise values.
+ */
+export const setPreciseLocation = mutation({
+  args: {
+    widgetId: v.string(),
+    visitorKey: v.string(),
+    lat: v.number(),
+    lng: v.number(),
+    accuracy: v.optional(v.number()), // meters
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const brand = await ctx.db
+      .query("brands")
+      .withIndex("by_widget_id", (q) => q.eq("widgetId", args.widgetId))
+      .unique();
+    if (!brand) throw new ConvexError("Unknown widget.");
+
+    const visitor = await ctx.db
+      .query("visitors")
+      .withIndex("by_brand_visitor_key", (q) =>
+        q.eq("brandId", brand._id).eq("visitorKey", args.visitorKey),
+      )
+      .unique();
+    if (!visitor) throw new ConvexError("Visitor not found.");
+
+    const merged = {
+      ...(visitor.location ?? {}),
+      lat: args.lat,
+      lng: args.lng,
+    };
+    await ctx.db.patch(visitor._id, {
+      location: merged,
+      lastSeenAt: Date.now(),
+    });
+    return null;
   },
 });
 

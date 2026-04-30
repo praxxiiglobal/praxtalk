@@ -91,6 +91,13 @@ const WIDGET_SHELL = `
   .send { background: var(--praxtalk-accent); color: #fff; border: none;
     width: 38px; height: 38px; border-radius: 10px; cursor: pointer; font-size: 16px; }
   .send:hover { opacity: 0.9; }
+  .geo { background: transparent; color: var(--praxtalk-ink); border: 1px solid rgba(0,0,0,0.12);
+    width: 38px; height: 38px; border-radius: 10px; cursor: pointer;
+    display: grid; place-items: center; transition: background 0.15s ease, opacity 0.15s ease; }
+  .geo:hover { background: rgba(0,0,0,0.04); }
+  .geo:disabled { opacity: 0.5; cursor: progress; }
+  .geo svg { width: 18px; height: 18px; }
+  .geo.hidden { display: none; }
   .footer { padding: 6px 12px; font-size: 10px; color: #999; text-align: center; background: #fff; }
   .footer a { color: inherit; text-decoration: none; }
 </style>
@@ -146,6 +153,12 @@ const WIDGET_SHELL = `
     <div class="chat-view hidden">
       <div class="list"></div>
       <div class="composer">
+        <button class="geo" type="button" aria-label="Share my location" title="Share my location">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+        </button>
         <textarea class="input" rows="1" placeholder="Type a message…"></textarea>
         <button class="send" aria-label="Send">↑</button>
       </div>
@@ -235,8 +248,15 @@ const SOURCE = /* javascript */ `(() => {
     list: root.querySelector(".list"),
     input: root.querySelector(".input"),
     sendBtn: root.querySelector(".send"),
+    geoBtn: root.querySelector(".geo"),
     closeBtn: root.querySelector(".close"),
   };
+
+  // If the browser doesn't expose Geolocation (very old / locked-down
+  // contexts) hide the share-location button entirely.
+  if (!("geolocation" in navigator)) {
+    els.geoBtn.classList.add("hidden");
+  }
 
   let panelOpen = false;
   function setOpen(next) {
@@ -494,6 +514,49 @@ const SOURCE = /* javascript */ `(() => {
           e.preventDefault();
           send();
         }
+      });
+
+      // Share-location button. Triggers the browser's native geolocation
+      // permission prompt directly — no custom rationale card. On allow,
+      // we POST the precise lat/lng to the backend and drop a local
+      // "Location shared" system bubble. On block/error, we surface a
+      // brief inline note so the visitor isn't left wondering.
+      function showSystem(text) {
+        els.list.appendChild(bubble("system", text));
+        els.list.scrollTop = els.list.scrollHeight;
+      }
+      els.geoBtn.addEventListener("click", () => {
+        if (!conversationId || !navigator.geolocation) return;
+        els.geoBtn.disabled = true;
+        navigator.geolocation.getCurrentPosition(
+          async (pos) => {
+            try {
+              await client.mutation("visitors:setPreciseLocation", {
+                widgetId,
+                visitorKey,
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude,
+                accuracy: pos.coords.accuracy,
+              });
+              showSystem("📍 Location shared with the team.");
+            } catch (err) {
+              console.error("[PraxTalk] location share failed", err);
+              showSystem("Couldn't share your location. Please try again.");
+            } finally {
+              els.geoBtn.disabled = false;
+            }
+          },
+          (err) => {
+            els.geoBtn.disabled = false;
+            // err.code: 1=denied, 2=unavailable, 3=timeout
+            if (err && err.code === 1) {
+              showSystem("Location permission was blocked. You can enable it in your browser's site settings.");
+            } else {
+              showSystem("Couldn't get your location.");
+            }
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+        );
       });
     })
     .catch((err) => {
