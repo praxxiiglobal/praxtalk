@@ -30,6 +30,7 @@ const NotificationKindValidator = v.union(
   v.literal("brand_created"),
   v.literal("operator_added"),
   v.literal("api_key_created"),
+  v.literal("human_requested"),
   v.literal("system"),
 );
 

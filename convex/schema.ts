@@ -182,6 +182,11 @@ export default defineSchema({
       v.union(v.literal("atlas"), v.literal("operator")),
     ),
     confidence: v.optional(v.number()),
+    // Visitor explicitly asked to talk to a human. Atlas stops
+    // evaluating new messages on this conversation; the inbox badges
+    // it so operators jump in. Cleared when the conversation closes.
+    atlasPaused: v.optional(v.boolean()),
+    humanRequestedAt: v.optional(v.number()),
     // Email-specific threading hints (RFC 5322 Message-ID). Only set on
     // email conversations.
     emailThreadId: v.optional(v.string()),
@@ -278,6 +283,7 @@ export default defineSchema({
       v.literal("brand_created"),
       v.literal("operator_added"),
       v.literal("api_key_created"),
+      v.literal("human_requested"),
       v.literal("system"),
     ),
     severity: v.union(

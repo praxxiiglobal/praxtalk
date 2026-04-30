@@ -209,6 +209,74 @@ export const sendVisitorMessage = mutation({
 });
 
 /**
+ * Public — visitor explicitly asks to talk to a human. Pauses Atlas on
+ * this conversation, drops a system message in the thread, and pushes
+ * a workspace notification so any available operator can jump in.
+ *
+ * Idempotent: subsequent calls just refresh the timestamp and don't
+ * post another system message.
+ */
+export const requestHumanAgent = mutation({
+  args: {
+    widgetId: v.string(),
+    visitorKey: v.string(),
+    conversationId: v.id("conversations"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const brand = await ctx.db
+      .query("brands")
+      .withIndex("by_widget_id", (q) => q.eq("widgetId", args.widgetId))
+      .unique();
+    if (!brand) throw new ConvexError("Unknown widget.");
+
+    const convo = await ctx.db.get(args.conversationId);
+    if (!convo || convo.workspaceId !== brand.workspaceId) {
+      throw new ConvexError("Conversation not found.");
+    }
+    const visitor = await ctx.db.get(convo.visitorId);
+    if (!visitor || visitor.visitorKey !== args.visitorKey) {
+      throw new ConvexError("Visitor mismatch.");
+    }
+
+    const now = Date.now();
+    const wasAlreadyRequested = Boolean(convo.humanRequestedAt);
+
+    await ctx.db.patch(args.conversationId, {
+      atlasPaused: true,
+      humanRequestedAt: now,
+      lastMessageAt: now,
+    });
+
+    if (!wasAlreadyRequested) {
+      await ctx.db.insert("messages", {
+        conversationId: args.conversationId,
+        workspaceId: brand.workspaceId,
+        brandId: convo.brandId ?? brand._id,
+        channel: convo.channel ?? "web_chat",
+        role: "system",
+        body: "Visitor asked to speak with a human agent.",
+        createdAt: now,
+      });
+
+      const visitorLabel =
+        visitor.name ?? visitor.email ?? "A visitor";
+      await ctx.db.insert("notifications", {
+        workspaceId: brand.workspaceId,
+        kind: "human_requested",
+        severity: "warn",
+        title: `${visitorLabel} wants a human agent`,
+        body: `On ${brand.name} — Atlas paused for this conversation.`,
+        link: `/app?conversationId=${args.conversationId}`,
+        createdAt: now,
+      });
+    }
+
+    return null;
+  },
+});
+
+/**
  * Public — visitor-initiated precise location share. Called from the
  * widget after the visitor taps the location button and the browser's
  * native geolocation prompt resolves with success.

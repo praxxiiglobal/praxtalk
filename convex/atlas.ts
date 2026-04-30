@@ -234,6 +234,10 @@ export const evaluate = internalAction({
     if (!ctxData) return null;
     const { config, conversation, brand, history } = ctxData;
 
+    // Visitor explicitly asked for a human — don't reply. We don't
+    // even log a skipped run here; the operator's job from this point.
+    if (conversation.atlasPaused) return null;
+
     // No config yet — record a "skipped" run so the dashboard can
     // surface "Atlas isn't configured" without polling settings.
     if (!config || !config.enabled || !config.apiKey) {
