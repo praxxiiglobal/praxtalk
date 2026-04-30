@@ -80,6 +80,13 @@ const WIDGET_SHELL = `
   .form-submit:hover { opacity: 0.92; }
   .form-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 
+  /* Lobby intake view */
+  .lobby-view { display: flex; flex-direction: column; gap: 10px; padding: 16px; overflow-y: auto; }
+  .lobby-view.hidden { display: none; }
+  .lobby-title { font-size: 14px; font-weight: 500; color: var(--praxtalk-ink); margin: 0; }
+  .lobby-fields { display: flex; flex-direction: column; gap: 10px; }
+  .lobby-error { font-size: 12px; color: #c0392b; min-height: 14px; }
+
   /* Chat view */
   .chat-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
   .chat-view.hidden { display: none; }
@@ -161,6 +168,13 @@ const WIDGET_SHELL = `
       <button type="submit" class="form-submit">Start chat →</button>
     </form>
 
+    <form class="lobby-view hidden" novalidate>
+      <p class="lobby-title">Help us route you</p>
+      <div class="lobby-fields"></div>
+      <div class="lobby-error" role="alert"></div>
+      <button type="submit" class="form-submit">Continue →</button>
+    </form>
+
     <div class="chat-view hidden">
       <div class="list"></div>
       <div class="composer">
@@ -187,6 +201,20 @@ const SOURCE = /* javascript */ `(() => {
   const CONVEX_CLIENT_CDN = "https://esm.sh/convex@1.36.1/browser";
   const VISITOR_KEY_STORAGE = "praxtalk_visitor_key";
   const VISITOR_PROFILE_STORAGE = "praxtalk_visitor_profile";
+  const LOBBY_DONE_STORAGE = "praxtalk_lobby_done";
+
+  function loadLobbyDone() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(LOBBY_DONE_STORAGE) || "[]"));
+    } catch { return new Set(); }
+  }
+  function markLobbyDone(key) {
+    try {
+      const set = loadLobbyDone();
+      set.add(key);
+      localStorage.setItem(LOBBY_DONE_STORAGE, JSON.stringify(Array.from(set)));
+    } catch {}
+  }
 
   // Resolve widget id from the snippet that loaded us.
   // Prefer data-widget-id (post multi-brand) but accept legacy data-workspace-id.
@@ -262,6 +290,10 @@ const SOURCE = /* javascript */ `(() => {
     geoBtn: root.querySelector(".geo"),
     humanBtn: root.querySelector(".human"),
     closeBtn: root.querySelector(".close"),
+    lobbyView: root.querySelector(".lobby-view"),
+    lobbyTitle: root.querySelector(".lobby-title"),
+    lobbyFields: root.querySelector(".lobby-fields"),
+    lobbyError: root.querySelector(".lobby-error"),
   };
 
   // If the browser doesn't expose Geolocation (very old / locked-down
@@ -281,15 +313,67 @@ const SOURCE = /* javascript */ `(() => {
 
   function showChat() {
     els.formView.classList.add("hidden");
+    els.lobbyView.classList.add("hidden");
     els.chatView.classList.remove("hidden");
     els.humanBtn.classList.remove("hidden");
     setTimeout(() => els.input.focus(), 50);
   }
   function showForm() {
     els.chatView.classList.add("hidden");
+    els.lobbyView.classList.add("hidden");
     els.formView.classList.remove("hidden");
     els.humanBtn.classList.add("hidden");
     setTimeout(() => els.name.focus(), 50);
+  }
+  function showLobby() {
+    els.formView.classList.add("hidden");
+    els.chatView.classList.add("hidden");
+    els.lobbyView.classList.remove("hidden");
+    els.humanBtn.classList.add("hidden");
+  }
+
+  // Render lobby fields from the config returned by lobby:getForWidget.
+  // Returns an array of [fieldId, getValue, isValid, label] tuples for
+  // the submit handler to read out of the DOM.
+  function renderLobbyFields(config) {
+    els.lobbyTitle.textContent = config.title;
+    els.lobbyFields.innerHTML = "";
+    const handles = [];
+    for (const f of config.fields) {
+      const wrap = document.createElement("div");
+      wrap.className = "field";
+      const label = document.createElement("label");
+      label.textContent = f.label + (f.required ? " *" : "");
+      label.htmlFor = "ptk-lobby-" + f.id;
+      wrap.appendChild(label);
+      let input;
+      if (f.type === "textarea") {
+        input = document.createElement("textarea");
+      } else if (f.type === "select") {
+        input = document.createElement("select");
+        const blank = document.createElement("option");
+        blank.value = "";
+        blank.textContent = "— Select —";
+        input.appendChild(blank);
+        for (const opt of (f.options || [])) {
+          const o = document.createElement("option");
+          o.value = opt;
+          o.textContent = opt;
+          input.appendChild(o);
+        }
+      } else {
+        input = document.createElement("input");
+        input.type =
+          f.type === "email" ? "email" : f.type === "phone" ? "tel" : "text";
+      }
+      input.id = "ptk-lobby-" + f.id;
+      if (f.placeholder) input.placeholder = f.placeholder;
+      if (f.required) input.required = true;
+      wrap.appendChild(input);
+      els.lobbyFields.appendChild(wrap);
+      handles.push({ field: f, input });
+    }
+    return handles;
   }
 
   function bubble(role, body) {
@@ -393,8 +477,32 @@ const SOURCE = /* javascript */ `(() => {
       }
       applyConfig(config);
 
+      // Optional lobby intake config — null if not enabled for this brand.
+      let lobbyConfig = null;
+      try {
+        lobbyConfig = await client.query("lobby:getForWidget", { widgetId });
+      } catch (err) {
+        console.warn("[PraxTalk] couldn't load lobby config", err);
+      }
+
       const cachedProfile = loadProfile();
       let conversationId = null;
+      let lobbyDone = loadLobbyDone();
+
+      // After identifyAndStartConversation lands and we know conversationId,
+      // either show the lobby form (if configured + not submitted) or jump
+      // straight into chat. Returns true if we showed lobby, false if we
+      // skipped to chat.
+      function maybeShowLobby() {
+        if (lobbyConfig && lobbyConfig.fields.length > 0 && !lobbyDone.has(visitorKey)) {
+          const handles = renderLobbyFields(lobbyConfig);
+          els.lobbyView._handles = handles;
+          showLobby();
+          return true;
+        }
+        showChat();
+        return false;
+      }
 
       async function startConversation(profile, firstMessage) {
         const geo = await fetchVisitorGeo();
@@ -455,7 +563,7 @@ const SOURCE = /* javascript */ `(() => {
             { widgetId, visitorKey, conversationId },
             renderMessages,
           );
-          showChat();
+          maybeShowLobby();
         } catch (err) {
           console.error("[PraxTalk] resume failed, falling back to form", err);
           showForm();
@@ -494,13 +602,52 @@ const SOURCE = /* javascript */ `(() => {
         try {
           await startConversation(profile, message);
           saveProfile(profile);
-          showChat();
+          maybeShowLobby();
         } catch (err) {
           console.error("[PraxTalk] failed to start conversation", err);
           els.formError.textContent = "Couldn't reach our servers. Please try again.";
         } finally {
           els.submit.disabled = false;
           els.submit.textContent = "Start chat →";
+        }
+      });
+
+      // Lobby submit — collect answers, send to lobby:submitIntake,
+      // mark done locally, then drop the user into chat.
+      els.lobbyView.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        els.lobbyError.textContent = "";
+        if (!conversationId || !lobbyConfig) return;
+        const handles = els.lobbyView._handles || [];
+        const answers = {};
+        for (const h of handles) {
+          const value = (h.input.value || "").trim();
+          if (h.field.required && !value) {
+            els.lobbyError.textContent = "Please fill in the required fields.";
+            return;
+          }
+          if (value) answers[h.field.id] = value;
+        }
+        const submitBtn = els.lobbyView.querySelector(".form-submit");
+        submitBtn.disabled = true;
+        const original = submitBtn.textContent;
+        submitBtn.textContent = "Saving…";
+        try {
+          await client.mutation("lobby:submitIntake", {
+            widgetId,
+            visitorKey,
+            conversationId,
+            answers: JSON.stringify(answers),
+          });
+          markLobbyDone(visitorKey);
+          lobbyDone = loadLobbyDone();
+          showChat();
+        } catch (err) {
+          console.error("[PraxTalk] lobby submit failed", err);
+          els.lobbyError.textContent = "Couldn't save your answers. Try again.";
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = original;
         }
       });
 

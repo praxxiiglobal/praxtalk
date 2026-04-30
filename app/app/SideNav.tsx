@@ -12,6 +12,7 @@ export const navItems: { href: string; label: string; icon: NavIconName }[] = [
   { href: "/app/notifications", label: "Notifications", icon: "bell" },
   { href: "/app/leads", label: "Leads", icon: "lead" },
   { href: "/app/atlas", label: "Atlas AI", icon: "atlas" },
+  { href: "/app/lobby", label: "Lobby intake", icon: "lobby" },
   { href: "/app/analytics", label: "Analytics", icon: "chart" },
   { href: "/app/brands", label: "Brands", icon: "brand" },
   { href: "/app/team", label: "Team", icon: "team" },
@@ -116,6 +117,7 @@ type NavIconName =
   | "bell"
   | "lead"
   | "atlas"
+  | "lobby"
   | "chart"
   | "brand"
   | "team"
@@ -161,6 +163,12 @@ function NavIcon({ name, active }: { name: NavIconName; active?: boolean }) {
         <svg {...common} aria-hidden>
           <path d="M8 2L3 5v4c0 3 2 5 5 6 3-1 5-3 5-6V5L8 2z" />
           <path d="M6 8l1.5 1.5L10 7" />
+        </svg>
+      );
+    case "lobby":
+      return (
+        <svg {...common} aria-hidden>
+          <path d="M3 4h10M3 8h10M3 12h6" />
         </svg>
       );
     case "chart":

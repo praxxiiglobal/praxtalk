@@ -20,6 +20,7 @@ import type * as http from "../http.js";
 import type * as invites from "../invites.js";
 import type * as leads from "../leads.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lobby from "../lobby.js";
 import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   invites: typeof invites;
   leads: typeof leads;
   "lib/auth": typeof lib_auth;
+  lobby: typeof lobby;
   messages: typeof messages;
   migrations: typeof migrations;
   notifications: typeof notifications;
