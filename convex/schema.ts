@@ -688,15 +688,32 @@ export default defineSchema({
       v.literal("postmark"),
       v.literal("sendgrid"),
       v.literal("resend"),
+      // Generic SMTP+IMAP — for Zoho Workspace, G-Suite (with app
+      // password), Fastmail, Proton, etc. Customer pastes their host +
+      // creds; PraxTalk talks IMAP for inbound (polled) and SMTP for
+      // outbound, no forwarding workaround needed.
+      v.literal("smtp_imap"),
     ),
-    // API key (encrypted-at-rest by Convex; we just store it as a string
-    // here. Treat with care in the UI — never round-trip back to client).
+    // For postmark/sendgrid/resend: ESP API key.
+    // For smtp_imap: the SMTP password (an app-specific password,
+    //   typically — providers don't accept account passwords for SMTP
+    //   when 2FA is on). Same value usually works for IMAP, but if
+    //   the customer needs different ones we add imapPassword later.
     apiKey: v.string(),
     fromAddress: v.string(), // e.g. "support@acme.com"
     fromName: v.optional(v.string()),
-    // The local-part operators sees as the inbound address for this
-    // workspace, e.g. "acme" -> mail to acme@inbound.praxtalk.com lands
-    // in this workspace's inbox.
+    // For smtp_imap: connection details. Unused for the ESP providers.
+    smtpHost: v.optional(v.string()), // e.g. "smtp.zoho.com"
+    smtpPort: v.optional(v.number()), // 465 (SSL) or 587 (STARTTLS)
+    smtpUser: v.optional(v.string()), // usually = fromAddress
+    imapHost: v.optional(v.string()), // e.g. "imap.zoho.com"
+    imapPort: v.optional(v.number()), // 993 (SSL) standard
+    // Highest IMAP UID we've already pulled. The poll cron only fetches
+    // messages with UID > this. Not used by ESP providers.
+    imapLastSeenUid: v.optional(v.number()),
+    // The local-part for inbound when using postmark/sendgrid/resend.
+    // For smtp_imap this is unused — we poll the customer's actual
+    // inbox directly, no PraxTalk-side alias.
     inboundAlias: v.string(),
     enabled: v.boolean(),
     createdBy: v.id("operators"),

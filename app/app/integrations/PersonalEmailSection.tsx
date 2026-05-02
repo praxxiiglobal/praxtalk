@@ -7,12 +7,13 @@ import { useDashboardAuth } from "../DashboardShell";
 import { Card } from "../PageHeader";
 import { cn } from "@/lib/cn";
 
-type Provider = "postmark" | "sendgrid" | "resend";
+type Provider = "postmark" | "sendgrid" | "resend" | "smtp_imap";
 
 const PROVIDER_LABELS: Record<Provider, string> = {
   postmark: "Postmark",
   sendgrid: "SendGrid",
   resend: "Resend",
+  smtp_imap: "SMTP / IMAP (Zoho, G-Suite, etc.)",
 };
 
 /**
@@ -36,6 +37,11 @@ export function PersonalEmailSection() {
   const [fromAddress, setFromAddress] = useState("");
   const [fromName, setFromName] = useState("");
   const [inboundAlias, setInboundAlias] = useState("");
+  const [smtpHost, setSmtpHost] = useState("smtp.zoho.com");
+  const [smtpPort, setSmtpPort] = useState("465");
+  const [smtpUser, setSmtpUser] = useState("");
+  const [imapHost, setImapHost] = useState("imap.zoho.com");
+  const [imapPort, setImapPort] = useState("993");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(
     null,
@@ -62,6 +68,20 @@ export function PersonalEmailSection() {
         fromAddress,
         fromName: fromName || undefined,
         inboundAlias: inboundAlias || undefined,
+        smtpHost: provider === "smtp_imap" ? smtpHost || undefined : undefined,
+        smtpPort:
+          provider === "smtp_imap"
+            ? Number(smtpPort) || undefined
+            : undefined,
+        smtpUser:
+          provider === "smtp_imap"
+            ? smtpUser || fromAddress || undefined
+            : undefined,
+        imapHost: provider === "smtp_imap" ? imapHost || undefined : undefined,
+        imapPort:
+          provider === "smtp_imap"
+            ? Number(imapPort) || undefined
+            : undefined,
         enabled: true,
       });
       setMsg({ kind: "ok", text: "Personal mailbox saved." });
@@ -153,21 +173,84 @@ export function PersonalEmailSection() {
               className="h-10 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"
             />
           </Field>
-          <Field label="Inbound alias (your local-part)">
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                value={inboundAlias}
-                onChange={(e) => setInboundAlias(e.target.value)}
-                placeholder={operator.name.toLowerCase()}
-                className="h-10 flex-1 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"
-              />
-              <span className="font-mono text-[12px] text-muted">
-                @inbound.praxtalk.com
-              </span>
-            </div>
-          </Field>
+          {provider !== "smtp_imap" && (
+            <Field label="Inbound alias (your local-part)">
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={inboundAlias}
+                  onChange={(e) => setInboundAlias(e.target.value)}
+                  placeholder={operator.name.toLowerCase()}
+                  className="h-10 flex-1 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"
+                />
+                <span className="font-mono text-[12px] text-muted">
+                  @inbound.praxtalk.com
+                </span>
+              </div>
+            </Field>
+          )}
         </div>
+
+        {provider === "smtp_imap" && (
+          <div className="rounded-xl border border-rule-2 bg-paper-2/40 p-4">
+            <div className="mb-3 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+              SMTP + IMAP connection
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="SMTP host">
+                <input
+                  type="text"
+                  value={smtpHost}
+                  onChange={(e) => setSmtpHost(e.target.value)}
+                  placeholder="smtp.zoho.com"
+                  className="h-10 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] font-mono outline-none focus:border-ink"
+                />
+              </Field>
+              <Field label="SMTP port">
+                <input
+                  type="number"
+                  value={smtpPort}
+                  onChange={(e) => setSmtpPort(e.target.value)}
+                  placeholder="465"
+                  className="h-10 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] font-mono outline-none focus:border-ink"
+                />
+              </Field>
+              <Field label="SMTP username (usually your email)">
+                <input
+                  type="text"
+                  value={smtpUser}
+                  onChange={(e) => setSmtpUser(e.target.value)}
+                  placeholder={fromAddress || "you@yourcompany.com"}
+                  className="h-10 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"
+                />
+              </Field>
+              <Field label="IMAP host">
+                <input
+                  type="text"
+                  value={imapHost}
+                  onChange={(e) => setImapHost(e.target.value)}
+                  placeholder="imap.zoho.com"
+                  className="h-10 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] font-mono outline-none focus:border-ink"
+                />
+              </Field>
+              <Field label="IMAP port">
+                <input
+                  type="number"
+                  value={imapPort}
+                  onChange={(e) => setImapPort(e.target.value)}
+                  placeholder="993"
+                  className="h-10 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] font-mono outline-none focus:border-ink"
+                />
+              </Field>
+            </div>
+            <p className="mt-3 text-[11px] leading-[1.4] text-muted">
+              Use an <strong>app password</strong>, not your account
+              password — Zoho/Google/etc. require this when 2FA is on.
+              Generate one in your provider's account settings → Security
+              → App Passwords. Inbound polls every minute.
+            </p>
+          </div>
+        )}
 
         {msg && (
           <div

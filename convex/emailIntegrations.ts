@@ -17,6 +17,7 @@ const providerValidator = v.union(
   v.literal("postmark"),
   v.literal("sendgrid"),
   v.literal("resend"),
+  v.literal("smtp_imap"),
 );
 
 // ── Dashboard CRUD ────────────────────────────────────────────────────
@@ -55,6 +56,11 @@ export const upsert = mutation({
     fromAddress: v.string(),
     fromName: v.optional(v.string()),
     inboundAlias: v.optional(v.string()),
+    smtpHost: v.optional(v.string()),
+    smtpPort: v.optional(v.number()),
+    smtpUser: v.optional(v.string()),
+    imapHost: v.optional(v.string()),
+    imapPort: v.optional(v.number()),
     enabled: v.optional(v.boolean()),
   },
   returns: v.id("emailIntegrations"),
@@ -82,6 +88,11 @@ export const upsert = mutation({
         provider: args.provider,
         fromAddress: args.fromAddress,
         fromName: args.fromName,
+        smtpHost: args.smtpHost,
+        smtpPort: args.smtpPort,
+        smtpUser: args.smtpUser,
+        imapHost: args.imapHost,
+        imapPort: args.imapPort,
       };
       // Only overwrite the API key if a new one was supplied — empty
       // string means "leave it alone".
@@ -99,7 +110,7 @@ export const upsert = mutation({
     }
 
     if (!args.apiKey || !args.apiKey.trim()) {
-      throw new Error("API key is required to create the integration.");
+      throw new Error("API key / SMTP password is required.");
     }
     const alias = slugify(args.inboundAlias ?? "support");
     if (!alias) throw new Error("Inbound alias must be alphanumeric.");
@@ -111,6 +122,11 @@ export const upsert = mutation({
       fromAddress: args.fromAddress,
       fromName: args.fromName,
       inboundAlias: alias,
+      smtpHost: args.smtpHost,
+      smtpPort: args.smtpPort,
+      smtpUser: args.smtpUser,
+      imapHost: args.imapHost,
+      imapPort: args.imapPort,
       enabled: args.enabled ?? true,
       createdBy: operator._id,
       createdAt: Date.now(),
@@ -177,6 +193,11 @@ export const upsertMine = mutation({
     fromAddress: v.string(),
     fromName: v.optional(v.string()),
     inboundAlias: v.optional(v.string()),
+    smtpHost: v.optional(v.string()),
+    smtpPort: v.optional(v.number()),
+    smtpUser: v.optional(v.string()),
+    imapHost: v.optional(v.string()),
+    imapPort: v.optional(v.number()),
     enabled: v.optional(v.boolean()),
   },
   returns: v.id("emailIntegrations"),
@@ -201,6 +222,11 @@ export const upsertMine = mutation({
         provider: args.provider,
         fromAddress: args.fromAddress,
         fromName: args.fromName,
+        smtpHost: args.smtpHost,
+        smtpPort: args.smtpPort,
+        smtpUser: args.smtpUser,
+        imapHost: args.imapHost,
+        imapPort: args.imapPort,
       };
       if (args.apiKey && args.apiKey.trim()) {
         patch.apiKey = args.apiKey.trim();
@@ -216,7 +242,7 @@ export const upsertMine = mutation({
     }
 
     if (!args.apiKey || !args.apiKey.trim()) {
-      throw new Error("API key is required to create the integration.");
+      throw new Error("API key / SMTP password is required.");
     }
     const alias = slugify(args.inboundAlias ?? operator.name.toLowerCase());
     if (!alias) throw new Error("Inbound alias must be alphanumeric.");
@@ -229,6 +255,11 @@ export const upsertMine = mutation({
       fromAddress: args.fromAddress,
       fromName: args.fromName,
       inboundAlias: alias,
+      smtpHost: args.smtpHost,
+      smtpPort: args.smtpPort,
+      smtpUser: args.smtpUser,
+      imapHost: args.imapHost,
+      imapPort: args.imapPort,
       enabled: args.enabled ?? true,
       createdBy: operator._id,
       createdAt: Date.now(),
@@ -264,7 +295,12 @@ export const listTeamPersonalMailboxes = query({
     v.object({
       operatorName: v.string(),
       operatorEmail: v.string(),
-      provider: providerValidator,
+      provider: v.union(
+        v.literal("postmark"),
+        v.literal("sendgrid"),
+        v.literal("resend"),
+        v.literal("smtp_imap"),
+      ),
       fromAddress: v.string(),
       inboundAlias: v.string(),
       enabled: v.boolean(),
@@ -569,6 +605,14 @@ export const sendOperatorReply = internalAction({
           body: message.body,
           inReplyTo: conversation.emailThreadId,
         });
+      } else if (integration.provider === "smtp_imap") {
+        // Hand off to the Node-runtime SMTP sender (nodemailer can't
+        // run in Convex's V8 isolate). Returns void; failure recorded
+        // inside the action via recordOutboundDelivery.
+        await ctx.runAction(
+          internal.emailSmtpImap.sendOutboundForMessage,
+          { messageId },
+        );
       }
 
       await ctx.runMutation(
@@ -657,6 +701,86 @@ export const recordDeliveryFailure = internalMutation({
  * integration configured). Used when the failure is structural rather
  * than transient.
  */
+// ── SMTP/IMAP plumbing ────────────────────────────────────────────────
+
+/**
+ * Stamps the SMTP-assigned Message-ID onto an outbound message so
+ * future replies thread cleanly. Called from emailSmtpImap.sendOutbound
+ * after nodemailer returns.
+ */
+export const recordOutboundDelivery = internalMutation({
+  args: {
+    messageId: v.id("messages"),
+    providerMessageId: v.optional(v.string()),
+    ok: v.boolean(),
+    error: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    if (!message) return null;
+    const patch: Record<string, unknown> = {};
+    if (args.ok) {
+      patch.emailDelivery = { status: "sent", attempts: 1 };
+      if (args.providerMessageId) {
+        patch.emailMessageId = args.providerMessageId;
+      }
+    } else {
+      patch.emailDelivery = {
+        status: "failed",
+        attempts: (message.emailDelivery?.attempts ?? 0) + 1,
+        error: args.error ?? "SMTP send failed",
+      };
+    }
+    await ctx.db.patch(args.messageId, patch);
+    return null;
+  },
+});
+
+/**
+ * Returns every smtp_imap integration in the system, with the
+ * fields the cron poller needs. Skips disabled rows.
+ */
+export const listSmtpImapForPolling = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("emailIntegrations").collect();
+    return all
+      .filter(
+        (i) =>
+          i.provider === "smtp_imap" &&
+          i.enabled &&
+          i.imapHost &&
+          i.imapPort &&
+          i.smtpUser,
+      )
+      .map((i) => ({
+        _id: i._id,
+        workspaceId: i.workspaceId,
+        operatorId: i.operatorId ?? null,
+        imapHost: i.imapHost!,
+        imapPort: i.imapPort!,
+        smtpUser: i.smtpUser!,
+        apiKey: i.apiKey,
+        imapLastSeenUid: i.imapLastSeenUid ?? 0,
+      }));
+  },
+});
+
+export const updateImapCursor = internalMutation({
+  args: {
+    integrationId: v.id("emailIntegrations"),
+    lastSeenUid: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.integrationId, {
+      imapLastSeenUid: args.lastSeenUid,
+    });
+    return null;
+  },
+});
+
 export const recordDeliveryFinal = internalMutation({
   args: { messageId: v.id("messages"), error: v.string() },
   returns: v.null(),
