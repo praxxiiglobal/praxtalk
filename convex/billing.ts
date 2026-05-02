@@ -88,6 +88,7 @@ export const _loadWorkspaceForCheckout = internalQuery({
       v.literal("enterprise"),
     ),
     paypalSubscriptionId: v.union(v.string(), v.null()),
+    subscriptionStatus: v.union(SUBSCRIPTION_STATUS, v.null()),
   }),
   handler: async (ctx, args) => {
     const { workspaceId } = await requireOperator(ctx, args.sessionToken);
@@ -97,6 +98,7 @@ export const _loadWorkspaceForCheckout = internalQuery({
       workspaceId,
       currentPlan: ws.plan,
       paypalSubscriptionId: ws.paypalSubscriptionId ?? null,
+      subscriptionStatus: ws.subscriptionStatus ?? null,
     };
   },
 });
@@ -128,10 +130,28 @@ export const createCheckoutLink = action({
       workspaceId: Id<"workspaces">;
       currentPlan: PlanTier;
       paypalSubscriptionId: string | null;
+      subscriptionStatus:
+        | "active"
+        | "past_due"
+        | "cancelled"
+        | "paused"
+        | null;
     } = await ctx.runQuery(internal.billing._loadWorkspaceForCheckout, {
       sessionToken: args.sessionToken,
     });
-    if (ws.paypalSubscriptionId) {
+    // Only block when there's a *confirmed* live subscription. A stashed
+    // paypalSubscriptionId with no status means the user opened a checkout
+    // but never approved — those orphans time out on PayPal's side, and
+    // we let the user re-attempt from a clean slate.
+    const liveStatuses: ReadonlyArray<string> = [
+      "active",
+      "past_due",
+      "paused",
+    ];
+    if (
+      ws.subscriptionStatus &&
+      liveStatuses.includes(ws.subscriptionStatus)
+    ) {
       throw new ConvexError(
         "This workspace already has an active subscription. Cancel it before starting a new one.",
       );
@@ -192,6 +212,12 @@ export const cancelSubscription = action({
       workspaceId: Id<"workspaces">;
       currentPlan: PlanTier;
       paypalSubscriptionId: string | null;
+      subscriptionStatus:
+        | "active"
+        | "past_due"
+        | "cancelled"
+        | "paused"
+        | null;
     } = await ctx.runQuery(internal.billing._loadWorkspaceForCheckout, {
       sessionToken: args.sessionToken,
     });
@@ -200,6 +226,16 @@ export const cancelSubscription = action({
     }
     await paypal.cancelSubscription({
       subscriptionId: ws.paypalSubscriptionId,
+    });
+    // Optimistically flip local state. The webhook will fire
+    // BILLING.SUBSCRIPTION.CANCELLED for real cancels and converge to the
+    // same state — but for already-gone subs (404), the webhook never
+    // fires, so the optimistic write is the only thing that updates us.
+    await ctx.runMutation(internal.billing._applySubscriptionEvent, {
+      workspaceId: ws.workspaceId,
+      paypalSubscriptionId: ws.paypalSubscriptionId,
+      plan: "spark",
+      subscriptionStatus: "cancelled",
     });
     return null;
   },

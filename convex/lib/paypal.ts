@@ -118,10 +118,17 @@ export async function getSubscription(
   return (await res.json()) as PayPalSubscription;
 }
 
+/**
+ * Returns:
+ *   "ok"        — cancelled or already terminal (404 / 422 INVALID_STATE).
+ *                 Caller should flip local state to cancelled.
+ *   "not_cancellable" — sub exists but PayPal refused for some other reason.
+ *                 Caller should surface the error.
+ */
 export async function cancelSubscription(args: {
   subscriptionId: string;
   reason?: string;
-}): Promise<void> {
+}): Promise<"ok"> {
   const token = await getAccessToken();
   const res = await fetch(
     `${apiBase()}/v1/billing/subscriptions/${args.subscriptionId}/cancel`,
@@ -134,11 +141,28 @@ export async function cancelSubscription(args: {
       body: JSON.stringify({ reason: args.reason ?? "Cancelled from PraxTalk dashboard" }),
     },
   );
-  if (!res.ok && res.status !== 204) {
-    throw new Error(
-      `PayPal cancelSubscription failed: ${res.status} ${await res.text()}`,
-    );
+  if (res.ok || res.status === 204) return "ok";
+
+  // Sub doesn't exist anymore — treat as already-cancelled. Happens when
+  // an APPROVAL_PENDING sub timed out, or a sandbox account got purged.
+  if (res.status === 404) return "ok";
+
+  // Already in a non-cancellable terminal state (CANCELLED/EXPIRED) —
+  // PayPal returns 422 SUBSCRIPTION_STATUS_INVALID. Same outcome.
+  if (res.status === 422) {
+    const body = await res.text();
+    if (
+      body.includes("SUBSCRIPTION_STATUS_INVALID") ||
+      body.includes("STATUS_INVALID")
+    ) {
+      return "ok";
+    }
+    throw new Error(`PayPal cancelSubscription failed: 422 ${body}`);
   }
+
+  throw new Error(
+    `PayPal cancelSubscription failed: ${res.status} ${await res.text()}`,
+  );
 }
 
 export function approveLinkOf(sub: PayPalSubscription): string | null {
