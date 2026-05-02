@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { CONVEX_CLIENT_BUNDLE } from "./_bundle";
 
 export const dynamic = "force-static";
 export const revalidate = 300; // 5 minutes — widget changes propagate quickly
@@ -198,7 +199,6 @@ const SOURCE = /* javascript */ `(() => {
   window.__PRAXTALK_WIDGET_LOADED__ = true;
 
   const CONVEX_URL = ${JSON.stringify(CONVEX_URL)};
-  const CONVEX_CLIENT_CDN = "https://esm.sh/convex@1.36.1/browser";
   const VISITOR_KEY_STORAGE = "praxtalk_visitor_key";
   const VISITOR_PROFILE_STORAGE = "praxtalk_visitor_profile";
   const LOBBY_DONE_STORAGE = "praxtalk_lobby_done";
@@ -464,10 +464,13 @@ const SOURCE = /* javascript */ `(() => {
   }
 
   // ── Bootstrap Convex client and wire everything up ────────────────────
-  import(CONVEX_CLIENT_CDN)
-    .then(async (mod) => {
-      const ConvexClient = mod.ConvexClient || mod.default?.ConvexClient;
-      if (!ConvexClient) throw new Error("ConvexClient not found in convex/browser");
+  // The Convex browser client is pre-bundled into this file (see the
+  // top of SOURCE) and exposed as globalThis.__PRAXTALK_CONVEX__.
+  // No runtime CDN fetch needed.
+  Promise.resolve()
+    .then(async () => {
+      const ConvexClient = globalThis.__PRAXTALK_CONVEX__?.ConvexClient;
+      if (!ConvexClient) throw new Error("ConvexClient not found in bundled module");
       const client = new ConvexClient(CONVEX_URL);
 
       const config = await client.query("widgets:getConfigByWidgetId", { widgetId });
@@ -754,7 +757,11 @@ const SOURCE = /* javascript */ `(() => {
 `;
 
 export async function GET() {
-  return new NextResponse(SOURCE, {
+  // Prefix with the pre-bundled Convex browser client so the widget
+  // ships fully self-contained. Bundle exposes ConvexClient on
+  // globalThis.__PRAXTALK_CONVEX__.
+  const body = `${CONVEX_CLIENT_BUNDLE}\n${SOURCE}`;
+  return new NextResponse(body, {
     headers: {
       "content-type": "application/javascript; charset=utf-8",
       "cache-control": "public, max-age=300, s-maxage=86400",

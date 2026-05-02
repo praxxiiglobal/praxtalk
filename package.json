@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/build-widget-bundle.mjs",
     "build": "convex deploy --cmd 'next build'",
     "build:next-only": "next build",
+    "build:widget": "node scripts/build-widget-bundle.mjs",
     "start": "next start"
   },
   "dependencies": {
