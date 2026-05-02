@@ -302,6 +302,26 @@ export const evaluate = internalAction({
       return null;
     }
 
+    // Plan-limit gate. Once the workspace hits its monthly auto-reply
+    // quota, Atlas stops generating until the next billing cycle (or an
+    // upgrade). We log a `skipped_quota_exceeded` run so the dashboard
+    // can surface the upgrade prompt; the conversation goes silent on
+    // the visitor side until an operator picks it up from the inbox.
+    const quota: { aiAutoReplied: number; planLimit: number } =
+      await ctx.runQuery(internal.usage._quotaForWorkspace, {
+        workspaceId: args.workspaceId,
+      });
+    if (quota.aiAutoReplied >= quota.planLimit) {
+      await ctx.runMutation(internal.atlas.recordRun, {
+        workspaceId: args.workspaceId,
+        conversationId: args.conversationId,
+        triggerMessageId: args.triggerMessageId,
+        status: "skipped_quota_exceeded",
+        completedAt: Date.now(),
+      });
+      return null;
+    }
+
     const startId = await ctx.runMutation(internal.atlas.startRun, {
       workspaceId: args.workspaceId,
       conversationId: args.conversationId,
@@ -445,6 +465,7 @@ export const recordRun = internalMutation({
     triggerMessageId: v.id("messages"),
     status: v.union(
       v.literal("skipped_no_config"),
+      v.literal("skipped_quota_exceeded"),
       v.literal("failed"),
     ),
     error: v.optional(v.string()),

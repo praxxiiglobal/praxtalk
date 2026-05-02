@@ -72,6 +72,26 @@ export function BillingView({
       )}
       {paypalError && <Banner kind="error">{paypalError}</Banner>}
 
+      {usage && limit > 0 && used >= limit && (
+        <Banner kind="error">
+          <strong>AI auto-replies paused.</strong> You&apos;ve used all{" "}
+          {limit.toLocaleString()} of this month&apos;s allowance. Atlas
+          won&apos;t auto-reply until {new Date(usage.monthEnd).toLocaleDateString()}{" "}
+          — operators can still respond from the inbox.
+          {workspace.plan !== "scale" && workspace.plan !== "enterprise" && (
+            <> Upgrade below to keep Atlas responding.</>
+          )}
+        </Banner>
+      )}
+      {usage && limit > 0 && used >= limit * 0.8 && used < limit && (
+        <Banner kind="info">
+          You&apos;re at{" "}
+          {Math.round((used / limit) * 100)}% of this month&apos;s AI auto-reply
+          allowance. Atlas pauses at 100% until{" "}
+          {new Date(usage.monthEnd).toLocaleDateString()}.
+        </Banner>
+      )}
+
       <Card title="Current plan">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>

@@ -470,6 +470,7 @@ export default defineSchema({
       v.literal("auto_replied"),
       v.literal("drafted"),
       v.literal("skipped_no_config"),
+      v.literal("skipped_quota_exceeded"),
       v.literal("failed"),
     ),
     reply: v.optional(v.string()),
