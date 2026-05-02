@@ -7,6 +7,7 @@ import {
   readSessionToken,
 } from "@/lib/session";
 import { DashboardShell } from "./DashboardShell";
+import { DialPadButton } from "./DialPad";
 import { SessionGuard } from "./SessionGuard";
 import { SideNav } from "./SideNav";
 import { Topbar } from "./Topbar";
@@ -50,6 +51,7 @@ export default async function AppLayout({
             </main>
           </div>
         </div>
+        <DialPadButton />
       </SessionGuard>
     </DashboardShell>
   );

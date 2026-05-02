@@ -16,7 +16,7 @@ export function DialPadButton() {
         onClick={() => setOpen(true)}
         aria-label="Dial a number"
         title="Dial a number"
-        className="inline-flex size-9 items-center justify-center rounded-full border border-rule-2 bg-paper text-ink transition hover:bg-paper-2"
+        className="fixed bottom-6 left-6 z-30 inline-flex size-14 items-center justify-center rounded-full bg-ink text-paper shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl"
       >
         <PhoneIcon />
       </button>
@@ -169,8 +169,8 @@ function PhoneIcon() {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="16"
-      height="16"
+      width="22"
+      height="22"
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
