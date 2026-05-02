@@ -133,6 +133,7 @@ export const summary = query({
           v.literal("email"),
           v.literal("whatsapp"),
           v.literal("voice"),
+          v.literal("sms"),
         ),
       }),
     ),

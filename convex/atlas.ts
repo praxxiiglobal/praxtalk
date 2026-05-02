@@ -518,6 +518,7 @@ export const completeRunAndAutoReply = internalMutation({
       v.literal("email"),
       v.literal("whatsapp"),
       v.literal("voice"),
+      v.literal("sms"),
     ),
     reply: v.string(),
     confidence: v.number(),

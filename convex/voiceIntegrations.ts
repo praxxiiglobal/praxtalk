@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import {
   action,
+  internalAction,
   internalMutation,
   internalQuery,
   mutation,
@@ -641,3 +642,399 @@ async function originateViaTwilio(args: {
     throw new Error(`Twilio ${res.status}: ${await res.text()}`);
   }
 }
+
+// ── SMS adapters (same providers, different endpoints) ────────────────
+
+async function sendSmsViaTwilio(args: {
+  accountSid: string;
+  authToken: string;
+  from: string;
+  to: string;
+  body: string;
+}) {
+  const auth = btoa(`${args.accountSid}:${args.authToken}`);
+  const form = new URLSearchParams({
+    To: args.to,
+    From: args.from,
+    Body: args.body,
+  });
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${args.accountSid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${auth}`,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Twilio SMS ${res.status}: ${await res.text()}`);
+  }
+}
+
+async function sendSmsViaCallHippo(args: {
+  apiKey: string; // account email
+  apiToken: string;
+  from: string;
+  to: string;
+  body: string;
+}) {
+  const res = await fetch("https://api.callhippo.com/v1/sendsms", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      apiToken: args.apiToken,
+      email: args.apiKey,
+    },
+    body: JSON.stringify({
+      from: args.from,
+      to: args.to,
+      message: args.body,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`CallHippo SMS ${res.status}: ${await res.text()}`);
+  }
+}
+
+async function sendSmsViaTeleCMI(args: {
+  appId: string;
+  secret: string;
+  from: string;
+  to: string;
+  body: string;
+}) {
+  const res = await fetch("https://rest.telecmi.com/v2/ind_send_sms", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      appid: args.appId,
+      secret: args.secret,
+      from: args.from,
+      to: args.to,
+      msg: args.body,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`TeleCMI SMS ${res.status}: ${await res.text()}`);
+  }
+}
+
+// ── SMS public surface ────────────────────────────────────────────────
+
+/**
+ * Public action — operator sends an outbound SMS to any number. Like
+ * originateCall, this creates a visitor + open conversation if the
+ * target number isn't already known, then dispatches the SMS through
+ * whichever provider the workspace has configured. Reuses the voice
+ * integration since Twilio/CallHippo/TeleCMI bundle SMS into the same
+ * account/credentials/number.
+ */
+export const sendSmsToNumber = action({
+  args: {
+    sessionToken: v.string(),
+    toPhone: v.string(),
+    body: v.string(),
+    name: v.optional(v.string()),
+  },
+  returns: v.object({
+    ok: v.boolean(),
+    error: v.optional(v.string()),
+    conversationId: v.optional(v.id("conversations")),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    conversationId?: Id<"conversations">;
+  }> => {
+    const trimmed = args.body.trim();
+    if (!trimmed) return { ok: false, error: "Message body is empty." };
+
+    const data = await ctx.runQuery(
+      internal.voiceIntegrations.loadOriginateContext,
+      { sessionToken: args.sessionToken },
+    );
+    if (!data) {
+      return { ok: false, error: "Voice/SMS integration not configured." };
+    }
+    const { integration } = data;
+    if (!integration.defaultNumber) {
+      return {
+        ok: false,
+        error: "No default outbound number set on the integration.",
+      };
+    }
+
+    try {
+      await dispatchSms({
+        provider: integration.provider as Provider,
+        apiKey: integration.apiKey,
+        apiToken: integration.apiToken,
+        from: integration.defaultNumber,
+        to: args.toPhone,
+        body: trimmed,
+      });
+      const conversationId: Id<"conversations"> = await ctx.runMutation(
+        internal.voiceIntegrations.recordOutboundSms,
+        {
+          workspaceId: integration.workspaceId,
+          toPhone: args.toPhone,
+          body: trimmed,
+          name: args.name,
+        },
+      );
+      return { ok: true, conversationId };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "SMS send failed",
+      };
+    }
+  },
+});
+
+/**
+ * Internal action invoked by messages.send when an operator replies to
+ * an existing SMS conversation from the inbox.
+ */
+export const sendSmsForMessage = internalAction({
+  args: { messageId: v.id("messages") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const data = await ctx.runQuery(
+      internal.voiceIntegrations.loadSmsReplyContext,
+      { messageId: args.messageId },
+    );
+    if (!data) return null;
+    const { integration, toPhone, body } = data;
+    if (!integration.defaultNumber) return null;
+    try {
+      await dispatchSms({
+        provider: integration.provider as Provider,
+        apiKey: integration.apiKey,
+        apiToken: integration.apiToken,
+        from: integration.defaultNumber,
+        to: toPhone,
+        body,
+      });
+    } catch (err) {
+      console.warn("[sms] outbound failed", err);
+    }
+    return null;
+  },
+});
+
+async function dispatchSms(args: {
+  provider: Provider;
+  apiKey: string;
+  apiToken: string;
+  from: string;
+  to: string;
+  body: string;
+}): Promise<void> {
+  if (args.provider === "twilio") {
+    await sendSmsViaTwilio({
+      accountSid: args.apiKey,
+      authToken: args.apiToken,
+      from: args.from,
+      to: args.to,
+      body: args.body,
+    });
+  } else if (args.provider === "callhippo") {
+    await sendSmsViaCallHippo({
+      apiKey: args.apiKey,
+      apiToken: args.apiToken,
+      from: args.from,
+      to: args.to,
+      body: args.body,
+    });
+  } else if (args.provider === "telecmi") {
+    await sendSmsViaTeleCMI({
+      appId: args.apiKey,
+      secret: args.apiToken,
+      from: args.from,
+      to: args.to,
+      body: args.body,
+    });
+  }
+}
+
+export const loadSmsReplyContext = internalQuery({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const msg = await ctx.db.get(args.messageId);
+    if (!msg) return null;
+    const convo = await ctx.db.get(msg.conversationId);
+    if (!convo) return null;
+    const visitor = await ctx.db.get(convo.visitorId);
+    if (!visitor?.phone) return null;
+    const integration = await ctx.db
+      .query("voiceIntegrations")
+      .withIndex("by_workspace", (q) =>
+        q.eq("workspaceId", msg.workspaceId),
+      )
+      .first();
+    if (!integration || !integration.enabled) return null;
+    return { integration, toPhone: visitor.phone, body: msg.body };
+  },
+});
+
+export const recordOutboundSms = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    toPhone: v.string(),
+    body: v.string(),
+    name: v.optional(v.string()),
+  },
+  returns: v.id("conversations"),
+  handler: async (ctx, args) => {
+    const toPhone = args.toPhone.startsWith("+")
+      ? args.toPhone
+      : `+${args.toPhone}`;
+    const defaultBrandId = await getDefaultBrandId(ctx, args.workspaceId);
+    const now = Date.now();
+
+    const allVisitors = await ctx.db.query("visitors").collect();
+    let visitor = allVisitors.find(
+      (vis) => vis.workspaceId === args.workspaceId && vis.phone === toPhone,
+    );
+    if (!visitor) {
+      const id = await ctx.db.insert("visitors", {
+        workspaceId: args.workspaceId,
+        brandId: defaultBrandId,
+        visitorKey: `sms_${toPhone}`,
+        name: args.name,
+        phone: toPhone,
+        firstSeenAt: now,
+        lastSeenAt: now,
+      });
+      visitor = (await ctx.db.get(id))!;
+    } else {
+      await ctx.db.patch(visitor._id, { lastSeenAt: now });
+    }
+
+    const existing = await ctx.db
+      .query("conversations")
+      .withIndex("by_workspace_visitor", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("visitorId", visitor._id),
+      )
+      .filter((q) => q.eq(q.field("status"), "open"))
+      .first();
+
+    let conversationId: Id<"conversations">;
+    let brandId: Id<"brands">;
+    if (existing && existing.channel === "sms") {
+      conversationId = existing._id;
+      brandId = existing.brandId;
+      await ctx.db.patch(conversationId, { lastMessageAt: now });
+    } else {
+      conversationId = await ctx.db.insert("conversations", {
+        workspaceId: args.workspaceId,
+        brandId: defaultBrandId,
+        visitorId: visitor._id,
+        channel: "sms",
+        status: "open",
+        lastMessageAt: now,
+        createdAt: now,
+      });
+      brandId = defaultBrandId;
+    }
+
+    await ctx.db.insert("messages", {
+      conversationId,
+      workspaceId: args.workspaceId,
+      brandId,
+      channel: "sms",
+      role: "operator",
+      body: args.body,
+      createdAt: now,
+    });
+    return conversationId;
+  },
+});
+
+/**
+ * Inbound SMS — provider posts to /api/inbound/sms?secret=… with
+ * provider-specific shapes. Each parser normalises to NormalisedSms.
+ */
+export type NormalisedSms = {
+  fromPhone: string;
+  body: string;
+};
+
+export const recordInboundSms = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    fromPhone: v.string(),
+    body: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const fromPhone = args.fromPhone.startsWith("+")
+      ? args.fromPhone
+      : `+${args.fromPhone}`;
+    const defaultBrandId = await getDefaultBrandId(ctx, args.workspaceId);
+    const now = Date.now();
+
+    const allVisitors = await ctx.db.query("visitors").collect();
+    let visitor = allVisitors.find(
+      (vis) => vis.workspaceId === args.workspaceId && vis.phone === fromPhone,
+    );
+    if (!visitor) {
+      const id = await ctx.db.insert("visitors", {
+        workspaceId: args.workspaceId,
+        brandId: defaultBrandId,
+        visitorKey: `sms_${fromPhone}`,
+        phone: fromPhone,
+        firstSeenAt: now,
+        lastSeenAt: now,
+      });
+      visitor = (await ctx.db.get(id))!;
+    } else {
+      await ctx.db.patch(visitor._id, { lastSeenAt: now });
+    }
+
+    const existing = await ctx.db
+      .query("conversations")
+      .withIndex("by_workspace_visitor", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("visitorId", visitor._id),
+      )
+      .filter((q) => q.eq(q.field("status"), "open"))
+      .first();
+
+    let conversationId: Id<"conversations">;
+    let brandId: Id<"brands">;
+    if (existing && existing.channel === "sms") {
+      conversationId = existing._id;
+      brandId = existing.brandId;
+      await ctx.db.patch(conversationId, { lastMessageAt: now });
+    } else {
+      conversationId = await ctx.db.insert("conversations", {
+        workspaceId: args.workspaceId,
+        brandId: defaultBrandId,
+        visitorId: visitor._id,
+        channel: "sms",
+        status: "open",
+        lastMessageAt: now,
+        createdAt: now,
+      });
+      brandId = defaultBrandId;
+    }
+
+    await ctx.db.insert("messages", {
+      conversationId,
+      workspaceId: args.workspaceId,
+      brandId,
+      channel: "sms",
+      role: "visitor",
+      body: args.body,
+      createdAt: now,
+    });
+    return null;
+  },
+});

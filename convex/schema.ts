@@ -182,6 +182,7 @@ export default defineSchema({
       v.literal("email"),
       v.literal("whatsapp"),
       v.literal("voice"),
+      v.literal("sms"),
     ),
     assignedOperatorId: v.optional(v.id("operators")),
     status: v.union(
@@ -380,6 +381,7 @@ export default defineSchema({
       v.literal("email"),
       v.literal("whatsapp"),
       v.literal("voice"),
+      v.literal("sms"),
     ),
     role: v.union(
       v.literal("visitor"),

@@ -802,6 +802,92 @@ http.route({
   }),
 });
 
+// ── Inbound SMS ───────────────────────────────────────────────────────
+// Same secret-keyed entry pattern as voice. Each provider posts a
+// different body shape; parsers below normalise to { fromPhone, body }.
+type NormalisedSmsHttp = { fromPhone: string; body: string };
+
+function parseTwilioSms(params: URLSearchParams): NormalisedSmsHttp | null {
+  const fromPhone = params.get("From");
+  const body = params.get("Body");
+  if (!fromPhone || !body) return null;
+  return { fromPhone, body };
+}
+
+function parseCallHippoSms(payload: unknown): NormalisedSmsHttp | null {
+  const p = payload as { from?: string; sender?: string; message?: string; body?: string };
+  const fromPhone = p.from ?? p.sender;
+  const body = p.message ?? p.body;
+  if (!fromPhone || !body) return null;
+  return { fromPhone, body };
+}
+
+function parseTeleCMISms(payload: unknown): NormalisedSmsHttp | null {
+  const p = payload as { from?: string; msg?: string; message?: string };
+  if (!p.from) return null;
+  const body = p.msg ?? p.message;
+  if (!body) return null;
+  return { fromPhone: p.from, body };
+}
+
+http.route({
+  path: "/api/inbound/sms",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const url = new URL(req.url);
+    const secret = url.searchParams.get("secret");
+    if (!secret) return errorResponse(400, "Missing secret.");
+
+    const integration = await ctx.runQuery(
+      internal.voiceIntegrations.findByWebhookSecret,
+      { webhookSecret: secret },
+    );
+    if (!integration) return errorResponse(403, "Invalid secret.");
+
+    const contentType = req.headers.get("content-type") ?? "";
+    let normalised: NormalisedSmsHttp | null = null;
+    try {
+      if (integration.provider === "twilio") {
+        const text = await req.text();
+        const params = new URLSearchParams(text);
+        normalised = parseTwilioSms(params);
+      } else if (contentType.includes("application/json")) {
+        const json = await req.json();
+        normalised =
+          integration.provider === "telecmi"
+            ? parseTeleCMISms(json)
+            : parseCallHippoSms(json);
+      } else {
+        const json = await req.json();
+        normalised = parseCallHippoSms(json);
+      }
+    } catch {
+      return errorResponse(400, "Couldn't parse SMS webhook body.");
+    }
+
+    if (!normalised) {
+      return jsonResponse({ ok: true, dropped: "incomplete payload" });
+    }
+
+    try {
+      await ctx.runMutation(
+        internal.voiceIntegrations.recordInboundSms,
+        {
+          workspaceId: integration.workspaceId,
+          fromPhone: normalised.fromPhone,
+          body: normalised.body,
+        },
+      );
+      return jsonResponse({ ok: true });
+    } catch (err) {
+      return errorResponse(
+        500,
+        err instanceof Error ? err.message : "Failed to record SMS.",
+      );
+    }
+  }),
+});
+
 function parseCallHippoCallback(payload: unknown): NormalisedCall | null {
   const p = payload as {
     callId?: string;

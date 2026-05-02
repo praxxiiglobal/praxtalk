@@ -9,7 +9,7 @@ import { useSelectedBrand } from "./useSelectedBrand";
 import { cn } from "@/lib/cn";
 
 type Status = "open" | "snoozed" | "resolved" | "closed";
-type Channel = "web_chat" | "email" | "whatsapp" | "voice";
+type Channel = "web_chat" | "email" | "whatsapp" | "voice" | "sms";
 
 const tabs: { value: Status; label: string }[] = [
   { value: "open", label: "Open" },
@@ -1019,6 +1019,7 @@ function ChannelGlyph({ channel }: { channel: Channel }) {
     email: { icon: "✉", label: "Email", color: "text-accent-deep" },
     whatsapp: { icon: "🟢", label: "WhatsApp", color: "text-good" },
     voice: { icon: "📞", label: "Voice", color: "text-warn" },
+    sms: { icon: "💬", label: "SMS", color: "text-accent-deep" },
   };
   const info = map[channel];
   return (

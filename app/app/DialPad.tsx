@@ -29,9 +29,12 @@ function DialPadModal({ onClose }: { onClose: () => void }) {
   const { sessionToken } = useDashboardAuth();
   const router = useRouter();
   const originateCall = useAction(api.voiceIntegrations.originateCall);
+  const sendSms = useAction(api.voiceIntegrations.sendSmsToNumber);
 
+  const [mode, setMode] = useState<"call" | "sms">("call");
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
+  const [smsBody, setSmsBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,19 +55,31 @@ function DialPadModal({ onClose }: { onClose: () => void }) {
     setError(null);
   };
 
-  const dial = async () => {
+  const submit = async () => {
     const trimmed = phone.trim();
     if (!trimmed) return;
+    if (mode === "sms" && !smsBody.trim()) {
+      setError("Type the SMS body before sending.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const result = await originateCall({
-        sessionToken,
-        toPhone: trimmed,
-        name: name.trim() || undefined,
-      });
+      const result =
+        mode === "call"
+          ? await originateCall({
+              sessionToken,
+              toPhone: trimmed,
+              name: name.trim() || undefined,
+            })
+          : await sendSms({
+              sessionToken,
+              toPhone: trimmed,
+              body: smsBody.trim(),
+              name: name.trim() || undefined,
+            });
       if (!result.ok) {
-        setError(result.error ?? "Call failed.");
+        setError(result.error ?? `${mode === "call" ? "Call" : "SMS"} failed.`);
         setBusy(false);
         return;
       }
@@ -73,7 +88,11 @@ function DialPadModal({ onClose }: { onClose: () => void }) {
         router.push(`/app?conversation=${result.conversationId}`);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Call failed.");
+      setError(
+        e instanceof Error
+          ? e.message
+          : `${mode === "call" ? "Call" : "SMS"} failed.`,
+      );
       setBusy(false);
     }
   };
@@ -90,9 +109,9 @@ function DialPadModal({ onClose }: { onClose: () => void }) {
         className="flex max-h-full w-full max-w-[340px] flex-col overflow-y-auto rounded-2xl border border-rule bg-paper p-4 shadow-2xl sm:p-5"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold tracking-[-0.01em]">
-            Dial a number
+            {mode === "call" ? "Dial a number" : "Send an SMS"}
           </h2>
           <button
             type="button"
@@ -101,6 +120,35 @@ function DialPadModal({ onClose }: { onClose: () => void }) {
             className="rounded-full p-1 text-muted hover:text-ink"
           >
             ✕
+          </button>
+        </div>
+
+        <div className="mb-3 grid grid-cols-2 gap-1 rounded-full bg-paper-2/60 p-1 text-[12px] font-medium">
+          <button
+            type="button"
+            onClick={() => {
+              setMode("call");
+              setError(null);
+            }}
+            className={cn(
+              "rounded-full py-1 transition",
+              mode === "call" ? "bg-ink text-paper" : "text-muted",
+            )}
+          >
+            Call
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("sms");
+              setError(null);
+            }}
+            className={cn(
+              "rounded-full py-1 transition",
+              mode === "sms" ? "bg-ink text-paper" : "text-muted",
+            )}
+          >
+            SMS
           </button>
         </div>
 
@@ -121,20 +169,30 @@ function DialPadModal({ onClose }: { onClose: () => void }) {
           className="mb-3 h-9 w-full rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"
         />
 
-        <div className="grid grid-cols-3 gap-1.5">
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "0", "⌫"].map(
-            (k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => (k === "⌫" ? back() : press(k))}
-                className="h-10 rounded-xl border border-rule-2 bg-paper-2/40 font-mono text-[16px] text-ink transition hover:bg-paper-2"
-              >
-                {k}
-              </button>
-            ),
-          )}
-        </div>
+        {mode === "sms" ? (
+          <textarea
+            value={smsBody}
+            onChange={(e) => setSmsBody(e.target.value)}
+            placeholder="Type your message…"
+            rows={3}
+            className="mb-3 w-full resize-none rounded-xl border border-rule-2 bg-paper px-3 py-2 text-[13px] outline-none focus:border-ink"
+          />
+        ) : (
+          <div className="grid grid-cols-3 gap-1.5">
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "0", "⌫"].map(
+              (k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => (k === "⌫" ? back() : press(k))}
+                  className="h-10 rounded-xl border border-rule-2 bg-paper-2/40 font-mono text-[16px] text-ink transition hover:bg-paper-2"
+                >
+                  {k}
+                </button>
+              ),
+            )}
+          </div>
+        )}
 
         {error && (
           <div
@@ -147,18 +205,27 @@ function DialPadModal({ onClose }: { onClose: () => void }) {
 
         <button
           type="button"
-          onClick={dial}
-          disabled={!phone.trim() || busy}
+          onClick={submit}
+          disabled={
+            !phone.trim() || busy || (mode === "sms" && !smsBody.trim())
+          }
           className={cn(
             "mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-ink text-sm font-medium text-paper transition hover:-translate-y-px disabled:cursor-progress disabled:opacity-60",
           )}
         >
-          {busy ? "Dialling…" : "Call"}
+          {busy
+            ? mode === "call"
+              ? "Dialling…"
+              : "Sending…"
+            : mode === "call"
+              ? "Call"
+              : "Send SMS"}
         </button>
 
         <p className="mt-2 text-center text-[10.5px] leading-[1.4] text-muted">
-          The provider will ring your registered number first, then connect
-          you to the customer.
+          {mode === "call"
+            ? "The provider will ring your registered number first, then connect you to the customer."
+            : "Sent from your registered SMS number. Replies land in your inbox."}
         </p>
       </div>
     </div>

@@ -123,6 +123,12 @@ export const send = mutation({
           internal.whatsappIntegrations.sendOperatorReply,
           { messageId },
         );
+      } else if (channel === "sms") {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.voiceIntegrations.sendSmsForMessage,
+          { messageId },
+        );
       }
     }
 
