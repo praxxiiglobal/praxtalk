@@ -29,7 +29,9 @@ export const get = query({
     const { workspaceId } = await requireOperator(ctx, sessionToken);
     const integration = await ctx.db
       .query("voiceIntegrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", undefined),
+      )
       .first();
     if (!integration) return null;
     return {
@@ -74,7 +76,9 @@ export const upsert = mutation({
 
     const existing = await ctx.db
       .query("voiceIntegrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", undefined),
+      )
       .first();
 
     if (existing) {
@@ -126,10 +130,163 @@ export const remove = mutation({
     }
     const existing = await ctx.db
       .query("voiceIntegrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", undefined),
+      )
       .first();
     if (existing) await ctx.db.delete(existing._id);
     return null;
+  },
+});
+
+// ── Per-operator (personal) voice line ────────────────────────────────
+// Each operator can own their own integration row alongside the
+// workspace-shared one. Inbound to a personal number auto-assigns to
+// the owner; outbound from that operator routes through this row.
+
+export const getMine = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, { sessionToken }) => {
+    const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+    const integration = await ctx.db
+      .query("voiceIntegrations")
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+      )
+      .first();
+    if (!integration) return null;
+    return {
+      _id: integration._id,
+      provider: integration.provider,
+      apiKey: integration.apiKey,
+      hasApiToken: Boolean(integration.apiToken),
+      apiTokenPreview: integration.apiToken
+        ? integration.apiToken.slice(0, 6) + "…"
+        : null,
+      defaultNumber: integration.defaultNumber,
+      webhookSecret: integration.webhookSecret,
+      enabled: integration.enabled,
+      createdAt: integration.createdAt,
+    };
+  },
+});
+
+export const upsertMine = mutation({
+  args: {
+    sessionToken: v.string(),
+    provider: providerValidator,
+    apiKey: v.string(),
+    apiToken: v.optional(v.string()),
+    defaultNumber: v.optional(v.string()),
+    enabled: v.optional(v.boolean()),
+  },
+  returns: v.id("voiceIntegrations"),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    if (!args.apiKey.trim()) {
+      throw new ConvexError("API key / account ID is required.");
+    }
+
+    const existing = await ctx.db
+      .query("voiceIntegrations")
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+      )
+      .first();
+
+    if (existing) {
+      const patch: Record<string, unknown> = {
+        provider: args.provider,
+        apiKey: args.apiKey.trim(),
+        defaultNumber: args.defaultNumber?.trim() || undefined,
+      };
+      if (args.apiToken && args.apiToken.trim()) {
+        patch.apiToken = args.apiToken.trim();
+      }
+      if (args.enabled !== undefined) patch.enabled = args.enabled;
+      await ctx.db.patch(existing._id, patch);
+      return existing._id;
+    }
+
+    if (!args.apiToken || !args.apiToken.trim()) {
+      throw new ConvexError(
+        "API token / secret / auth token is required to create the integration.",
+      );
+    }
+
+    return await ctx.db.insert("voiceIntegrations", {
+      workspaceId,
+      operatorId: operator._id,
+      provider: args.provider,
+      apiKey: args.apiKey.trim(),
+      apiToken: args.apiToken.trim(),
+      defaultNumber: args.defaultNumber?.trim() || undefined,
+      webhookSecret: generateWebhookSecret(),
+      enabled: args.enabled ?? true,
+      createdBy: operator._id,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const removeMine = mutation({
+  args: { sessionToken: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const existing = await ctx.db
+      .query("voiceIntegrations")
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+      )
+      .first();
+    if (existing) await ctx.db.delete(existing._id);
+    return null;
+  },
+});
+
+/**
+ * Admins/owners can see who else on the team has a personal voice
+ * line configured. Returns just operator name + display number for
+ * display in the team's integrations page.
+ */
+export const listTeamPersonalLines = query({
+  args: { sessionToken: v.string() },
+  returns: v.array(
+    v.object({
+      operatorName: v.string(),
+      operatorEmail: v.string(),
+      provider: providerValidator,
+      defaultNumber: v.union(v.string(), v.null()),
+      enabled: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, { sessionToken }) => {
+    const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+    if (operator.role === "agent") return [];
+    const all = await ctx.db
+      .query("voiceIntegrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .collect();
+    const personal = all.filter((i) => i.operatorId);
+    return await Promise.all(
+      personal.map(async (i) => {
+        const own = await ctx.db.get(i.operatorId!);
+        return {
+          operatorName: own?.name ?? "Unknown",
+          operatorEmail: own?.email ?? "",
+          provider: i.provider,
+          defaultNumber: i.defaultNumber ?? null,
+          enabled: i.enabled,
+        };
+      }),
+    );
   },
 });
 
