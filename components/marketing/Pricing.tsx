@@ -7,7 +7,7 @@ type Plan = {
   priceSub: string;
   lede: string;
   features: string[];
-  cta: { label: string; style: "ghost" | "dark" | "light" };
+  cta: { label: string; style: "ghost" | "dark" | "light"; href: string };
   variant?: "feat";
   ribbon?: string;
 };
@@ -24,7 +24,7 @@ const plans: Plan[] = [
       "Atlas Resolver agent",
       "Community support",
     ],
-    cta: { label: "Start free", style: "ghost" },
+    cta: { label: "Start free", style: "ghost", href: "/setup" },
   },
   {
     name: "Team",
@@ -38,7 +38,7 @@ const plans: Plan[] = [
       "WhatsApp, SMS & voice",
       "Copilot for humans",
     ],
-    cta: { label: "Start 14-day trial", style: "dark" },
+    cta: { label: "Start 14-day trial", style: "dark", href: "/setup" },
   },
   {
     name: "Scale",
@@ -53,7 +53,11 @@ const plans: Plan[] = [
       "Sentiment + routing engine",
       "SOC 2 Type II (when available)",
     ],
-    cta: { label: "Talk to sales", style: "light" },
+    cta: {
+      label: "Talk to sales",
+      style: "light",
+      href: "mailto:hello@praxtalk.com?subject=Scale%20plan%20enquiry",
+    },
     variant: "feat",
     ribbon: "Most popular",
   },
@@ -70,7 +74,11 @@ const plans: Plan[] = [
       "SAML SSO + SCIM",
       "Dedicated solutions architect",
     ],
-    cta: { label: "Request quote", style: "ghost" },
+    cta: {
+      label: "Request quote",
+      style: "ghost",
+      href: "mailto:hello@praxtalk.com?subject=Enterprise%20enquiry",
+    },
   },
 ];
 
@@ -163,7 +171,7 @@ function PlanCard({ plan }: { plan: Plan }) {
 
       <div className="mt-auto pt-2">
         <a
-          href="#start"
+          href={plan.cta.href}
           className={cn(
             "group inline-flex h-[38px] items-center gap-2 rounded-full px-4 text-sm font-medium transition hover:-translate-y-px",
             plan.cta.style === "ghost" &&

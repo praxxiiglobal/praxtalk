@@ -5,15 +5,26 @@ export const metadata = {
   title: "Billing · PraxTalk",
 };
 
-export default function BillingPage() {
+export default async function BillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    paypal?: string;
+    paypal_error?: string;
+  }>;
+}) {
+  const params = await searchParams;
   return (
     <>
       <PageHeader
         title="Billing"
-        description="Plan, AI resolution usage, and invoices. Stripe is wired up at v1.0 — the open beta is free."
+        description="Plan, AI usage, and PayPal subscription. Upgrade with PayPal — cancel anytime from this page."
       />
       <PageBody>
-        <BillingView />
+        <BillingView
+          paypalReturn={params.paypal ?? null}
+          paypalError={params.paypal_error ?? null}
+        />
       </PageBody>
     </>
   );

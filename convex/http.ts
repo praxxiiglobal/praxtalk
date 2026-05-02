@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import * as paypal from "./lib/paypal";
 
 /**
  * REST API for headless integrations. Customers who don't want to use
@@ -963,5 +964,68 @@ function stripHtml(s: string): string {
     .replace(/&gt;/g, ">")
     .trim();
 }
+
+// ── PayPal billing webhook ────────────────────────────────────────────
+// PayPal POSTs subscription-lifecycle events here. We verify the
+// signature via PayPal's own verification API (avoids implementing the
+// cert chain manually), then dispatch to billing._handleWebhookEvent
+// which re-fetches the subscription and updates workspace state.
+http.route({
+  path: "/api/paypal/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const rawBody = await req.text();
+
+    const headers = {
+      authAlgo: req.headers.get("paypal-auth-algo") ?? "",
+      certUrl: req.headers.get("paypal-cert-url") ?? "",
+      transmissionId: req.headers.get("paypal-transmission-id") ?? "",
+      transmissionSig: req.headers.get("paypal-transmission-sig") ?? "",
+      transmissionTime: req.headers.get("paypal-transmission-time") ?? "",
+    };
+
+    const verified = await paypal.verifyWebhookSignature({ headers, rawBody });
+    if (!verified) {
+      return new Response(JSON.stringify({ error: "invalid signature" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    let evt: {
+      event_type?: string;
+      resource?: { id?: string; custom_id?: string };
+    };
+    try {
+      evt = JSON.parse(rawBody);
+    } catch {
+      return new Response(JSON.stringify({ error: "bad json" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const subscriptionId = evt.resource?.id;
+    const eventType = evt.event_type;
+    if (!subscriptionId || !eventType) {
+      // Not a subscription event we care about; ack so PayPal doesn't retry.
+      return new Response(JSON.stringify({ ok: true, ignored: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    await ctx.runAction(internal.billing._handleWebhookEvent, {
+      eventType,
+      paypalSubscriptionId: subscriptionId,
+      customId: evt.resource?.custom_id,
+    });
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }),
+});
 
 export default http;

@@ -23,8 +23,23 @@ export default defineSchema({
       v.literal("scale"),
       v.literal("enterprise"),
     ),
+    // PayPal Subscriptions API state — populated by the webhook at
+    // /api/paypal/webhook. Absent on workspaces that have never upgraded.
+    paypalSubscriptionId: v.optional(v.string()),
+    paypalPayerId: v.optional(v.string()),
+    subscriptionStatus: v.optional(
+      v.union(
+        v.literal("active"),
+        v.literal("past_due"),
+        v.literal("cancelled"),
+        v.literal("paused"),
+      ),
+    ),
+    currentPeriodEnd: v.optional(v.number()),
     createdAt: v.number(),
-  }).index("by_slug", ["slug"]),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_paypal_subscription", ["paypalSubscriptionId"]),
 
   // ── Brands ─────────────────────────────────────────────────────────
   // One workspace owns N brands. Each brand has its own widget snippet,
