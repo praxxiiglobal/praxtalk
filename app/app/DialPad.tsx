@@ -83,11 +83,11 @@ function DialPadModal({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-modal="true"
       aria-label="Dial a number"
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 pt-20 pb-8 sm:pt-24"
       onClick={onClose}
     >
       <div
-        className="my-auto w-full max-w-[340px] rounded-2xl border border-rule bg-paper p-4 shadow-2xl sm:p-5"
+        className="w-full max-w-[340px] rounded-2xl border border-rule bg-paper p-4 shadow-2xl sm:p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
