@@ -25,6 +25,15 @@ export const listInbox = query({
         v.literal("closed"),
       ),
     ),
+    channel: v.optional(
+      v.union(
+        v.literal("web_chat"),
+        v.literal("email"),
+        v.literal("whatsapp"),
+        v.literal("voice"),
+        v.literal("sms"),
+      ),
+    ),
     brandId: v.optional(v.id("brands")),
     limit: v.optional(v.number()),
   },
@@ -35,6 +44,7 @@ export const listInbox = query({
     );
     const status = args.status ?? "open";
     const limit = Math.min(args.limit ?? 50, 200);
+    const channelFilter = args.channel;
 
     // Resolve which brands this operator can see.
     const allBrands = await ctx.db
@@ -73,6 +83,10 @@ export const listInbox = query({
       conversations = all.filter(
         (c) => !c.brandId || brandIndex.has(c.brandId),
       );
+    }
+
+    if (channelFilter) {
+      conversations = conversations.filter((c) => c.channel === channelFilter);
     }
 
     // Hydrate with visitor + brand for the inbox row preview.

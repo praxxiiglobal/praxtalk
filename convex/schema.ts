@@ -241,6 +241,23 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_prefix", ["prefix"]),
 
+  // ── Browser push subscriptions ─────────────────────────────────────
+  // One row per (operator, browser) combination. The same operator on
+  // their laptop + phone gets two rows. Endpoint is the unique key —
+  // the push service URL where we POST encrypted payloads.
+  pushSubscriptions: defineTable({
+    workspaceId: v.id("workspaces"),
+    operatorId: v.id("operators"),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    userAgent: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_operator", ["operatorId"])
+    .index("by_endpoint", ["endpoint"]),
+
   // ── REST API rate limiting ─────────────────────────────────────────
   // One row per IP. Tracks the current 60-second window's request
   // count. When the window rolls over the existing row is patched

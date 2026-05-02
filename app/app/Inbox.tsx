@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn";
 
 type Status = "open" | "snoozed" | "resolved" | "closed";
 type Channel = "web_chat" | "email" | "whatsapp" | "voice" | "sms";
+type ChannelFilter = Channel | "all";
 
 const tabs: { value: Status; label: string }[] = [
   { value: "open", label: "Open" },
@@ -18,16 +19,27 @@ const tabs: { value: Status; label: string }[] = [
   { value: "closed", label: "Closed" },
 ];
 
+const channelTabs: { value: ChannelFilter; label: string; icon: string }[] = [
+  { value: "all", label: "All", icon: "·" },
+  { value: "web_chat", label: "Chat", icon: "💬" },
+  { value: "sms", label: "SMS", icon: "📱" },
+  { value: "email", label: "Email", icon: "✉" },
+  { value: "whatsapp", label: "WhatsApp", icon: "🟢" },
+  { value: "voice", label: "Voice", icon: "📞" },
+];
+
 export function Inbox() {
   const { sessionToken, workspace } = useDashboardAuth();
   const selectedBrand = useSelectedBrand();
   const [status, setStatus] = useState<Status>("open");
+  const [channel, setChannel] = useState<ChannelFilter>("all");
   const [selectedId, setSelectedId] =
     useState<Id<"conversations"> | null>(null);
 
   const conversations = useQuery(api.conversations.listInbox, {
     sessionToken,
     status,
+    channel: channel === "all" ? undefined : channel,
     brandId: selectedBrand ?? undefined,
   });
 
@@ -42,6 +54,28 @@ export function Inbox() {
   return (
     <div className="grid flex-1 min-h-0 grid-cols-1 md:grid-cols-[320px_1fr]">
       <aside className="flex min-h-0 flex-col border-r border-rule bg-paper-2/60">
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-rule px-3 py-2">
+          {channelTabs.map((t) => (
+            <button
+              key={t.value}
+              type="button"
+              onClick={() => {
+                setChannel(t.value);
+                setSelectedId(null);
+              }}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition",
+                channel === t.value
+                  ? "bg-ink text-paper"
+                  : "text-muted hover:text-ink",
+              )}
+              title={t.label}
+            >
+              <span className="text-[12px]">{t.icon}</span>
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
         <div className="flex shrink-0 items-center gap-1 border-b border-rule px-3 py-2">
           {tabs.map((t) => (
             <button
@@ -132,7 +166,12 @@ function ConversationList({
             )}
           >
             <Avatar
-              name={c.visitor?.name ?? c.visitor?.email ?? "Anonymous"}
+              name={
+                c.visitor?.name ??
+                c.visitor?.email ??
+                c.visitor?.phone ??
+                "Anonymous"
+              }
             />
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
@@ -150,6 +189,7 @@ function ConversationList({
                   <span className="truncate text-[13px] font-medium tracking-[-0.01em]">
                     {c.visitor?.name ??
                       c.visitor?.email ??
+                      c.visitor?.phone ??
                       "Anonymous visitor"}
                   </span>
                 </span>
@@ -233,7 +273,10 @@ function ConversationPane({
   }
 
   const visitorName =
-    convo.visitor?.name ?? convo.visitor?.email ?? "Anonymous visitor";
+    convo.visitor?.name ??
+    convo.visitor?.email ??
+    convo.visitor?.phone ??
+    "Anonymous visitor";
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();

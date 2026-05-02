@@ -204,6 +204,22 @@ export const sendVisitorMessage = mutation({
       triggerMessageId: messageId,
     });
 
+    // Browser push fan-out — wakes any operator with push enabled. The
+    // action no-ops silently when VAPID isn't configured or there are
+    // no active subscriptions, so this scheduler call is always safe.
+    const visitorLabel =
+      visitor.name ?? visitor.email ?? visitor.phone ?? "A visitor";
+    await ctx.scheduler.runAfter(
+      0,
+      internal.pushNotifications.sendToWorkspace,
+      {
+        workspaceId: brand.workspaceId,
+        title: `${visitorLabel} sent a message`,
+        body: body.slice(0, 140),
+        url: `/app?conversation=${args.conversationId}`,
+      },
+    );
+
     return messageId;
   },
 });
