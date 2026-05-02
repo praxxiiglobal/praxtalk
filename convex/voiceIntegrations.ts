@@ -151,6 +151,7 @@ export const findByWebhookSecret = internalQuery({
     return {
       _id: integration._id,
       workspaceId: integration.workspaceId,
+      operatorId: integration.operatorId ?? null,
       provider: integration.provider,
     };
   },
@@ -164,6 +165,10 @@ export const findByWebhookSecret = internalQuery({
 export const recordInboundCall = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
+    // When the matching integration is owned by an operator, the
+    // conversation auto-assigns to them so it shows up in their
+    // personal queue (and not in everyone else's).
+    assignToOperatorId: v.optional(v.id("operators")),
     fromPhone: v.string(), // E.164
     fromName: v.optional(v.string()),
     durationSec: v.optional(v.number()),
@@ -230,6 +235,7 @@ export const recordInboundCall = internalMutation({
         visitorId: visitor._id,
         channel: "voice",
         status: "open",
+        assignedOperatorId: args.assignToOperatorId,
         lastMessageAt: now,
         createdAt: now,
       });
@@ -557,11 +563,26 @@ export const listCallHistory = query({
 export const loadOriginateContext = internalQuery({
   args: { sessionToken: v.string() },
   handler: async (ctx, { sessionToken }) => {
-    const { workspaceId } = await requireOperator(ctx, sessionToken);
-    const integration = await ctx.db
+    const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+    // Personal integration for this operator wins over workspace shared.
+    // Lets each team member dial out from their own number when they
+    // have one, falling back to the team line otherwise.
+    const personal = await ctx.db
       .query("voiceIntegrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+      )
       .first();
+    let integration = personal;
+    if (!integration) {
+      const shared = await ctx.db
+        .query("voiceIntegrations")
+        .withIndex("by_workspace_operator", (q) =>
+          q.eq("workspaceId", workspaceId).eq("operatorId", undefined),
+        )
+        .first();
+      integration = shared;
+    }
     if (!integration || !integration.enabled) return null;
     return { integration };
   },
@@ -873,12 +894,29 @@ export const loadSmsReplyContext = internalQuery({
     if (!convo) return null;
     const visitor = await ctx.db.get(convo.visitorId);
     if (!visitor?.phone) return null;
-    const integration = await ctx.db
-      .query("voiceIntegrations")
-      .withIndex("by_workspace", (q) =>
-        q.eq("workspaceId", msg.workspaceId),
-      )
-      .first();
+    // Prefer the operator who authored the reply's personal integration,
+    // falling back to the conversation owner's, then the workspace-shared
+    // line — same priority as outbound dial pad.
+    const senderId = msg.senderOperatorId ?? convo.assignedOperatorId ?? null;
+    let integration = null;
+    if (senderId) {
+      integration = await ctx.db
+        .query("voiceIntegrations")
+        .withIndex("by_workspace_operator", (q) =>
+          q.eq("workspaceId", msg.workspaceId).eq("operatorId", senderId),
+        )
+        .first();
+    }
+    if (!integration) {
+      integration = await ctx.db
+        .query("voiceIntegrations")
+        .withIndex("by_workspace_operator", (q) =>
+          q
+            .eq("workspaceId", msg.workspaceId)
+            .eq("operatorId", undefined),
+        )
+        .first();
+    }
     if (!integration || !integration.enabled) return null;
     return { integration, toPhone: visitor.phone, body: msg.body };
   },
@@ -970,6 +1008,7 @@ export type NormalisedSms = {
 export const recordInboundSms = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
+    assignToOperatorId: v.optional(v.id("operators")),
     fromPhone: v.string(),
     body: v.string(),
   },
@@ -1020,6 +1059,7 @@ export const recordInboundSms = internalMutation({
         visitorId: visitor._id,
         channel: "sms",
         status: "open",
+        assignedOperatorId: args.assignToOperatorId,
         lastMessageAt: now,
         createdAt: now,
       });

@@ -154,6 +154,7 @@ export const findByPhoneNumberId = internalQuery({
     return {
       _id: integration._id,
       workspaceId: integration.workspaceId,
+      operatorId: integration.operatorId ?? null,
       verifyToken: integration.verifyToken,
     };
   },
@@ -167,6 +168,7 @@ export const findByPhoneNumberId = internalQuery({
 export const recordInboundMessage = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
+    assignToOperatorId: v.optional(v.id("operators")),
     fromPhone: v.string(), // E.164
     fromName: v.optional(v.string()),
     body: v.string(),
@@ -226,6 +228,7 @@ export const recordInboundMessage = internalMutation({
         visitorId: visitor._id,
         channel: "whatsapp",
         status: "open",
+        assignedOperatorId: args.assignToOperatorId,
         lastMessageAt: now,
         createdAt: now,
       });
@@ -275,12 +278,31 @@ export const loadOutboundContext = internalQuery({
     if (!conversation) return null;
     const visitor = await ctx.db.get(conversation.visitorId);
     if (!visitor || !visitor.phone) return null;
-    const integration = await ctx.db
-      .query("whatsappIntegrations")
-      .withIndex("by_workspace", (q) =>
-        q.eq("workspaceId", message.workspaceId),
-      )
-      .first();
+    // Per-operator routing — prefer sender's personal WhatsApp number,
+    // then the conversation owner's, then workspace shared.
+    const senderId =
+      message.senderOperatorId ?? conversation.assignedOperatorId ?? null;
+    let integration = null;
+    if (senderId) {
+      integration = await ctx.db
+        .query("whatsappIntegrations")
+        .withIndex("by_workspace_operator", (q) =>
+          q
+            .eq("workspaceId", message.workspaceId)
+            .eq("operatorId", senderId),
+        )
+        .first();
+    }
+    if (!integration) {
+      integration = await ctx.db
+        .query("whatsappIntegrations")
+        .withIndex("by_workspace_operator", (q) =>
+          q
+            .eq("workspaceId", message.workspaceId)
+            .eq("operatorId", undefined),
+        )
+        .first();
+    }
     if (!integration || !integration.enabled) return null;
     return { message, conversation, visitor, integration };
   },

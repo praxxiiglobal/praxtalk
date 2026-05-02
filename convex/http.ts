@@ -589,6 +589,7 @@ http.route({
         internal.emailIntegrations.recordInboundEmail,
         {
           workspaceId: workspace.workspaceId,
+          assignToOperatorId: workspace.operatorId ?? undefined,
           fromEmail: parsed.fromEmail,
           fromName: parsed.fromName,
           subject: parsed.subject,
@@ -703,6 +704,7 @@ http.route({
             internal.whatsappIntegrations.recordInboundMessage,
             {
               workspaceId: integration.workspaceId,
+              assignToOperatorId: integration.operatorId ?? undefined,
               fromPhone: msg.from,
               fromName: profileName,
               body: msg.text.body,
@@ -789,6 +791,7 @@ http.route({
         internal.voiceIntegrations.recordInboundCall,
         {
           workspaceId: integration.workspaceId,
+          assignToOperatorId: integration.operatorId ?? undefined,
           ...normalised,
         },
       );
@@ -874,6 +877,7 @@ http.route({
         internal.voiceIntegrations.recordInboundSms,
         {
           workspaceId: integration.workspaceId,
+          assignToOperatorId: integration.operatorId ?? undefined,
           fromPhone: normalised.fromPhone,
           body: normalised.body,
         },

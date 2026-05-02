@@ -584,22 +584,24 @@ export default defineSchema({
   // we check against Meta's webhook handshake (?hub.verify_token=...).
   whatsappIntegrations: defineTable({
     workspaceId: v.id("workspaces"),
+    // Owner of this number. Null = workspace-shared (everyone sees
+    // inbound here, anyone can send from it). Set = personal channel,
+    // owned by one operator — inbound auto-assigns to them, outbound
+    // from this operator routes through this row.
+    operatorId: v.optional(v.id("operators")),
     // Meta Cloud API identifiers (visible in business.facebook.com).
     phoneNumberId: v.string(), // numeric phone number ID
     businessAccountId: v.optional(v.string()), // WABA ID
     displayPhoneNumber: v.optional(v.string()), // E.164, for UI display
-    // Auth: long-lived access token for the Meta Graph API. Permanent
-    // tokens are issued via System Users; temporary tokens via Graph
-    // Explorer. Either works.
+    // Auth: long-lived access token for the Meta Graph API.
     accessToken: v.string(),
-    // Webhook handshake secret. Customer copies this into their Meta
-    // app's Webhooks → WhatsApp → Verify token field.
     verifyToken: v.string(),
     enabled: v.boolean(),
     createdBy: v.id("operators"),
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_operator", ["workspaceId", "operatorId"])
     .index("by_phone_number_id", ["phoneNumberId"]),
 
   // WhatsApp templates registered with Meta. Templates must be
@@ -626,32 +628,29 @@ export default defineSchema({
   // number → we hit CallHippo's originate endpoint).
   voiceIntegrations: defineTable({
     workspaceId: v.id("workspaces"),
-    // Each provider has its own adapter (originate URL, auth scheme,
-    // webhook payload shape). To switch providers later: pick a new
-    // value here and re-paste credentials — no code changes needed.
+    // Owner of this number. Null = workspace-shared (every operator can
+    // dial out / receive). Set = personal channel — inbound auto-
+    // assigns to the owner, dial pad uses this row when *that* operator
+    // dials. Acme can give Sarah her own Twilio number this way.
+    operatorId: v.optional(v.id("operators")),
     provider: v.union(
       v.literal("callhippo"),
       v.literal("telecmi"),
       v.literal("twilio"),
     ),
-    // Per-provider credential fields. The adapter knows what each one
-    // means for its provider:
     //   CallHippo : apiKey = account email,    apiToken = API token
     //   TeleCMI   : apiKey = appid,            apiToken = secret
     //   Twilio    : apiKey = Account SID,      apiToken = Auth Token
     apiKey: v.string(),
     apiToken: v.string(),
-    // Default outbound caller ID (E.164). When operators click-to-call,
-    // this is the from-number. Optional — caller chooses one if unset.
     defaultNumber: v.optional(v.string()),
-    // Secret we generate; customer pastes it into CallHippo's webhook
-    // configuration. Inbound webhooks must include this to be accepted.
     webhookSecret: v.string(),
     enabled: v.boolean(),
     createdBy: v.id("operators"),
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_operator", ["workspaceId", "operatorId"])
     .index("by_webhook_secret", ["webhookSecret"]),
 
   // ── Botim integration (UAE) ───────────────────────────────────────
@@ -681,6 +680,10 @@ export default defineSchema({
   // sending (which API key + from address to use).
   emailIntegrations: defineTable({
     workspaceId: v.id("workspaces"),
+    // Owner of this email channel. Null = workspace-shared. Set =
+    // personal — sarah@inbound.praxtalk.com goes only to Sarah's inbox
+    // and her replies use her API key + from-address.
+    operatorId: v.optional(v.id("operators")),
     provider: v.union(
       v.literal("postmark"),
       v.literal("sendgrid"),
@@ -700,5 +703,6 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_operator", ["workspaceId", "operatorId"])
     .index("by_inbound_alias", ["inboundAlias"]),
 });

@@ -156,6 +156,7 @@ export const findByRecipient = internalQuery({
     return {
       _id: integration._id,
       workspaceId: integration.workspaceId,
+      operatorId: integration.operatorId ?? null,
       provider: integration.provider,
     };
   },
@@ -206,6 +207,7 @@ export const findThreadedConversation = internalQuery({
 export const recordInboundEmail = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
+    assignToOperatorId: v.optional(v.id("operators")),
     fromEmail: v.string(),
     fromName: v.optional(v.string()),
     subject: v.optional(v.string()),
@@ -266,6 +268,7 @@ export const recordInboundEmail = internalMutation({
         visitorId: visitor._id,
         channel: "email",
         status: "open",
+        assignedOperatorId: args.assignToOperatorId,
         // The first message's Message-ID becomes the thread anchor.
         emailThreadId: args.messageId,
         lastMessageAt: now,
@@ -526,12 +529,31 @@ export const loadOutboundContext = internalQuery({
     if (!conversation) return null;
     const visitor = await ctx.db.get(conversation.visitorId);
     if (!visitor) return null;
-    const integration = await ctx.db
-      .query("emailIntegrations")
-      .withIndex("by_workspace", (q) =>
-        q.eq("workspaceId", message.workspaceId),
-      )
-      .first();
+    // Per-operator routing: prefer the sender's personal email
+    // integration, then the assigned operator's, then workspace shared.
+    const senderId =
+      message.senderOperatorId ?? conversation.assignedOperatorId ?? null;
+    let integration = null;
+    if (senderId) {
+      integration = await ctx.db
+        .query("emailIntegrations")
+        .withIndex("by_workspace_operator", (q) =>
+          q
+            .eq("workspaceId", message.workspaceId)
+            .eq("operatorId", senderId),
+        )
+        .first();
+    }
+    if (!integration) {
+      integration = await ctx.db
+        .query("emailIntegrations")
+        .withIndex("by_workspace_operator", (q) =>
+          q
+            .eq("workspaceId", message.workspaceId)
+            .eq("operatorId", undefined),
+        )
+        .first();
+    }
     if (!integration || !integration.enabled) return null;
     return { message, conversation, visitor, integration };
   },
