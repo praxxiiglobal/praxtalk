@@ -6,6 +6,7 @@ import { useEffect, useState, useTransition } from "react";
 import { HamburgerIcon, MobileDrawer } from "@/components/marketing/Nav";
 import { BrandSwitcher } from "./BrandSwitcher";
 import { useDashboardAuth } from "./DashboardShell";
+import { DialPadButton } from "./DialPad";
 import { NotificationsBell } from "./Notifications";
 import { MobileNavList } from "./SideNav";
 import { logoutAction } from "./actions";
@@ -56,6 +57,7 @@ export function Topbar() {
         </div>
 
         <div className="ml-auto flex items-center gap-3">
+          <DialPadButton />
           <NotificationsBell />
           <div className="hidden text-right text-xs text-muted sm:block">
             <div className="font-medium text-ink">{operator.name}</div>

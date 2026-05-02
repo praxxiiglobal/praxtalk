@@ -7,6 +7,7 @@ import {
   query,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { requireOperator } from "./auth";
 import { getDefaultBrandId } from "./brands";
 import { generateWebhookSecret } from "./lib/auth";
@@ -309,9 +310,21 @@ export const originateCall = action({
   args: {
     sessionToken: v.string(),
     toPhone: v.string(),
+    name: v.optional(v.string()), // optional display name for new visitor
   },
-  returns: v.object({ ok: v.boolean(), error: v.optional(v.string()) }),
-  handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
+  returns: v.object({
+    ok: v.boolean(),
+    error: v.optional(v.string()),
+    conversationId: v.optional(v.id("conversations")),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    conversationId?: Id<"conversations">;
+  }> => {
     const data = await ctx.runQuery(
       internal.voiceIntegrations.loadOriginateContext,
       { sessionToken: args.sessionToken },
@@ -351,13 +364,192 @@ export const originateCall = action({
           to: args.toPhone,
         });
       }
-      return { ok: true };
+      // Log the outbound call: creates visitor + conversation if this
+      // is a fresh number, or appends to the existing one. Provider's
+      // post-call webhook (recordInboundCall) will later append the
+      // recording / transcript / duration once the call ends.
+      const conversationId: Id<"conversations"> = await ctx.runMutation(
+        internal.voiceIntegrations.recordOutboundCallInitiated,
+        {
+          workspaceId: integration.workspaceId,
+          toPhone: args.toPhone,
+          name: args.name,
+        },
+      );
+      return { ok: true, conversationId };
     } catch (err) {
       return {
         ok: false,
         error: err instanceof Error ? err.message : "Originate failed",
       };
     }
+  },
+});
+
+/**
+ * Stamps an "Outbound call to <number>" system message into the
+ * conversation timeline, creating visitor + conversation if needed.
+ * Called from `originateCall` after the provider accepts the dial.
+ */
+export const recordOutboundCallInitiated = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    toPhone: v.string(),
+    name: v.optional(v.string()),
+  },
+  returns: v.id("conversations"),
+  handler: async (ctx, args) => {
+    const toPhone = args.toPhone.startsWith("+")
+      ? args.toPhone
+      : `+${args.toPhone}`;
+    const defaultBrandId = await getDefaultBrandId(ctx, args.workspaceId);
+    const now = Date.now();
+
+    // Find or create visitor by phone number scoped to this workspace.
+    const allVisitors = await ctx.db.query("visitors").collect();
+    let visitor = allVisitors.find(
+      (vis) => vis.workspaceId === args.workspaceId && vis.phone === toPhone,
+    );
+    if (!visitor) {
+      const visitorKey = `voice_${toPhone}`;
+      const id = await ctx.db.insert("visitors", {
+        workspaceId: args.workspaceId,
+        brandId: defaultBrandId,
+        visitorKey,
+        name: args.name,
+        phone: toPhone,
+        firstSeenAt: now,
+        lastSeenAt: now,
+      });
+      visitor = (await ctx.db.get(id))!;
+    } else {
+      await ctx.db.patch(visitor._id, { lastSeenAt: now });
+    }
+
+    // Re-use the existing open voice conversation if one exists, else
+    // open a new one.
+    const existing = await ctx.db
+      .query("conversations")
+      .withIndex("by_workspace_visitor", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("visitorId", visitor._id),
+      )
+      .filter((q) => q.eq(q.field("status"), "open"))
+      .first();
+
+    let conversationId: Id<"conversations">;
+    let brandId: Id<"brands">;
+    if (existing && existing.channel === "voice") {
+      conversationId = existing._id;
+      brandId = existing.brandId;
+      await ctx.db.patch(conversationId, { lastMessageAt: now });
+    } else {
+      conversationId = await ctx.db.insert("conversations", {
+        workspaceId: args.workspaceId,
+        brandId: defaultBrandId,
+        visitorId: visitor._id,
+        channel: "voice",
+        status: "open",
+        lastMessageAt: now,
+        createdAt: now,
+      });
+      brandId = defaultBrandId;
+    }
+
+    await ctx.db.insert("messages", {
+      conversationId,
+      workspaceId: args.workspaceId,
+      brandId,
+      channel: "voice",
+      role: "system",
+      body: `Outbound call to ${toPhone} initiated. Provider will post the recording once the call ends.`,
+      createdAt: now,
+    });
+
+    return conversationId;
+  },
+});
+
+/**
+ * Call history — every conversation on the voice channel, newest
+ * first. Joined with the latest message for at-a-glance context
+ * (recording URL, duration, etc, all live in the system message body).
+ */
+export const listCallHistory = query({
+  args: {
+    sessionToken: v.string(),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("conversations"),
+      lastMessageAt: v.number(),
+      status: v.union(
+        v.literal("open"),
+        v.literal("snoozed"),
+        v.literal("resolved"),
+        v.literal("closed"),
+      ),
+      visitor: v.union(
+        v.null(),
+        v.object({
+          name: v.optional(v.string()),
+          phone: v.optional(v.string()),
+        }),
+      ),
+      lastMessage: v.union(
+        v.null(),
+        v.object({
+          body: v.string(),
+          role: v.union(
+            v.literal("visitor"),
+            v.literal("operator"),
+            v.literal("atlas"),
+            v.literal("system"),
+            v.literal("internal_note"),
+          ),
+        }),
+      ),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const { workspaceId } = await requireOperator(ctx, args.sessionToken);
+    const limit = Math.min(Math.max(1, args.limit ?? 100), 200);
+    // Fetch all conversations for the workspace then filter to voice —
+    // voice tends to be a small fraction so this is fine at the
+    // open-beta scale. Switch to a dedicated channel index when the
+    // table grows past ~50k rows.
+    const all = await ctx.db
+      .query("conversations")
+      .withIndex("by_workspace_status_lastmsg", (q) =>
+        q.eq("workspaceId", workspaceId),
+      )
+      .order("desc")
+      .take(limit * 4);
+    const voice = all.filter((c) => c.channel === "voice").slice(0, limit);
+    const out = await Promise.all(
+      voice.map(async (c) => {
+        const visitor = await ctx.db.get(c.visitorId);
+        const lastMessage = await ctx.db
+          .query("messages")
+          .withIndex("by_conversation_created", (q) =>
+            q.eq("conversationId", c._id),
+          )
+          .order("desc")
+          .first();
+        return {
+          _id: c._id,
+          lastMessageAt: c.lastMessageAt,
+          status: c.status,
+          visitor: visitor
+            ? { name: visitor.name, phone: visitor.phone }
+            : null,
+          lastMessage: lastMessage
+            ? { body: lastMessage.body, role: lastMessage.role }
+            : null,
+        };
+      }),
+    );
+    return out;
   },
 });
 

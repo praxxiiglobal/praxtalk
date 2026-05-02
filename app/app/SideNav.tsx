@@ -11,6 +11,7 @@ export const navItems: { href: string; label: string; icon: NavIconName }[] = [
   { href: "/app", label: "Inbox", icon: "inbox" },
   { href: "/app/notifications", label: "Notifications", icon: "bell" },
   { href: "/app/leads", label: "Leads", icon: "lead" },
+  { href: "/app/calls", label: "Calls", icon: "phone" },
   { href: "/app/atlas", label: "Atlas AI", icon: "atlas" },
   { href: "/app/lobby", label: "Lobby intake", icon: "lobby" },
   { href: "/app/analytics", label: "Analytics", icon: "chart" },
@@ -116,6 +117,7 @@ type NavIconName =
   | "inbox"
   | "bell"
   | "lead"
+  | "phone"
   | "atlas"
   | "lobby"
   | "chart"
@@ -156,6 +158,12 @@ function NavIcon({ name, active }: { name: NavIconName; active?: boolean }) {
       return (
         <svg {...common} aria-hidden>
           <path d="M8 2v8M5 7l3 3 3-3M3 13h10" />
+        </svg>
+      );
+    case "phone":
+      return (
+        <svg {...common} aria-hidden>
+          <path d="M14 11.3v2a1.3 1.3 0 0 1-1.4 1.4 13.2 13.2 0 0 1-5.8-2 13 13 0 0 1-4-4 13.2 13.2 0 0 1-2-5.8A1.3 1.3 0 0 1 2.1 1.5h2a1.3 1.3 0 0 1 1.4 1.1c.1.6.2 1.2.5 1.8a1.3 1.3 0 0 1-.3 1.4l-.8.8a10.7 10.7 0 0 0 4 4l.8-.8a1.3 1.3 0 0 1 1.4-.3c.6.2 1.2.4 1.8.5A1.3 1.3 0 0 1 14 11.3z" />
         </svg>
       );
     case "atlas":
