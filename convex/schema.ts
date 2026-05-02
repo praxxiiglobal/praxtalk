@@ -240,6 +240,17 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_prefix", ["prefix"]),
 
+  // ── REST API rate limiting ─────────────────────────────────────────
+  // One row per IP. Tracks the current 60-second window's request
+  // count. When the window rolls over the existing row is patched
+  // back to count=1 with the new windowStart — bounded to one row
+  // per active client IP, no cleanup needed.
+  apiRateLimits: defineTable({
+    ip: v.string(),
+    windowStart: v.number(),
+    count: v.number(),
+  }).index("by_ip", ["ip"]),
+
   // ── Webhooks ───────────────────────────────────────────────────────
   webhookSubscriptions: defineTable({
     workspaceId: v.id("workspaces"),

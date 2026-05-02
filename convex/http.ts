@@ -45,6 +45,39 @@ function errorResponse(status: number, message: string): Response {
   return jsonResponse({ error: message }, status);
 }
 
+function clientIp(req: Request): string {
+  // Convex sits behind a proxy; the originating IP is in
+  // X-Forwarded-For (first entry of the comma-separated list).
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) return xff.split(",")[0].trim();
+  return req.headers.get("x-real-ip") ?? "unknown";
+}
+
+async function checkRateLimit(
+  ctx: Parameters<Parameters<typeof httpAction>[0]>[0],
+  req: Request,
+): Promise<Response | null> {
+  const ip = clientIp(req);
+  const result = await ctx.runMutation(internal.rateLimits._checkAndRecord, {
+    ip,
+  });
+  if (result.allowed) return null;
+  return new Response(
+    JSON.stringify({
+      error: "Rate limit exceeded. Try again in a moment.",
+      retryAfterSeconds: result.retryAfterSeconds,
+    }),
+    {
+      status: 429,
+      headers: {
+        "content-type": "application/json",
+        "retry-after": String(result.retryAfterSeconds ?? 60),
+        ...CORS_HEADERS,
+      },
+    },
+  );
+}
+
 async function authenticate(
   ctx: Parameters<Parameters<typeof httpAction>[0]>[0],
   req: Request,
@@ -56,6 +89,11 @@ async function authenticate(
     }
   | { error: Response }
 > {
+  // Rate limit before auth so brute-force attempts get 429'd just like
+  // legitimate over-quota requests do.
+  const rateLimited = await checkRateLimit(ctx, req);
+  if (rateLimited) return { error: rateLimited };
+
   const auth = req.headers.get("authorization") ?? "";
   const match = auth.match(/^Bearer (ptk_live_[a-f0-9]+)$/i);
   if (!match) {

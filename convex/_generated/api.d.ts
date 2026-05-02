@@ -29,6 +29,7 @@ import type * as notifications from "../notifications.js";
 import type * as operators from "../operators.js";
 import type * as passwordReset from "../passwordReset.js";
 import type * as publicApi from "../publicApi.js";
+import type * as rateLimits from "../rateLimits.js";
 import type * as savedReplies from "../savedReplies.js";
 import type * as usage from "../usage.js";
 import type * as visitors from "../visitors.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   operators: typeof operators;
   passwordReset: typeof passwordReset;
   publicApi: typeof publicApi;
+  rateLimits: typeof rateLimits;
   savedReplies: typeof savedReplies;
   usage: typeof usage;
   visitors: typeof visitors;
