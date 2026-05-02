@@ -10,7 +10,7 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="border-b border-rule px-4 py-6 sm:px-8 sm:py-8">
+    <header className="shrink-0 border-b border-rule px-4 py-6 sm:px-8 sm:py-8">
       <div className="mx-auto flex max-w-[1080px] flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h1 className="m-0 text-[28px] font-semibold tracking-[-0.02em] text-ink sm:text-[32px]">
@@ -30,7 +30,7 @@ export function PageHeader({
 
 export function PageBody({ children }: { children: ReactNode }) {
   return (
-    <div className="px-4 py-8 sm:px-8 sm:py-10">
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-8 sm:px-8 sm:py-10">
       <div className="mx-auto flex max-w-[1080px] flex-col gap-8">{children}</div>
     </div>
   );
