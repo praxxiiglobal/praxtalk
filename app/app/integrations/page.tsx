@@ -1,6 +1,7 @@
 import { ApiKeysSection } from "./ApiKeysSection";
 import { BotimIntegrationSection } from "./BotimIntegrationSection";
 import { EmailIntegrationSection } from "./EmailIntegrationSection";
+import { PersonalEmailSection } from "./PersonalEmailSection";
 import { PersonalVoiceSection } from "./PersonalVoiceSection";
 import { VoiceIntegrationSection } from "./VoiceIntegrationSection";
 import { WebhooksSection } from "./WebhooksSection";
@@ -21,6 +22,7 @@ export default function IntegrationsPage() {
       />
       <PageBody>
         <EmailIntegrationSection />
+        <PersonalEmailSection />
         <WhatsappIntegrationSection />
         <WhatsappTemplatesSection />
         <BotimIntegrationSection />

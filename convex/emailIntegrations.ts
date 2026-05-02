@@ -72,7 +72,9 @@ export const upsert = mutation({
 
     const existing = await ctx.db
       .query("emailIntegrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", undefined),
+      )
       .first();
 
     if (existing) {
@@ -129,10 +131,166 @@ export const remove = mutation({
     }
     const existing = await ctx.db
       .query("emailIntegrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", undefined),
+      )
       .first();
     if (existing) await ctx.db.delete(existing._id);
     return null;
+  },
+});
+
+// ── Per-operator personal mailbox ─────────────────────────────────────
+
+export const getMine = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, { sessionToken }) => {
+    const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+    const integration = await ctx.db
+      .query("emailIntegrations")
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+      )
+      .first();
+    if (!integration) return null;
+    return {
+      _id: integration._id,
+      provider: integration.provider,
+      hasApiKey: Boolean(integration.apiKey),
+      apiKeyPreview: integration.apiKey
+        ? integration.apiKey.slice(0, 6) + "…"
+        : null,
+      fromAddress: integration.fromAddress,
+      fromName: integration.fromName,
+      inboundAlias: integration.inboundAlias,
+      enabled: integration.enabled,
+      createdAt: integration.createdAt,
+    };
+  },
+});
+
+export const upsertMine = mutation({
+  args: {
+    sessionToken: v.string(),
+    provider: providerValidator,
+    apiKey: v.optional(v.string()),
+    fromAddress: v.string(),
+    fromName: v.optional(v.string()),
+    inboundAlias: v.optional(v.string()),
+    enabled: v.optional(v.boolean()),
+  },
+  returns: v.id("emailIntegrations"),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args.fromAddress)) {
+      throw new Error("From address must be a valid email.");
+    }
+
+    const existing = await ctx.db
+      .query("emailIntegrations")
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+      )
+      .first();
+
+    if (existing) {
+      const patch: Record<string, unknown> = {
+        provider: args.provider,
+        fromAddress: args.fromAddress,
+        fromName: args.fromName,
+      };
+      if (args.apiKey && args.apiKey.trim()) {
+        patch.apiKey = args.apiKey.trim();
+      }
+      if (args.inboundAlias !== undefined) {
+        const alias = slugify(args.inboundAlias);
+        if (!alias) throw new Error("Inbound alias must be alphanumeric.");
+        patch.inboundAlias = alias;
+      }
+      if (args.enabled !== undefined) patch.enabled = args.enabled;
+      await ctx.db.patch(existing._id, patch);
+      return existing._id;
+    }
+
+    if (!args.apiKey || !args.apiKey.trim()) {
+      throw new Error("API key is required to create the integration.");
+    }
+    const alias = slugify(args.inboundAlias ?? operator.name.toLowerCase());
+    if (!alias) throw new Error("Inbound alias must be alphanumeric.");
+
+    return await ctx.db.insert("emailIntegrations", {
+      workspaceId,
+      operatorId: operator._id,
+      provider: args.provider,
+      apiKey: args.apiKey.trim(),
+      fromAddress: args.fromAddress,
+      fromName: args.fromName,
+      inboundAlias: alias,
+      enabled: args.enabled ?? true,
+      createdBy: operator._id,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const removeMine = mutation({
+  args: { sessionToken: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const existing = await ctx.db
+      .query("emailIntegrations")
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+      )
+      .first();
+    if (existing) await ctx.db.delete(existing._id);
+    return null;
+  },
+});
+
+/**
+ * Admins/owners see who else on the team has a personal mailbox set up.
+ */
+export const listTeamPersonalMailboxes = query({
+  args: { sessionToken: v.string() },
+  returns: v.array(
+    v.object({
+      operatorName: v.string(),
+      operatorEmail: v.string(),
+      provider: providerValidator,
+      fromAddress: v.string(),
+      inboundAlias: v.string(),
+      enabled: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, { sessionToken }) => {
+    const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+    if (operator.role === "agent") return [];
+    const all = await ctx.db
+      .query("emailIntegrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .collect();
+    const personal = all.filter((i) => i.operatorId);
+    return await Promise.all(
+      personal.map(async (i) => {
+        const own = await ctx.db.get(i.operatorId!);
+        return {
+          operatorName: own?.name ?? "Unknown",
+          operatorEmail: own?.email ?? "",
+          provider: i.provider,
+          fromAddress: i.fromAddress,
+          inboundAlias: i.inboundAlias,
+          enabled: i.enabled,
+        };
+      }),
+    );
   },
 });
 
