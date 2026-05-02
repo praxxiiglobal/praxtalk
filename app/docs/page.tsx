@@ -44,6 +44,13 @@ export default function DocsPage() {
       >
         <Prose>
           <p>
+            <strong>
+              <a href="/docs/api">→ Full REST reference</a>
+            </strong>{" "}
+            (auth, all endpoints, rate limits, webhooks, signature
+            verification).
+          </p>
+          <p>
             Base URL:{" "}
             <code>https://industrious-moose-892.convex.site/api/v1</code>
           </p>
