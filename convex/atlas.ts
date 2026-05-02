@@ -419,9 +419,7 @@ export const loadEvaluationContext = internalQuery({
       return null;
     }
     const config = await loadConfig(ctx, args.workspaceId);
-    const brand = conversation.brandId
-      ? await ctx.db.get(conversation.brandId)
-      : null;
+    const brand = await ctx.db.get(conversation.brandId);
     const history = await ctx.db
       .query("messages")
       .withIndex("by_conversation_created", (q) =>
@@ -514,7 +512,7 @@ export const completeRunAndAutoReply = internalMutation({
     runId: v.id("atlasRuns"),
     conversationId: v.id("conversations"),
     workspaceId: v.id("workspaces"),
-    brandId: v.optional(v.id("brands")),
+    brandId: v.id("brands"),
     channel: v.union(
       v.literal("web_chat"),
       v.literal("email"),

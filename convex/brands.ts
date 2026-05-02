@@ -193,6 +193,33 @@ export const remove = mutation({
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
+/**
+ * Returns the workspace's "default" brand — the oldest one, which is
+ * the seed brand created at workspace setup. Used by channel
+ * integrations (email/voice/whatsapp) that aren't yet wired to a
+ * specific brand and need to stamp brandId on visitors/conversations
+ * to satisfy the schema.
+ *
+ * Throws if the workspace has zero brands — that should be impossible
+ * (workspace setup always seeds one).
+ */
+export async function getDefaultBrandId(
+  ctx: { db: { query: any } },
+  workspaceId: Id<"workspaces">,
+): Promise<Id<"brands">> {
+  const oldest = await ctx.db
+    .query("brands")
+    .withIndex("by_workspace", (q: any) => q.eq("workspaceId", workspaceId))
+    .order("asc")
+    .first();
+  if (!oldest) {
+    throw new Error(
+      `Workspace ${workspaceId} has no brands — setup never completed?`,
+    );
+  }
+  return oldest._id;
+}
+
 export function hasBrandAccess(
   operator: Doc<"operators">,
   brandId: Id<"brands">,

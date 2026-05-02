@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireOperator } from "./auth";
+import { getDefaultBrandId } from "./brands";
 import { generateWebhookSecret } from "./lib/auth";
 import { pushActivity } from "./notifications";
 
@@ -183,6 +184,7 @@ export const recordInboundCall = internalMutation({
     const fromPhone = args.fromPhone.startsWith("+")
       ? args.fromPhone
       : `+${args.fromPhone}`;
+    const defaultBrandId = await getDefaultBrandId(ctx, args.workspaceId);
 
     const allVisitors = await ctx.db.query("visitors").collect();
     let visitor = allVisitors.find(
@@ -193,6 +195,7 @@ export const recordInboundCall = internalMutation({
       const visitorKey = `voice_${fromPhone}`;
       const id = await ctx.db.insert("visitors", {
         workspaceId: args.workspaceId,
+        brandId: defaultBrandId,
         visitorKey,
         name: args.fromName,
         phone: fromPhone,
@@ -221,6 +224,7 @@ export const recordInboundCall = internalMutation({
     } else {
       const cid = await ctx.db.insert("conversations", {
         workspaceId: args.workspaceId,
+        brandId: defaultBrandId,
         visitorId: visitor._id,
         channel: "voice",
         status: "open",
@@ -228,7 +232,7 @@ export const recordInboundCall = internalMutation({
         createdAt: now,
       });
       conversationId = cid;
-      brandId = undefined;
+      brandId = defaultBrandId;
     }
 
     const dur = args.durationSec ?? 0;

@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { requireOperator } from "./auth";
-import { hasBrandAccess } from "./brands";
+import { getDefaultBrandId, hasBrandAccess } from "./brands";
 import { pushActivity } from "./notifications";
 import { fireEvent } from "./webhooks";
 
@@ -146,7 +147,7 @@ export const create = mutation({
     const name = args.name.trim();
     if (!name) throw new Error("Lead name is required.");
 
-    let brandId = args.brandId;
+    let brandId: Id<"brands"> | undefined = args.brandId;
     let location = undefined;
     let ip = undefined;
     let visitorId = args.visitorId;
@@ -159,16 +160,16 @@ export const create = mutation({
       if (!convo || convo.workspaceId !== workspaceId) {
         throw new Error("Conversation not found.");
       }
-      if (convo.brandId && !hasBrandAccess(operator, convo.brandId)) {
+      if (!hasBrandAccess(operator, convo.brandId)) {
         throw new Error("No access to this brand.");
       }
-      brandId = brandId ?? convo.brandId ?? undefined;
+      brandId = brandId ?? convo.brandId;
       visitorId = visitorId ?? convo.visitorId;
     }
     if (visitorId) {
       const visitor = await ctx.db.get(visitorId);
       if (visitor && visitor.workspaceId === workspaceId) {
-        brandId = brandId ?? visitor.brandId ?? undefined;
+        brandId = brandId ?? visitor.brandId;
         location = visitor.location
           ? {
               country: visitor.location.country,
@@ -181,7 +182,13 @@ export const create = mutation({
         ip = visitor.ip;
       }
     }
-    if (brandId && !hasBrandAccess(operator, brandId)) {
+    // Fall back to the workspace's default brand if neither the
+    // conversation nor visitor pinned one (e.g. operator created lead
+    // from scratch with no source).
+    if (!brandId) {
+      brandId = await getDefaultBrandId(ctx, workspaceId);
+    }
+    if (!hasBrandAccess(operator, brandId)) {
       throw new Error("No access to this brand.");
     }
 

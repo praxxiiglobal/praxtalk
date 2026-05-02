@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { getDefaultBrandId } from "./brands";
 import { fireEvent } from "./webhooks";
 
 /**
@@ -272,11 +273,16 @@ export const createLead = internalMutation({
     const name = args.name.trim();
     if (!name) throw new Error("Lead name is required.");
 
-    if (args.brandId) {
-      const brand = await ctx.db.get(args.brandId);
+    let brandId = args.brandId;
+    if (brandId) {
+      const brand = await ctx.db.get(brandId);
       if (!brand || brand.workspaceId !== args.workspaceId) {
         throw new Error("Brand not found.");
       }
+    } else {
+      // REST caller didn't specify a brand — fall back to the workspace
+      // default so the row satisfies the (now required) brandId schema.
+      brandId = await getDefaultBrandId(ctx, args.workspaceId);
     }
 
     // API-created leads don't have a session operator. We pick the
@@ -287,7 +293,7 @@ export const createLead = internalMutation({
     const now = Date.now();
     const leadId = await ctx.db.insert("leads", {
       workspaceId: args.workspaceId,
-      brandId: args.brandId,
+      brandId,
       name,
       email: args.email,
       phone: args.phone,

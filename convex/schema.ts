@@ -4,13 +4,12 @@ import { v } from "convex/values";
 /**
  * PraxTalk schema — multi-tenant from day one, multi-brand from v1.
  *
- * Multi-brand migration is in flight (widen-migrate-narrow):
- *   Phase 1 — `brands` table added, `brandId` fields added as optional,
- *             `widgetConfigs` + `workspaces.widgetId` kept around so the
- *             dev deployment still validates pre-migration docs.
- *   Phase 2 — backfill mutation populates brandId everywhere.
- *   Phase 3 — narrow: brandId becomes required, widgetConfigs is dropped,
- *             workspaces.widgetId is dropped.
+ * Multi-brand migration complete (widen-migrate-narrow done as of
+ * 2026-05-02). brandId is required on visitors, conversations, leads,
+ * messages, and intakeResponses. It stays optional on apiKeys,
+ * lobbyConfigs, and savedReplies — those tables use null/absent to mean
+ * "workspace-wide" (vs brand-scoped), which is a real product axis, not
+ * a migration artefact.
  */
 export default defineSchema({
   // ── Tenancy ────────────────────────────────────────────────────────
@@ -138,10 +137,9 @@ export default defineSchema({
   // ── Visitors (end-users on the customer's site) ───────────────────
   visitors: defineTable({
     workspaceId: v.id("workspaces"),
-    // Optional during Phase 1; required in Phase 3.
     // A visitor on Brand A is a different doc from the same person
     // on Brand B (separate identity per brand).
-    brandId: v.optional(v.id("brands")),
+    brandId: v.id("brands"),
     visitorKey: v.string(), // anonymous cookie / fingerprint
     // Pre-chat form fields. Captured by the widget before the first
     // message is sent. Optional in the schema only because legacy rows
@@ -174,8 +172,7 @@ export default defineSchema({
   // ── Conversations + messages ──────────────────────────────────────
   conversations: defineTable({
     workspaceId: v.id("workspaces"),
-    // Optional during Phase 1; required in Phase 3.
-    brandId: v.optional(v.id("brands")),
+    brandId: v.id("brands"),
     visitorId: v.id("visitors"),
     // Where the conversation came from. Required as of the Phase 2
     // narrow on 2026-04-29 — every backfilled row was stamped to
@@ -322,7 +319,7 @@ export default defineSchema({
   // the team can follow up later without losing the visitor's details.
   leads: defineTable({
     workspaceId: v.id("workspaces"),
-    brandId: v.optional(v.id("brands")),
+    brandId: v.id("brands"),
     conversationId: v.optional(v.id("conversations")),
     visitorId: v.optional(v.id("visitors")),
     name: v.string(),
@@ -362,8 +359,8 @@ export default defineSchema({
   messages: defineTable({
     conversationId: v.id("conversations"),
     workspaceId: v.id("workspaces"), // denormalized for tenant scoping
-    // Denormalized for inbox row filtering. Optional during Phase 1.
-    brandId: v.optional(v.id("brands")),
+    // Denormalized for inbox row filtering.
+    brandId: v.id("brands"),
     // Channel inherited from the parent conversation, denormalized so
     // analytics queries can filter without a join. Required as of the
     // Phase 2 narrow on 2026-04-29.
@@ -529,7 +526,7 @@ export default defineSchema({
   intakeResponses: defineTable({
     conversationId: v.id("conversations"),
     workspaceId: v.id("workspaces"),
-    brandId: v.optional(v.id("brands")),
+    brandId: v.id("brands"),
     answers: v.string(), // JSON: {"company_size": "10-50", "topic": "Sales"}
     submittedAt: v.number(),
   }).index("by_conversation", ["conversationId"]),

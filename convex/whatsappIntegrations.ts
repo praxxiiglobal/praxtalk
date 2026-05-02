@@ -8,6 +8,7 @@ import {
   query,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { getDefaultBrandId } from "./brands";
 import { internal } from "./_generated/api";
 import { requireOperator } from "./auth";
 import { generateWebhookSecret } from "./lib/auth";
@@ -180,6 +181,7 @@ export const recordInboundMessage = internalMutation({
     const fromPhone = args.fromPhone.startsWith("+")
       ? args.fromPhone
       : `+${args.fromPhone}`;
+    const defaultBrandId = await getDefaultBrandId(ctx, args.workspaceId);
 
     const allVisitors = await ctx.db.query("visitors").collect();
     let visitor = allVisitors.find(
@@ -190,6 +192,7 @@ export const recordInboundMessage = internalMutation({
       const visitorKey = `wa_${fromPhone}`;
       const id = await ctx.db.insert("visitors", {
         workspaceId: args.workspaceId,
+        brandId: defaultBrandId,
         visitorKey,
         name: args.fromName,
         phone: fromPhone,
@@ -219,6 +222,7 @@ export const recordInboundMessage = internalMutation({
     } else {
       const cid = await ctx.db.insert("conversations", {
         workspaceId: args.workspaceId,
+        brandId: defaultBrandId,
         visitorId: visitor._id,
         channel: "whatsapp",
         status: "open",
@@ -226,7 +230,7 @@ export const recordInboundMessage = internalMutation({
         createdAt: now,
       });
       conversationId = cid;
-      brandId = undefined;
+      brandId = defaultBrandId;
     }
 
     const messageId = await ctx.db.insert("messages", {

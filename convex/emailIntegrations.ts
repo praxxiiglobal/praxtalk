@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { getDefaultBrandId } from "./brands";
 import { requireOperator } from "./auth";
 import { slugify } from "./lib/auth";
 import { pushActivity } from "./notifications";
@@ -220,6 +221,7 @@ export const recordInboundEmail = internalMutation({
   }),
   handler: async (ctx, args) => {
     const fromEmail = args.fromEmail.trim().toLowerCase();
+    const brandId = await getDefaultBrandId(ctx, args.workspaceId);
 
     // Find or create visitor by email scoped to this workspace.
     const allVisitors = await ctx.db.query("visitors").collect();
@@ -231,6 +233,7 @@ export const recordInboundEmail = internalMutation({
       const visitorKey = `email_${fromEmail}`;
       const id = await ctx.db.insert("visitors", {
         workspaceId: args.workspaceId,
+        brandId,
         visitorKey,
         name: args.fromName,
         email: fromEmail,
@@ -259,6 +262,7 @@ export const recordInboundEmail = internalMutation({
     if (!conversation) {
       const cid = await ctx.db.insert("conversations", {
         workspaceId: args.workspaceId,
+        brandId,
         visitorId: visitor._id,
         channel: "email",
         status: "open",

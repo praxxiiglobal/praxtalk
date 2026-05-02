@@ -50,11 +50,12 @@ export const listInbox = query({
 
     if (args.brandId) {
       // Specific brand requested — verify access.
-      if (!brandIndex.has(args.brandId)) return [];
+      const brandId = args.brandId;
+      if (!brandIndex.has(brandId)) return [];
       conversations = await ctx.db
         .query("conversations")
         .withIndex("by_brand_status_lastmsg", (q) =>
-          q.eq("brandId", args.brandId).eq("status", status),
+          q.eq("brandId", brandId).eq("status", status),
         )
         .order("desc")
         .take(limit);
