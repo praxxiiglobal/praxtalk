@@ -41,8 +41,8 @@ export function Inbox() {
 
   return (
     <div className="grid flex-1 min-h-0 grid-cols-1 md:grid-cols-[320px_1fr]">
-      <aside className="flex flex-col border-r border-rule bg-paper-2/60">
-        <div className="flex items-center gap-1 border-b border-rule px-3 py-2">
+      <aside className="flex min-h-0 flex-col border-r border-rule bg-paper-2/60">
+        <div className="flex shrink-0 items-center gap-1 border-b border-rule px-3 py-2">
           {tabs.map((t) => (
             <button
               key={t.value}
@@ -70,7 +70,7 @@ export function Inbox() {
         />
       </aside>
 
-      <section className="flex min-w-0 flex-col bg-paper">
+      <section className="flex min-h-0 min-w-0 flex-col bg-paper">
         {activeId ? (
           <ConversationPane
             conversationId={activeId}
@@ -264,8 +264,8 @@ function ConversationPane({
     : undefined;
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      <div className="flex items-center gap-3 border-b border-rule px-5 py-3">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <div className="flex shrink-0 items-center gap-3 border-b border-rule px-5 py-3">
         <Avatar name={visitorName} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -312,7 +312,7 @@ function ConversationPane({
       </div>
 
       {convo.humanRequestedAt ? (
-        <div className="flex items-center gap-2 border-b border-warn/30 bg-warn/15 px-5 py-2 text-[12px] text-ink">
+        <div className="flex shrink-0 items-center gap-2 border-b border-warn/30 bg-warn/15 px-5 py-2 text-[12px] text-ink">
           <span className="text-base leading-none">🙋</span>
           <span>
             <strong className="font-medium">Visitor asked for a human.</strong>{" "}
@@ -325,7 +325,7 @@ function ConversationPane({
       {intake ? <IntakeStrip intake={intake} /> : null}
 
       {(visitor?.phone || visitor?.ip || locationLabel) && (
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-rule bg-paper-2/40 px-5 py-2 font-mono text-[11px] text-muted">
+        <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-b border-rule bg-paper-2/40 px-5 py-2 font-mono text-[11px] text-muted">
           {visitor?.phone ? (
             <span className="inline-flex items-center gap-1.5">
               <span className="opacity-60">phone</span>{" "}
@@ -388,7 +388,7 @@ function ConversationPane({
       <form
         onSubmit={onSubmit}
         className={cn(
-          "flex flex-col gap-2 border-t border-rule px-4 py-3 transition",
+          "flex shrink-0 flex-col gap-2 border-t border-rule px-4 py-3 transition",
           internal ? "bg-warn/10" : "bg-paper-2/60",
         )}
       >
@@ -645,7 +645,7 @@ function AtlasSuggestionPanel({
 
   if (run.status === "skipped_no_config") {
     return (
-      <div className="flex items-center justify-between gap-3 border-t border-rule bg-paper-2/40 px-5 py-2 text-[12px]">
+      <div className="flex items-center justify-between gap-3 shrink-0 border-t border-rule bg-paper-2/40 px-5 py-2 text-[12px]">
         <span className="text-muted">
           Atlas isn't configured yet — visitors won't get AI replies until you
           add a key.
@@ -679,7 +679,7 @@ function AtlasSuggestionPanel({
     };
     const pct = run.confidence ? Math.round(run.confidence * 100) : null;
     return (
-      <div className="border-t border-rule bg-accent-soft/40 px-5 py-3">
+      <div className="shrink-0 border-t border-rule bg-accent-soft/40 px-5 py-3">
         <div className="mb-1 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
           <span>✦ Atlas suggests</span>
           {pct !== null ? <span className="text-ink/70">{pct}% confident</span> : null}
@@ -715,7 +715,7 @@ function AtlasSuggestionPanel({
   if (run.status === "auto_replied") {
     const pct = run.confidence ? Math.round(run.confidence * 100) : null;
     return (
-      <div className="flex items-center gap-2 border-t border-rule bg-good/10 px-5 py-2 text-[12px] text-good">
+      <div className="flex items-center gap-2 shrink-0 border-t border-rule bg-good/10 px-5 py-2 text-[12px] text-good">
         <span>✦ Atlas auto-replied</span>
         {pct !== null ? (
           <span className="text-good/70">· {pct}% confident</span>
@@ -726,7 +726,7 @@ function AtlasSuggestionPanel({
 
   if (run.status === "failed") {
     return (
-      <div className="border-t border-rule bg-warn/10 px-5 py-2 font-mono text-[11px] text-warn">
+      <div className="shrink-0 border-t border-rule bg-warn/10 px-5 py-2 font-mono text-[11px] text-warn">
         Atlas error: {run.error ?? "unknown"}
       </div>
     );
@@ -925,7 +925,7 @@ function IntakeStrip({
   const entries = Object.entries(parsed).filter(([, v]) => v && v.length > 0);
   if (entries.length === 0) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule bg-accent-soft/40 px-5 py-2 text-[12px] text-ink">
+    <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule bg-accent-soft/40 px-5 py-2 text-[12px] text-ink">
       <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
         intake
       </span>
