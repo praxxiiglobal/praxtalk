@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useDashboardAuth } from "../DashboardShell";
 import { Card } from "../PageHeader";
+import { SharingPanel } from "./SharingPanel";
 import { cn } from "@/lib/cn";
 
 /**
@@ -266,6 +267,12 @@ export function PersonalWhatsappSection() {
             </ul>
           </div>
         )}
+
+        <SharingPanel
+          integrationType="whatsapp"
+          hideWhenManagingOther
+          isManagingOther={isManagingOther}
+        />
       </div>
     </Card>
   );

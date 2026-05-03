@@ -11,6 +11,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { requireOperator } from "./auth";
 import { getDefaultBrandId } from "./brands";
+import { canAccessIntegration } from "./integrationGrants";
 import { generateWebhookSecret } from "./lib/auth";
 import { pushActivity } from "./notifications";
 
@@ -148,8 +149,8 @@ export const getMine = query({
   args: {
     sessionToken: v.string(),
     // Admins/owners can pass another operator's id to view that
-    // person's personal integration. Agents can only view their own
-    // (the arg is ignored if they pass it).
+    // person's personal integration. Non-admins can also view IF the
+    // owner has granted them access via integrationGrants.
     targetOperatorId: v.optional(v.id("operators")),
   },
   handler: async (ctx, args) => {
@@ -157,11 +158,17 @@ export const getMine = query({
       ctx,
       args.sessionToken,
     );
-    const target =
-      args.targetOperatorId &&
-      (operator.role === "owner" || operator.role === "admin")
-        ? args.targetOperatorId
-        : operator._id;
+    let target = operator._id as Id<"operators">;
+    if (args.targetOperatorId && args.targetOperatorId !== operator._id) {
+      const allowed = await canAccessIntegration(
+        ctx,
+        operator,
+        args.targetOperatorId,
+        "voice",
+        "read",
+      );
+      if (allowed) target = args.targetOperatorId;
+    }
     const integration = await ctx.db
       .query("voiceIntegrations")
       .withIndex("by_workspace_operator", (q) =>
@@ -201,11 +208,19 @@ export const upsertMine = mutation({
       ctx,
       args.sessionToken,
     );
-    const isAdmin = operator.role === "owner" || operator.role === "admin";
-    if (args.targetOperatorId && !isAdmin) {
-      throw new ConvexError(
-        "Only admins/owners can manage other operators' integrations.",
+    if (args.targetOperatorId && args.targetOperatorId !== operator._id) {
+      const allowed = await canAccessIntegration(
+        ctx,
+        operator,
+        args.targetOperatorId,
+        "voice",
+        "write",
       );
+      if (!allowed) {
+        throw new ConvexError(
+          "You don't have write access to this operator's voice integration.",
+        );
+      }
     }
     const targetId = args.targetOperatorId ?? operator._id;
     if (!args.apiKey.trim()) {
@@ -265,11 +280,19 @@ export const removeMine = mutation({
       ctx,
       args.sessionToken,
     );
-    const isAdmin = operator.role === "owner" || operator.role === "admin";
-    if (args.targetOperatorId && !isAdmin) {
-      throw new ConvexError(
-        "Only admins/owners can remove other operators' integrations.",
+    if (args.targetOperatorId && args.targetOperatorId !== operator._id) {
+      const allowed = await canAccessIntegration(
+        ctx,
+        operator,
+        args.targetOperatorId,
+        "voice",
+        "write",
       );
+      if (!allowed) {
+        throw new ConvexError(
+          "You don't have write access to this operator's voice integration.",
+        );
+      }
     }
     const targetId = args.targetOperatorId ?? operator._id;
     const existing = await ctx.db

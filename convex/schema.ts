@@ -245,6 +245,35 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_prefix", ["prefix"]),
 
+  // ── Per-integration grants (sharing) ───────────────────────────────
+  // Operator A grants operator B access to their personal voice /
+  // email / whatsapp integration. Admins/owners always have implicit
+  // full access (handled in code, not via grant rows). One row per
+  // (integrationType, owner, grantee).
+  integrationGrants: defineTable({
+    workspaceId: v.id("workspaces"),
+    integrationType: v.union(
+      v.literal("voice"),
+      v.literal("email"),
+      v.literal("whatsapp"),
+    ),
+    integrationOwnerOperatorId: v.id("operators"),
+    grantedToOperatorId: v.id("operators"),
+    scope: v.union(v.literal("read"), v.literal("write")),
+    grantedByOperatorId: v.id("operators"),
+    grantedAt: v.number(),
+  })
+    .index("by_owner_type", [
+      "integrationOwnerOperatorId",
+      "integrationType",
+    ])
+    .index("by_grantee_type", ["grantedToOperatorId", "integrationType"])
+    .index("by_owner_grantee_type", [
+      "integrationOwnerOperatorId",
+      "grantedToOperatorId",
+      "integrationType",
+    ]),
+
   // ── Browser push subscriptions ─────────────────────────────────────
   // One row per (operator, browser) combination. The same operator on
   // their laptop + phone gets two rows. Endpoint is the unique key —

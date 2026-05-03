@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useDashboardAuth } from "../DashboardShell";
 import { Card } from "../PageHeader";
+import { SharingPanel } from "./SharingPanel";
 import { cn } from "@/lib/cn";
 
 type Provider = "callhippo" | "telecmi" | "twilio";
@@ -288,6 +289,12 @@ export function PersonalVoiceSection() {
             </ul>
           </div>
         )}
+
+        <SharingPanel
+          integrationType="voice"
+          hideWhenManagingOther
+          isManagingOther={isManagingOther}
+        />
       </div>
     </Card>
   );

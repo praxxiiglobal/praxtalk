@@ -21,6 +21,7 @@ import type * as crons from "../crons.js";
 import type * as emailIntegrations from "../emailIntegrations.js";
 import type * as emailSmtpImap from "../emailSmtpImap.js";
 import type * as http from "../http.js";
+import type * as integrationGrants from "../integrationGrants.js";
 import type * as invites from "../invites.js";
 import type * as leads from "../leads.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   emailIntegrations: typeof emailIntegrations;
   emailSmtpImap: typeof emailSmtpImap;
   http: typeof http;
+  integrationGrants: typeof integrationGrants;
   invites: typeof invites;
   leads: typeof leads;
   "lib/auth": typeof lib_auth;

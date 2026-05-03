@@ -9,6 +9,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { getDefaultBrandId } from "./brands";
+import { canAccessIntegration } from "./integrationGrants";
 import { requireOperator } from "./auth";
 import { slugify } from "./lib/auth";
 import { pushActivity } from "./notifications";
@@ -168,11 +169,17 @@ export const getMine = query({
       ctx,
       args.sessionToken,
     );
-    const target =
-      args.targetOperatorId &&
-      (operator.role === "owner" || operator.role === "admin")
-        ? args.targetOperatorId
-        : operator._id;
+    let target = operator._id as Id<"operators">;
+    if (args.targetOperatorId && args.targetOperatorId !== operator._id) {
+      const allowed = await canAccessIntegration(
+        ctx,
+        operator,
+        args.targetOperatorId,
+        "email",
+        "read",
+      );
+      if (allowed) target = args.targetOperatorId;
+    }
     const integration = await ctx.db
       .query("emailIntegrations")
       .withIndex("by_workspace_operator", (q) =>
@@ -218,11 +225,19 @@ export const upsertMine = mutation({
       ctx,
       args.sessionToken,
     );
-    const isAdmin = operator.role === "owner" || operator.role === "admin";
-    if (args.targetOperatorId && !isAdmin) {
-      throw new Error(
-        "Only admins/owners can manage other operators' integrations.",
+    if (args.targetOperatorId && args.targetOperatorId !== operator._id) {
+      const allowed = await canAccessIntegration(
+        ctx,
+        operator,
+        args.targetOperatorId,
+        "email",
+        "write",
       );
+      if (!allowed) {
+        throw new Error(
+          "You don't have write access to this operator's email integration.",
+        );
+      }
     }
     const targetId = args.targetOperatorId ?? operator._id;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args.fromAddress)) {
@@ -297,11 +312,19 @@ export const removeMine = mutation({
       ctx,
       args.sessionToken,
     );
-    const isAdmin = operator.role === "owner" || operator.role === "admin";
-    if (args.targetOperatorId && !isAdmin) {
-      throw new Error(
-        "Only admins/owners can remove other operators' integrations.",
+    if (args.targetOperatorId && args.targetOperatorId !== operator._id) {
+      const allowed = await canAccessIntegration(
+        ctx,
+        operator,
+        args.targetOperatorId,
+        "email",
+        "write",
       );
+      if (!allowed) {
+        throw new Error(
+          "You don't have write access to this operator's email integration.",
+        );
+      }
     }
     const targetId = args.targetOperatorId ?? operator._id;
     const existing = await ctx.db
