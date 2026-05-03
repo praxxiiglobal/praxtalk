@@ -1457,13 +1457,22 @@ function shouldSkipUrl(url: string): boolean {
 async function fetchWithTimeout(url: string): Promise<Response | null> {
   // SSRF guard at fetch time too, not just at URL-parse time. Catches
   // BFS-discovered links that point at private hosts even if the
-  // operator's seed URL passed the original check.
+  // operator's seed URL passed the original check. Two layers:
+  //   1. Hostname literal check (cheap, synchronous) — IP literals
+  //      and metadata host names.
+  //   2. DoH resolution — catch DNS-rebinding attacks where a public
+  //      hostname resolves to a private IP. Costs one extra fetch
+  //      per host but is gated by a per-host cache so we don't pay
+  //      it for every page during a 60-page crawl.
+  let parsed: URL;
   try {
-    const u = new URL(url);
-    if (isPrivateHost(u.hostname)) return null;
+    parsed = new URL(url);
   } catch {
     return null;
   }
+  if (isPrivateHost(parsed.hostname)) return null;
+  const dohSafe = await isDohSafe(parsed.hostname);
+  if (!dohSafe) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -1487,6 +1496,7 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
         const next = new URL(loc, current).toString();
         const nextHost = new URL(next).hostname;
         if (isPrivateHost(nextHost)) return null;
+        if (!(await isDohSafe(nextHost))) return null;
         current = next;
         continue;
       }
@@ -1497,6 +1507,76 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
     return null;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Per-host DoH resolution cache. Crawls hit dozens of URLs against
+ * the same host; resolving once per crawl is plenty. Map lives for
+ * the action's lifetime, no need for a TTL — each crawl gets a
+ * fresh action invocation.
+ */
+const dohCache = new Map<string, boolean>();
+
+/**
+ * Resolve `hostname` via Cloudflare DNS-over-HTTPS (1.1.1.1 JSON
+ * API) and refuse if any A/AAAA record points at a private range.
+ * This is the second leg of SSRF defence — isPrivateHost catches
+ * literals, this catches DNS-rebinding (a public name pointed at a
+ * private IP). Failures are logged and DEFAULT TO FALSE so a
+ * resolver outage doesn't accidentally allow unsafe fetches.
+ */
+async function isDohSafe(hostname: string): Promise<boolean> {
+  // IP literals are already filtered by isPrivateHost; skip DoH for
+  // those (Cloudflare DoH refuses non-name queries anyway).
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
+  if (hostname.startsWith("[")) return true;
+  const cached = dohCache.get(hostname);
+  if (cached !== undefined) return cached;
+  try {
+    // Query A + AAAA in parallel.
+    const [a, aaaa] = await Promise.all([
+      fetch(
+        `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`,
+        {
+          headers: { accept: "application/dns-json" },
+          signal: AbortSignal.timeout(2_500),
+        },
+      ).then((r) => (r.ok ? r.json() : { Answer: [] })),
+      fetch(
+        `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=AAAA`,
+        {
+          headers: { accept: "application/dns-json" },
+          signal: AbortSignal.timeout(2_500),
+        },
+      ).then((r) => (r.ok ? r.json() : { Answer: [] })),
+    ]);
+    type DnsAnswer = { type?: number; data?: string };
+    const ips: string[] = [];
+    for (const ans of [...((a as { Answer?: DnsAnswer[] }).Answer ?? []),
+                       ...((aaaa as { Answer?: DnsAnswer[] }).Answer ?? [])]) {
+      if (typeof ans.data === "string") ips.push(ans.data);
+    }
+    if (ips.length === 0) {
+      // No A/AAAA records — host doesn't actually resolve. Refuse.
+      dohCache.set(hostname, false);
+      return false;
+    }
+    for (const ip of ips) {
+      if (isPrivateHost(ip) || isPrivateHost(`[${ip}]`)) {
+        console.warn("[atlas-ssrf] refused", hostname, "→", ip);
+        dohCache.set(hostname, false);
+        return false;
+      }
+    }
+    dohCache.set(hostname, true);
+    return true;
+  } catch (err) {
+    // Resolver failure: fail closed. Better to drop a few legitimate
+    // pages than to let a rebinding attack through.
+    console.warn("[atlas-ssrf] DoH query failed for", hostname, err);
+    dohCache.set(hostname, false);
+    return false;
   }
 }
 
