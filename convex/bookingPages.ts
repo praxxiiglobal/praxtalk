@@ -147,6 +147,7 @@ export const update = mutation({
         }),
       ),
     ),
+    additionalOwnerOperatorIds: v.optional(v.array(v.id("operators"))),
     timezone: v.optional(v.string()),
     confirmChannel: v.optional(channelValidator),
     reminderOffsetMin: v.optional(v.array(v.number())),
@@ -174,6 +175,8 @@ export const update = mutation({
     if (args.weekly !== undefined) patch.weekly = args.weekly;
     if (args.dateOverrides !== undefined)
       patch.dateOverrides = args.dateOverrides;
+    if (args.additionalOwnerOperatorIds !== undefined)
+      patch.additionalOwnerOperatorIds = args.additionalOwnerOperatorIds;
     if (args.timezone !== undefined) patch.timezone = args.timezone;
     if (args.confirmChannel !== undefined)
       patch.confirmChannel = args.confirmChannel;
@@ -268,24 +271,38 @@ export const computeSlots = query({
 
     const days = Math.min(Math.max(1, args.days), 60);
 
-    // Booked slots already taken — anything overlapping is excluded.
+    // Round-robin: union all owners, slot is open if at least one is free.
+    const owners = [
+      p.ownerOperatorId,
+      ...(p.additionalOwnerOperatorIds ?? []),
+    ];
+
+    // Booked slots already taken across every owner. anything
+    // overlapping ALL of them is fully blocked; partial conflicts
+    // still leave the slot open (a different owner takes it).
     const horizonStart = parseDateInTz(args.fromDate, p.timezone);
     const horizonEnd = horizonStart + days * 24 * 60 * 60 * 1000;
-    const taken = await ctx.db
-      .query("bookings")
-      .withIndex("by_owner_starts_at", (q) =>
-        q
-          .eq("ownerOperatorId", p.ownerOperatorId)
-          .gte("startsAt", horizonStart - 12 * 60 * 60 * 1000),
-      )
-      .take(500);
-    const occupied = taken.filter(
-      (b) =>
-        b.status !== "cancelled" &&
-        b.status !== "no_show" &&
-        b.endsAt > horizonStart &&
-        b.startsAt < horizonEnd,
-    );
+    const occupiedByOwner = new Map<string, typeof p extends never ? never : Doc<"bookings">[]>();
+    for (const ownerId of owners) {
+      const taken = await ctx.db
+        .query("bookings")
+        .withIndex("by_owner_starts_at", (q) =>
+          q
+            .eq("ownerOperatorId", ownerId)
+            .gte("startsAt", horizonStart - 12 * 60 * 60 * 1000),
+        )
+        .take(500);
+      occupiedByOwner.set(
+        ownerId,
+        taken.filter(
+          (b) =>
+            b.status !== "cancelled" &&
+            b.status !== "no_show" &&
+            b.endsAt > horizonStart &&
+            b.startsAt < horizonEnd,
+        ),
+      );
+    }
 
     const slotMs = p.durationMin * 60 * 1000;
     const stepMs = (p.durationMin + (p.bufferMin ?? 0)) * 60 * 1000;
@@ -318,11 +335,15 @@ export const computeSlots = query({
         for (let t = winStart; t + slotMs <= winEnd; t += stepMs) {
           // Skip slots in the past.
           if (t < Date.now() + 5 * 60 * 1000) continue;
-          // Skip if it overlaps an existing booking.
-          const conflict = occupied.find(
-            (b) => b.startsAt < t + slotMs && b.endsAt > t,
-          );
-          if (conflict) continue;
+          // Slot is open if at least one owner is free. With one owner
+          // (no round-robin) this collapses to the original behaviour.
+          const anyFree = owners.some((ownerId) => {
+            const ownerBookings = occupiedByOwner.get(ownerId) ?? [];
+            return !ownerBookings.some(
+              (b) => b.startsAt < t + slotMs && b.endsAt > t,
+            );
+          });
+          if (!anyFree) continue;
           out.push(t);
         }
       }
@@ -359,25 +380,39 @@ export const book = mutation({
     const endsAt = startsAt + p.durationMin * 60 * 1000;
     if (startsAt < Date.now()) throw new ConvexError("Slot is in the past.");
 
-    // Slot conflict check — race-safe inside the mutation transaction.
-    const taken = await ctx.db
-      .query("bookings")
-      .withIndex("by_owner_starts_at", (q) =>
-        q
-          .eq("ownerOperatorId", p.ownerOperatorId)
-          .gte("startsAt", startsAt - 4 * 60 * 60 * 1000),
-      )
-      .take(50);
-    if (
-      taken.some(
+    // Round-robin assignment. Pick the first owner who's free at this
+    // slot. Race-safe inside the mutation transaction (owner list is
+    // re-read; conflicts checked per-owner before we commit).
+    const owners = [
+      p.ownerOperatorId,
+      ...(p.additionalOwnerOperatorIds ?? []),
+    ];
+    let assignedOwnerId: typeof p.ownerOperatorId | null = null;
+    for (const ownerId of owners) {
+      const taken = await ctx.db
+        .query("bookings")
+        .withIndex("by_owner_starts_at", (q) =>
+          q
+            .eq("ownerOperatorId", ownerId)
+            .gte("startsAt", startsAt - 4 * 60 * 60 * 1000),
+        )
+        .take(50);
+      const conflict = taken.some(
         (b) =>
           b.status !== "cancelled" &&
           b.status !== "no_show" &&
           b.startsAt < endsAt &&
           b.endsAt > startsAt,
-      )
-    ) {
-      throw new ConvexError("That slot was just taken — please pick another.");
+      );
+      if (!conflict) {
+        assignedOwnerId = ownerId;
+        break;
+      }
+    }
+    if (!assignedOwnerId) {
+      throw new ConvexError(
+        "That slot was just taken — please pick another.",
+      );
     }
 
     // Find or create visitor by email.
@@ -418,7 +453,7 @@ export const book = mutation({
       visitorId: visitor._id,
       channel: p.confirmChannel === "email" ? "email" : "sms",
       status: "open",
-      assignedOperatorId: p.ownerOperatorId,
+      assignedOperatorId: assignedOwnerId,
       lastMessageAt: now,
       createdAt: now,
     });
@@ -444,7 +479,7 @@ export const book = mutation({
     // atlas-role message and schedules the right outbound action.
     const confirmationBody = renderConfirmation({
       title: p.title,
-      ownerName: (await ctx.db.get(p.ownerOperatorId))?.name ?? "the team",
+      ownerName: (await ctx.db.get(assignedOwnerId))?.name ?? "the team",
       startsAt,
       endsAt,
       timezone: p.timezone,
@@ -480,7 +515,7 @@ export const book = mutation({
       workspaceId: p.workspaceId,
       brandId: p.brandId,
       bookingPageId: p._id,
-      ownerOperatorId: p.ownerOperatorId,
+      ownerOperatorId: assignedOwnerId,
       visitorId: visitor._id,
       conversationId,
       startsAt,
@@ -512,7 +547,7 @@ export const book = mutation({
         sendAt,
         body: `Reminder: your ${p.title} is in ${offsetLabel}. See you soon!`,
         status: "pending",
-        scheduledByOperatorId: p.ownerOperatorId,
+        scheduledByOperatorId: assignedOwnerId,
         scheduledAt: now,
       });
     }

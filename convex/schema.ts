@@ -322,9 +322,13 @@ export default defineSchema({
   bookingPages: defineTable({
     workspaceId: v.id("workspaces"),
     brandId: v.id("brands"),
-    // The operator the booking belongs to. Slot availability is computed
-    // against this operator's calendar (Phase 3) and existing bookings.
+    // The primary operator the booking page belongs to. Slot
+    // availability is computed against this operator + every entry in
+    // additionalOwnerOperatorIds (round-robin); a slot is open if any
+    // owner is free, and the booking is auto-assigned to the first
+    // available one.
     ownerOperatorId: v.id("operators"),
+    additionalOwnerOperatorIds: v.optional(v.array(v.id("operators"))),
     slug: v.string(), // public — appears in /book/<slug>
     title: v.string(), // "30-min intro call"
     description: v.optional(v.string()),

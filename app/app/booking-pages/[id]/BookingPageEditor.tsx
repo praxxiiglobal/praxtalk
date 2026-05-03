@@ -18,6 +18,7 @@ const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
   const { sessionToken } = useDashboardAuth();
   const page = useQuery(api.bookingPages.getById, { sessionToken, id });
+  const teamOps = useQuery(api.operators.list, { sessionToken });
   const update = useMutation(api.bookingPages.update);
 
   const [title, setTitle] = useState("");
@@ -28,6 +29,9 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
     Array.from({ length: 7 }, () => ({ windows: [] })),
   );
   const [overrides, setOverrides] = useState<DateOverride[]>([]);
+  const [additionalOwners, setAdditionalOwners] = useState<
+    Id<"operators">[]
+  >([]);
   const [enabled, setEnabled] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(
@@ -46,6 +50,7 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
         : Array.from({ length: 7 }, () => ({ windows: [] })),
     );
     setOverrides(page.dateOverrides ?? []);
+    setAdditionalOwners(page.additionalOwnerOperatorIds ?? []);
     setEnabled(page.enabled);
   }, [page?._id]);
 
@@ -85,6 +90,7 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
         bufferMin,
         weekly,
         dateOverrides: overrides,
+        additionalOwnerOperatorIds: additionalOwners,
         enabled,
       });
       setMsg({ kind: "ok", text: "Saved." });
@@ -183,6 +189,72 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
               }
             />
           ))}
+        </div>
+      </Card>
+
+      <Card
+        title="Round-robin (additional owners)"
+        description="Add other operators to share this booking page. Each slot opens if at least one owner is free; bookings auto-assign to whichever owner is available."
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap gap-1.5">
+            {additionalOwners.length === 0 ? (
+              <span className="text-[12px] text-muted">
+                Just you for now. Add operators below to round-robin.
+              </span>
+            ) : (
+              additionalOwners.map((opId) => {
+                const op = teamOps?.find((o) => o._id === opId);
+                return (
+                  <span
+                    key={opId}
+                    className="inline-flex items-center gap-1 rounded-full bg-paper-2 px-2.5 py-1 text-[12px] text-ink"
+                  >
+                    {op?.name ?? "Unknown"}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAdditionalOwners((cur) =>
+                          cur.filter((x) => x !== opId),
+                        )
+                      }
+                      className="ml-0.5 rounded-full px-1 text-muted hover:text-ink"
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })
+            )}
+          </div>
+          {teamOps && (
+            <select
+              value=""
+              onChange={(e) => {
+                const v = e.target.value as Id<"operators">;
+                if (!v) return;
+                if (additionalOwners.includes(v)) return;
+                if (page.ownerOperatorId === v) return;
+                setAdditionalOwners((cur) => [...cur, v]);
+              }}
+              className="h-9 max-w-xs rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"
+            >
+              <option value="">+ Add an operator…</option>
+              {teamOps
+                .filter(
+                  (op) =>
+                    op._id !== page.ownerOperatorId &&
+                    !additionalOwners.includes(
+                      op._id as Id<"operators">,
+                    ),
+                )
+                .map((op) => (
+                  <option key={op._id} value={op._id}>
+                    {op.name} · {op.role}
+                  </option>
+                ))}
+            </select>
+          )}
         </div>
       </Card>
 
