@@ -22,7 +22,9 @@ export const get = query({
     const { workspaceId } = await requireOperator(ctx, sessionToken);
     const integration = await ctx.db
       .query("whatsappIntegrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", undefined),
+      )
       .first();
     if (!integration) return null;
     return {
@@ -68,7 +70,9 @@ export const upsert = mutation({
 
     const existing = await ctx.db
       .query("whatsappIntegrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", undefined),
+      )
       .first();
 
     if (existing) {
@@ -120,10 +124,153 @@ export const remove = mutation({
     }
     const existing = await ctx.db
       .query("whatsappIntegrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", undefined),
+      )
       .first();
     if (existing) await ctx.db.delete(existing._id);
     return null;
+  },
+});
+
+// ── Per-operator personal WhatsApp number ─────────────────────────────
+
+export const getMine = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, { sessionToken }) => {
+    const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+    const integration = await ctx.db
+      .query("whatsappIntegrations")
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+      )
+      .first();
+    if (!integration) return null;
+    return {
+      _id: integration._id,
+      phoneNumberId: integration.phoneNumberId,
+      businessAccountId: integration.businessAccountId,
+      displayPhoneNumber: integration.displayPhoneNumber,
+      hasAccessToken: Boolean(integration.accessToken),
+      accessTokenPreview: integration.accessToken
+        ? integration.accessToken.slice(0, 8) + "…"
+        : null,
+      verifyToken: integration.verifyToken,
+      enabled: integration.enabled,
+      createdAt: integration.createdAt,
+    };
+  },
+});
+
+export const upsertMine = mutation({
+  args: {
+    sessionToken: v.string(),
+    phoneNumberId: v.string(),
+    businessAccountId: v.optional(v.string()),
+    displayPhoneNumber: v.optional(v.string()),
+    accessToken: v.optional(v.string()),
+    enabled: v.optional(v.boolean()),
+  },
+  returns: v.id("whatsappIntegrations"),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    if (!args.phoneNumberId.trim()) {
+      throw new ConvexError("Phone number ID is required.");
+    }
+
+    const existing = await ctx.db
+      .query("whatsappIntegrations")
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+      )
+      .first();
+
+    if (existing) {
+      const patch: Record<string, unknown> = {
+        phoneNumberId: args.phoneNumberId.trim(),
+        businessAccountId: args.businessAccountId?.trim() || undefined,
+        displayPhoneNumber: args.displayPhoneNumber?.trim() || undefined,
+      };
+      if (args.accessToken && args.accessToken.trim()) {
+        patch.accessToken = args.accessToken.trim();
+      }
+      if (args.enabled !== undefined) patch.enabled = args.enabled;
+      await ctx.db.patch(existing._id, patch);
+      return existing._id;
+    }
+
+    if (!args.accessToken || !args.accessToken.trim()) {
+      throw new ConvexError(
+        "Access token is required to create the integration.",
+      );
+    }
+
+    return await ctx.db.insert("whatsappIntegrations", {
+      workspaceId,
+      operatorId: operator._id,
+      phoneNumberId: args.phoneNumberId.trim(),
+      businessAccountId: args.businessAccountId?.trim() || undefined,
+      displayPhoneNumber: args.displayPhoneNumber?.trim() || undefined,
+      accessToken: args.accessToken.trim(),
+      verifyToken: generateWebhookSecret(),
+      enabled: args.enabled ?? true,
+      createdBy: operator._id,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const removeMine = mutation({
+  args: { sessionToken: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const existing = await ctx.db
+      .query("whatsappIntegrations")
+      .withIndex("by_workspace_operator", (q) =>
+        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+      )
+      .first();
+    if (existing) await ctx.db.delete(existing._id);
+    return null;
+  },
+});
+
+export const listTeamPersonalNumbers = query({
+  args: { sessionToken: v.string() },
+  returns: v.array(
+    v.object({
+      operatorName: v.string(),
+      operatorEmail: v.string(),
+      displayPhoneNumber: v.union(v.string(), v.null()),
+      enabled: v.boolean(),
+    }),
+  ),
+  handler: async (ctx, { sessionToken }) => {
+    const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+    if (operator.role === "agent") return [];
+    const all = await ctx.db
+      .query("whatsappIntegrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .collect();
+    const personal = all.filter((i) => i.operatorId);
+    return await Promise.all(
+      personal.map(async (i) => {
+        const own = await ctx.db.get(i.operatorId!);
+        return {
+          operatorName: own?.name ?? "Unknown",
+          operatorEmail: own?.email ?? "",
+          displayPhoneNumber: i.displayPhoneNumber ?? null,
+          enabled: i.enabled,
+        };
+      }),
+    );
   },
 });
 

@@ -3,6 +3,7 @@ import { BotimIntegrationSection } from "./BotimIntegrationSection";
 import { EmailIntegrationSection } from "./EmailIntegrationSection";
 import { PersonalEmailSection } from "./PersonalEmailSection";
 import { PersonalVoiceSection } from "./PersonalVoiceSection";
+import { PersonalWhatsappSection } from "./PersonalWhatsappSection";
 import { VoiceIntegrationSection } from "./VoiceIntegrationSection";
 import { WebhooksSection } from "./WebhooksSection";
 import { WhatsappIntegrationSection } from "./WhatsappIntegrationSection";
@@ -24,6 +25,7 @@ export default function IntegrationsPage() {
         <EmailIntegrationSection />
         <PersonalEmailSection />
         <WhatsappIntegrationSection />
+        <PersonalWhatsappSection />
         <WhatsappTemplatesSection />
         <BotimIntegrationSection />
         <VoiceIntegrationSection />

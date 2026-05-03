@@ -61,6 +61,7 @@ export function Inbox() {
   const selectedBrand = useSelectedBrand();
   const [status, setStatus] = useState<Status>("open");
   const [channel, setChannel] = useState<ChannelFilter>("all");
+  const [assignee, setAssignee] = useState<"all" | "me" | "unassigned">("all");
   const [selectedId, setSelectedId] =
     useState<Id<"conversations"> | null>(null);
 
@@ -68,6 +69,7 @@ export function Inbox() {
     sessionToken,
     status,
     channel: channel === "all" ? undefined : channel,
+    assignee: assignee === "all" ? undefined : assignee,
     brandId: selectedBrand ?? undefined,
   });
 
@@ -123,6 +125,32 @@ export function Inbox() {
               )}
             >
               {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex shrink-0 items-center gap-1 border-b border-rule px-3 py-1.5">
+          {(
+            [
+              { value: "all", label: "Everyone" },
+              { value: "me", label: "Assigned to me" },
+              { value: "unassigned", label: "Unassigned" },
+            ] as const
+          ).map((a) => (
+            <button
+              key={a.value}
+              type="button"
+              onClick={() => {
+                setAssignee(a.value);
+                setSelectedId(null);
+              }}
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[11px] font-medium transition",
+                assignee === a.value
+                  ? "bg-paper text-ink shadow-sm ring-1 ring-rule-2"
+                  : "text-muted hover:text-ink",
+              )}
+            >
+              {a.label}
             </button>
           ))}
         </div>

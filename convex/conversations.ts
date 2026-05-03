@@ -35,6 +35,7 @@ export const listInbox = query({
       ),
     ),
     brandId: v.optional(v.id("brands")),
+    assignee: v.optional(v.union(v.literal("me"), v.literal("unassigned"))),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -45,6 +46,7 @@ export const listInbox = query({
     const status = args.status ?? "open";
     const limit = Math.min(args.limit ?? 50, 200);
     const channelFilter = args.channel;
+    const assigneeFilter = args.assignee;
 
     // Resolve which brands this operator can see.
     const allBrands = await ctx.db
@@ -87,6 +89,14 @@ export const listInbox = query({
 
     if (channelFilter) {
       conversations = conversations.filter((c) => c.channel === channelFilter);
+    }
+
+    if (assigneeFilter === "me") {
+      conversations = conversations.filter(
+        (c) => c.assignedOperatorId === operator._id,
+      );
+    } else if (assigneeFilter === "unassigned") {
+      conversations = conversations.filter((c) => !c.assignedOperatorId);
     }
 
     // Hydrate with visitor + brand for the inbox row preview.
