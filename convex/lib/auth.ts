@@ -1,18 +1,25 @@
 /**
  * Auth primitives — runs inside Convex V8 isolate, so we use
- * Web Crypto (PBKDF2) and crypto.getRandomValues, not Node bcrypt.
+ * Web Crypto + a pure-JS bcrypt port (bcryptjs). No Node-only deps.
  *
- * Audit S-08 (2026-05-03): bumped ITERATIONS from 100k → 600k to
- * meet OWASP 2023 guidance for PBKDF2-SHA256. Older 100k hashes
- * still verify (the iteration count is in the stored string), and
- * we re-hash silently on next successful login — see needsRehash.
+ * Hash algorithm history:
+ *   - PBKDF2-SHA256 100k    → original; legacy hashes still verify
+ *   - PBKDF2-SHA256 600k    → audit S-08 (2026-05-03); intermediate
+ *   - bcrypt cost 12        → current default (OWASP-equivalent to
+ *                              argon2id; argon2id itself can't run
+ *                              because Convex's bundler rejects the
+ *                              native @node-rs/argon2 .node binary)
  *
- * Argon2id (the audit's preferred algorithm) needs a Node-runtime
- * library; deferred until login can move to a Node action without
- * breaking the mutation-transactional flow.
+ * verifyPassword detects the format from the stored string and
+ * routes to the right verifier. needsRehash returns true for any
+ * hash that isn't the current default; the login mutation calls
+ * hashPassword (which always returns bcrypt) and patches.
  */
 
-const ITERATIONS = 600_000;
+import { compareSync, hashSync } from "bcryptjs";
+
+const BCRYPT_COST = 12; // ~250ms on a Vercel Fluid function
+const PBKDF2_ITERATIONS = 600_000;
 const KEY_LEN_BYTES = 32;
 const SALT_LEN_BYTES = 16;
 const HASH_NAME = "SHA-256";
@@ -61,22 +68,41 @@ async function pbkdf2(
 }
 
 /**
- * Hash a password. Returns a self-describing string:
- *   pbkdf2-sha256$<iterations>$<saltHex>$<keyHex>
+ * Hash a password. Always returns a bcrypt hash (cost 12) for new
+ * accounts; legacy hashes verify via verifyPassword's algorithm
+ * detection but never get re-emitted from this function.
  */
 export async function hashPassword(password: string): Promise<string> {
   if (password.length < 8) {
     throw new Error("Password must be at least 8 characters.");
   }
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN_BYTES));
-  const key = await pbkdf2(password, salt, ITERATIONS);
-  return `pbkdf2-sha256$${ITERATIONS}$${bytesToHex(salt)}$${bytesToHex(key)}`;
+  // bcryptjs is synchronous + CPU-bound — wrap to keep the async
+  // signature compatible with the legacy PBKDF2 implementation.
+  return hashSync(password, BCRYPT_COST);
 }
 
+/**
+ * Verify a password against a stored hash. Routes by hash format:
+ *   $2a$ / $2b$ / $2y$ → bcrypt (current default)
+ *   pbkdf2-sha256$…    → PBKDF2 (legacy, still supported)
+ * Returns false on any malformed input or algorithm mismatch.
+ */
 export async function verifyPassword(
   password: string,
   stored: string,
 ): Promise<boolean> {
+  if (
+    stored.startsWith("$2a$") ||
+    stored.startsWith("$2b$") ||
+    stored.startsWith("$2y$")
+  ) {
+    try {
+      return compareSync(password, stored);
+    } catch {
+      return false;
+    }
+  }
+  // Legacy PBKDF2 path.
   const parts = stored.split("$");
   if (parts.length !== 4 || parts[0] !== "pbkdf2-sha256") return false;
   const iterations = Number(parts[1]);
@@ -90,17 +116,18 @@ export async function verifyPassword(
 }
 
 /**
- * True if the stored hash is using a weaker iteration count than
- * the current default (or an entirely different algorithm). Login
- * mutations check this after a successful verifyPassword and
- * silently re-hash — gradual migration to the stronger params
- * without forcing a global password reset.
+ * True if the stored hash isn't bcrypt (i.e. legacy PBKDF2 of any
+ * iteration count). Login calls this after a successful verify and
+ * re-hashes via hashPassword (which always emits bcrypt) — gradual
+ * migration to the stronger algorithm without forcing a global
+ * password reset.
  */
 export function needsRehash(stored: string): boolean {
-  const parts = stored.split("$");
-  if (parts.length !== 4 || parts[0] !== "pbkdf2-sha256") return true;
-  const iterations = Number(parts[1]);
-  return !Number.isFinite(iterations) || iterations < ITERATIONS;
+  return !(
+    stored.startsWith("$2a$") ||
+    stored.startsWith("$2b$") ||
+    stored.startsWith("$2y$")
+  );
 }
 
 /**
