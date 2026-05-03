@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useAction } from "convex/react";
 import {
   useEffect,
+  useRef,
   useState,
   useMemo,
   type FormEvent,
@@ -323,6 +324,19 @@ function ConversationPane({
   const [internal, setInternal] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
   const [showReminder, setShowReminder] = useState(false);
+
+  // Auto-scroll the message list to the bottom whenever a new message
+  // arrives or the operator switches conversations. Pinned to "always
+  // bottom" — fine for a chat-style pane where the latest message is
+  // what matters; if we ever need scroll-to-read-position, swap to
+  // checking scrollTop before snapping.
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+  const lastMessageId = messages?.[messages.length - 1]?._id;
+  useEffect(() => {
+    const el = messageListRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [conversationId, lastMessageId, messages?.length]);
   // Track which conversation we've already restored a draft for, so
   // we don't clobber the user's typing when the query result arrives
   // asynchronously.
@@ -511,7 +525,10 @@ function ConversationPane({
         </div>
       )}
 
-      <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
+      <div
+        ref={messageListRef}
+        className="flex flex-1 flex-col gap-3 overflow-y-auto px-5 py-4"
+      >
         {messages.length === 0 && (
           <div className="m-auto text-xs text-muted">
             No messages in this conversation yet.

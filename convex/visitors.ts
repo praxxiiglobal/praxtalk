@@ -370,14 +370,35 @@ export const listMessagesForVisitor = query({
       .order("asc")
       .take(200);
 
+    // Resolve operator names so the widget can render "Sarah" above
+    // operator bubbles. Memoise lookups within the request so a long
+    // conversation doesn't refetch the same operator dozens of times.
+    const opCache = new Map<string, string | null>();
+    const resolveName = async (
+      opId: typeof messages[number]["senderOperatorId"],
+    ): Promise<string | null> => {
+      if (!opId) return null;
+      const key = String(opId);
+      if (opCache.has(key)) return opCache.get(key) ?? null;
+      const op = await ctx.db.get(opId);
+      const name = op && "email" in op ? (op.name ?? null) : null;
+      opCache.set(key, name);
+      return name;
+    };
+
     // Internal notes never leak to the visitor.
-    return messages
-      .filter((m) => m.role !== "internal_note")
-      .map((m) => ({
+    const visible = messages.filter((m) => m.role !== "internal_note");
+    return await Promise.all(
+      visible.map(async (m) => ({
         _id: m._id,
         role: m.role,
         body: m.body,
         createdAt: m.createdAt,
-      }));
+        senderName:
+          m.role === "operator"
+            ? await resolveName(m.senderOperatorId)
+            : null,
+      })),
+    );
   },
 });

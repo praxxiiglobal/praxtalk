@@ -101,6 +101,11 @@ const WIDGET_SHELL = `
   .msg.operator { align-self: flex-start; background: #fff; color: var(--praxtalk-ink); border: 1px solid rgba(0,0,0,0.06); border-top-left-radius: 4px; }
   .msg.atlas { align-self: flex-start; background: #FFF7DD; color: var(--praxtalk-ink); border-top-left-radius: 4px; }
   .msg.system { align-self: center; background: rgba(0,0,0,0.04); color: #6b6b5d; font-size: 11px; padding: 4px 10px; }
+  .msg.system-join { align-self: center; background: rgba(0,0,0,0.04); color: #6b6b5d; font-size: 11px; padding: 4px 10px; border-radius: 10px; font-style: italic; }
+  .msg-row { display: flex; flex-direction: column; gap: 2px; }
+  .msg-row.visitor { align-items: flex-end; }
+  .msg-row.operator, .msg-row.atlas { align-items: flex-start; }
+  .msg-sender { font-size: 11px; color: #6b6b5d; padding: 0 4px; font-weight: 500; }
   .composer { display: flex; align-items: flex-end; gap: 6px; padding: 10px; border-top: 1px solid rgba(0,0,0,0.06); background: #fff; }
   .input { flex: 1; resize: none; border: 1px solid rgba(0,0,0,0.12); border-radius: 10px;
     padding: 8px 10px; font-size: 14px; outline: none; min-height: 38px; max-height: 120px;
@@ -376,10 +381,29 @@ const SOURCE = /* javascript */ `(() => {
     return handles;
   }
 
-  function bubble(role, body) {
+  function bubble(role, body, senderName) {
+    const wrap = document.createElement("div");
+    wrap.className = "msg-row " + role;
+    if (senderName) {
+      const label = document.createElement("div");
+      label.className = "msg-sender";
+      label.textContent = senderName;
+      wrap.appendChild(label);
+    }
     const div = document.createElement("div");
     div.className = "msg " + role;
     div.textContent = body;
+    wrap.appendChild(div);
+    return wrap;
+  }
+
+  // Synthesised "Sarah joined the chat" row inserted the first time
+  // each operator's name appears in the conversation. Visitor never
+  // sees raw operator IDs — just the human "Sarah joined" handoff.
+  function joinedRow(senderName) {
+    const div = document.createElement("div");
+    div.className = "msg system-join";
+    div.textContent = senderName + " joined the chat";
     return div;
   }
 
@@ -392,8 +416,13 @@ const SOURCE = /* javascript */ `(() => {
       els.list.appendChild(empty);
       return;
     }
+    const seenOps = new Set();
     for (const m of messages) {
-      els.list.appendChild(bubble(m.role, m.body));
+      if (m.role === "operator" && m.senderName && !seenOps.has(m.senderName)) {
+        seenOps.add(m.senderName);
+        els.list.appendChild(joinedRow(m.senderName));
+      }
+      els.list.appendChild(bubble(m.role, m.body, m.senderName));
     }
     els.list.scrollTop = els.list.scrollHeight;
   }
