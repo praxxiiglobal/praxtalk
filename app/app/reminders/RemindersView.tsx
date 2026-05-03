@@ -87,6 +87,18 @@ export function RemindersView() {
                     >
                       {r.visitorName ?? "Visitor"}
                     </Link>
+                  ) : r.contactName || r.contactPhone ? (
+                    <span className="text-[13px] font-medium text-ink">
+                      {r.contactName ?? "Personal reminder"}
+                      {r.contactPhone && (
+                        <a
+                          href={`tel:${r.contactPhone}`}
+                          className="ml-2 font-mono text-[11px] text-muted underline-offset-2 hover:text-ink hover:underline"
+                        >
+                          {r.contactPhone}
+                        </a>
+                      )}
+                    </span>
                   ) : (
                     <span className="text-[13px] font-medium text-ink">
                       Personal reminder
@@ -140,6 +152,44 @@ function whenLabel(sendAt: number, sentAt: number | null): string {
   return d.toLocaleString();
 }
 
+// Common country dial codes — covers the geographies we hear from
+// most. The select stores the dial code (e.g. "+91"); the rendered
+// text shows flag + label so operators don't have to memorise codes.
+const COUNTRY_CODES: { code: string; label: string }[] = [
+  { code: "+91", label: "🇮🇳 India (+91)" },
+  { code: "+1", label: "🇺🇸 US/Canada (+1)" },
+  { code: "+44", label: "🇬🇧 UK (+44)" },
+  { code: "+61", label: "🇦🇺 Australia (+61)" },
+  { code: "+971", label: "🇦🇪 UAE (+971)" },
+  { code: "+966", label: "🇸🇦 Saudi Arabia (+966)" },
+  { code: "+65", label: "🇸🇬 Singapore (+65)" },
+  { code: "+49", label: "🇩🇪 Germany (+49)" },
+  { code: "+33", label: "🇫🇷 France (+33)" },
+  { code: "+34", label: "🇪🇸 Spain (+34)" },
+  { code: "+39", label: "🇮🇹 Italy (+39)" },
+  { code: "+31", label: "🇳🇱 Netherlands (+31)" },
+  { code: "+46", label: "🇸🇪 Sweden (+46)" },
+  { code: "+41", label: "🇨🇭 Switzerland (+41)" },
+  { code: "+81", label: "🇯🇵 Japan (+81)" },
+  { code: "+82", label: "🇰🇷 South Korea (+82)" },
+  { code: "+86", label: "🇨🇳 China (+86)" },
+  { code: "+852", label: "🇭🇰 Hong Kong (+852)" },
+  { code: "+60", label: "🇲🇾 Malaysia (+60)" },
+  { code: "+62", label: "🇮🇩 Indonesia (+62)" },
+  { code: "+63", label: "🇵🇭 Philippines (+63)" },
+  { code: "+66", label: "🇹🇭 Thailand (+66)" },
+  { code: "+880", label: "🇧🇩 Bangladesh (+880)" },
+  { code: "+92", label: "🇵🇰 Pakistan (+92)" },
+  { code: "+94", label: "🇱🇰 Sri Lanka (+94)" },
+  { code: "+27", label: "🇿🇦 South Africa (+27)" },
+  { code: "+234", label: "🇳🇬 Nigeria (+234)" },
+  { code: "+254", label: "🇰🇪 Kenya (+254)" },
+  { code: "+20", label: "🇪🇬 Egypt (+20)" },
+  { code: "+55", label: "🇧🇷 Brazil (+55)" },
+  { code: "+52", label: "🇲🇽 Mexico (+52)" },
+  { code: "+54", label: "🇦🇷 Argentina (+54)" },
+];
+
 function ManualReminderModal({ onClose }: { onClose: () => void }) {
   const { sessionToken } = useDashboardAuth();
   const schedule = useMutation(api.reminders.scheduleManual);
@@ -147,6 +197,9 @@ function ManualReminderModal({ onClose }: { onClose: () => void }) {
   const [body, setBody] = useState("");
   const [remarks, setRemarks] = useState("");
   const [whenISO, setWhenISO] = useState(() => isoLocalIn(60));
+  const [contactName, setContactName] = useState("");
+  const [countryCode, setCountryCode] = useState("+91");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -161,12 +214,19 @@ function ManualReminderModal({ onClose }: { onClose: () => void }) {
   const onSchedule = async () => {
     setBusy(true);
     setError(null);
+    // Strip everything except digits from the local part so the saved
+    // phone is always `<dialCode><digits>` regardless of how the
+    // operator typed it (spaces, hyphens, parentheses all welcome).
+    const digits = phoneNumber.replace(/\D+/g, "");
+    const fullPhone = digits ? `${countryCode}${digits}` : "";
     try {
       await schedule({
         sessionToken,
         sendAt: new Date(whenISO).getTime(),
         body: body.trim(),
         remarks: remarks.trim() || undefined,
+        contactName: contactName.trim() || undefined,
+        contactPhone: fullPhone || undefined,
       });
       onClose();
     } catch (e) {
@@ -203,8 +263,9 @@ function ManualReminderModal({ onClose }: { onClose: () => void }) {
 
         <p className="mb-3 text-[11.5px] leading-[1.4] text-muted">
           Personal reminder for you — fires as a browser push at the
-          chosen time + shows up in this list. No conversation or
-          customer needed.
+          chosen time + shows up in this list. Add a contact name and
+          phone (optional) if it&apos;s a follow-up about a specific
+          person.
         </p>
 
         <div className="mb-3">
@@ -219,6 +280,46 @@ function ManualReminderModal({ onClose }: { onClose: () => void }) {
             autoFocus
             className="h-10 w-full rounded-xl border border-rule-2 bg-paper px-3 text-[13.5px] outline-none focus:border-ink"
           />
+        </div>
+
+        <div className="mb-3">
+          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+            Contact name (optional)
+          </div>
+          <input
+            type="text"
+            value={contactName}
+            onChange={(e) => setContactName(e.target.value)}
+            placeholder="John Smith"
+            className="h-10 w-full rounded-xl border border-rule-2 bg-paper px-3 text-[13.5px] outline-none focus:border-ink"
+          />
+        </div>
+
+        <div className="mb-3">
+          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+            Phone number (optional)
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={countryCode}
+              onChange={(e) => setCountryCode(e.target.value)}
+              className="h-10 w-[140px] shrink-0 rounded-xl border border-rule-2 bg-paper px-2 text-[13px] outline-none focus:border-ink"
+            >
+              {COUNTRY_CODES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <input
+              type="tel"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="9876543210"
+              inputMode="tel"
+              className="h-10 w-full flex-1 rounded-xl border border-rule-2 bg-paper px-3 text-[13.5px] outline-none focus:border-ink"
+            />
+          </div>
         </div>
 
         <div className="mb-3">

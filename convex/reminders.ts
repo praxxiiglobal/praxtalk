@@ -96,6 +96,8 @@ export const scheduleManual = mutation({
     sendAt: v.number(),
     body: v.string(),
     remarks: v.optional(v.string()),
+    contactName: v.optional(v.string()),
+    contactPhone: v.optional(v.string()),
   },
   returns: v.id("reminders"),
   handler: async (ctx, args) => {
@@ -108,6 +110,17 @@ export const scheduleManual = mutation({
     if (args.sendAt < Date.now() - 30_000) {
       throw new ConvexError("sendAt must be in the future.");
     }
+    const contactPhone = args.contactPhone?.trim();
+    if (contactPhone) {
+      // Light validation only — the operator's already picked the
+      // country code from the dropdown, so we just enforce the shape:
+      // optional leading "+", then 6-15 digits (E.164 caps at 15).
+      if (!/^\+?[0-9\s()-]{6,20}$/.test(contactPhone)) {
+        throw new ConvexError(
+          "Phone number looks malformed — include the country code.",
+        );
+      }
+    }
     return await ctx.db.insert("reminders", {
       workspaceId,
       // brandId / conversationId / visitorId intentionally omitted —
@@ -119,6 +132,8 @@ export const scheduleManual = mutation({
       scheduledByOperatorId: operator._id,
       scheduledAt: Date.now(),
       remarks: args.remarks?.trim() || undefined,
+      contactName: args.contactName?.trim() || undefined,
+      contactPhone: contactPhone || undefined,
     });
   },
 });
@@ -203,6 +218,8 @@ export const listForWorkspace = query({
       status: statusValidator,
       sentAt: v.union(v.number(), v.null()),
       error: v.union(v.string(), v.null()),
+      contactName: v.union(v.string(), v.null()),
+      contactPhone: v.union(v.string(), v.null()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -256,6 +273,8 @@ export const listForWorkspace = query({
           status: r.status,
           sentAt: r.sentAt ?? null,
           error: r.error ?? null,
+          contactName: r.contactName ?? null,
+          contactPhone: r.contactPhone ?? null,
         };
       }),
     );

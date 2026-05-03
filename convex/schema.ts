@@ -442,6 +442,14 @@ export default defineSchema({
     // "follow up after demo"). Never sent to the visitor; surfaces in
     // the dashboard reminder + schedule views only.
     remarks: v.optional(v.string()),
+    // Optional contact context — for personal reminders that are
+    // about a specific person who isn't in the visitors table yet
+    // ("call back John Smith at +91…"). Pure metadata; not used for
+    // dispatch routing, just shown alongside the reminder in the UI.
+    // contactPhone stores the full E.164-style string entered by the
+    // operator (country code + digits, e.g. "+919876543210").
+    contactName: v.optional(v.string()),
+    contactPhone: v.optional(v.string()),
   })
     .index("by_status_send_at", ["status", "sendAt"])
     .index("by_workspace_send_at", ["workspaceId", "sendAt"])
