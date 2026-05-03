@@ -28,17 +28,28 @@ export default async function AdminLayout({
   const sessionToken = await readSessionToken();
   if (!sessionToken) redirect("/login?next=/admin/workspaces");
 
-  const check = await convexServer.query(api._admin.checkPlatformAdmin, {
-    sessionToken,
-  });
-  if (!check.ok) {
-    if (check.reason === "expired" || check.reason === "no-session") {
-      redirect("/login?next=/admin/workspaces");
+  // Wrap the auth gate query — if Convex is unreachable / function
+  // not deployed / env missing, render an inline error chrome
+  // instead of crashing the whole tree into a generic Vercel 500.
+  let layoutError: string | null = null;
+  let denied = false;
+  let needsLogin = false;
+  try {
+    const check = await convexServer.query(api._admin.checkPlatformAdmin, {
+      sessionToken,
+    });
+    if (!check.ok) {
+      if (check.reason === "expired" || check.reason === "no-session") {
+        needsLogin = true;
+      } else {
+        denied = true;
+      }
     }
-    // Authenticated but not a platform admin. Bounce to /app where
-    // they belong.
-    redirect("/app?admin=denied");
+  } catch (e) {
+    layoutError = e instanceof Error ? e.message : String(e);
   }
+  if (needsLogin) redirect("/login?next=/admin/workspaces");
+  if (denied) redirect("/app?admin=denied");
 
   return (
     <div className="flex min-h-screen flex-col bg-paper text-ink">
@@ -67,7 +78,41 @@ export default async function AdminLayout({
         </div>
       </header>
       <main id="main" className="flex-1">
-        <div className="mx-auto max-w-[1320px] px-6 py-8">{children}</div>
+        <div className="mx-auto max-w-[1320px] px-6 py-8">
+          {layoutError ? (
+            <div className="rounded-2xl border border-red-300/40 bg-red-50/30 p-5">
+              <div className="font-mono text-[11px] uppercase tracking-[0.06em] text-red-700">
+                Convex auth gate failed
+              </div>
+              <pre className="mt-2 whitespace-pre-wrap break-all text-[12.5px] text-red-900">
+                {layoutError}
+              </pre>
+              <div className="mt-4 text-[13px] text-ink space-y-2">
+                <p>
+                  <strong>Most likely fix:</strong> from a local checkout
+                  of the repo, run:
+                </p>
+                <pre className="rounded-lg bg-paper-2 p-3 font-mono text-[12.5px] text-ink">
+                  npx convex deploy --yes
+                </pre>
+                <p>
+                  This force-pushes the current <code>convex/</code>{" "}
+                  schema + every function to prod. Then reload this
+                  page.
+                </p>
+                <p className="text-[12px] text-muted">
+                  Other things to check: <code>NEXT_PUBLIC_CONVEX_URL</code>{" "}
+                  is set in Vercel env, the prod Convex deployment is
+                  reachable, and your operator email is in{" "}
+                  <code>PLATFORM_ADMIN_EMAILS</code> (Convex env) or
+                  matches the hardcoded fallback.
+                </p>
+              </div>
+            </div>
+          ) : (
+            children
+          )}
+        </div>
       </main>
     </div>
   );
