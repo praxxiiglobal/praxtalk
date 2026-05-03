@@ -4,7 +4,12 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useDashboardAuth } from "../DashboardShell";
 import { Card } from "../PageHeader";
-import { startCheckoutAction, cancelSubscriptionAction } from "./actions";
+import {
+  startCheckoutAction,
+  startRazorpayCheckoutAction,
+  cancelSubscriptionAction,
+  cancelRazorpaySubscriptionAction,
+} from "./actions";
 
 const planMeta: Record<
   "spark" | "team" | "scale" | "enterprise",
@@ -35,9 +40,13 @@ const planMeta: Record<
 export function BillingView({
   paypalReturn,
   paypalError,
+  razorpayReturn,
+  razorpayError,
 }: {
   paypalReturn: string | null;
   paypalError: string | null;
+  razorpayReturn: string | null;
+  razorpayError: string | null;
 }) {
   const { workspace, sessionToken } = useDashboardAuth();
   const meta = planMeta[workspace.plan];
@@ -56,8 +65,16 @@ export function BillingView({
     subscription?.subscriptionStatus === "past_due" ||
     subscription?.subscriptionStatus === "paused";
   const isPending =
-    Boolean(subscription?.paypalSubscriptionId) &&
-    !subscription?.subscriptionStatus;
+    !subscription?.subscriptionStatus &&
+    Boolean(
+      subscription?.paypalSubscriptionId ??
+        subscription?.razorpaySubscriptionId,
+    );
+  const provider = subscription?.subscriptionProvider ?? null;
+  const cancelAction =
+    provider === "razorpay"
+      ? cancelRazorpaySubscriptionAction
+      : cancelSubscriptionAction;
 
   return (
     <>
@@ -71,6 +88,16 @@ export function BillingView({
         <Banner kind="info">PayPal checkout was cancelled.</Banner>
       )}
       {paypalError && <Banner kind="error">{paypalError}</Banner>}
+      {razorpayReturn === "approved" && (
+        <Banner kind="info">
+          Razorpay approval received. Activating your subscription — this
+          usually takes a few seconds.
+        </Banner>
+      )}
+      {razorpayReturn === "cancelled" && (
+        <Banner kind="info">Razorpay subscription cancelled.</Banner>
+      )}
+      {razorpayError && <Banner kind="error">{razorpayError}</Banner>}
 
       {usage && limit > 0 && used >= limit && (
         <Banner kind="error">
@@ -103,6 +130,11 @@ export function BillingView({
                 status={subscription?.subscriptionStatus ?? null}
                 pending={isPending}
               />
+              {provider && (
+                <span className="rounded-full bg-paper-2 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+                  via {provider}
+                </span>
+              )}
             </div>
             <p className="mt-2 max-w-[60ch] text-sm leading-[1.55] text-muted">
               {meta.lede}
@@ -118,16 +150,37 @@ export function BillingView({
             <div className="text-2xl font-semibold tracking-[-0.02em] text-ink">
               {meta.price}
             </div>
-            <div className="mt-2 flex flex-wrap gap-2 sm:justify-end">
-              <UpgradeButtons
+            <div className="mt-3 flex flex-col gap-2 sm:items-end">
+              <UpgradeBlock
+                provider="paypal"
+                title="PayPal"
                 currentPlan={workspace.plan}
                 hasActiveSub={hasActiveSub || isPending}
-                teamConfigured={subscription?.teamPlanConfigured ?? false}
-                scaleConfigured={subscription?.scalePlanConfigured ?? false}
-                paypalConfigured={subscription?.paypalConfigured ?? false}
+                configured={subscription?.paypal.configured ?? false}
+                teamConfigured={
+                  subscription?.paypal.teamPlanConfigured ?? false
+                }
+                scaleConfigured={
+                  subscription?.paypal.scalePlanConfigured ?? false
+                }
+                startAction={startCheckoutAction}
+              />
+              <UpgradeBlock
+                provider="razorpay"
+                title="Razorpay"
+                currentPlan={workspace.plan}
+                hasActiveSub={hasActiveSub || isPending}
+                configured={subscription?.razorpay.configured ?? false}
+                teamConfigured={
+                  subscription?.razorpay.teamPlanConfigured ?? false
+                }
+                scaleConfigured={
+                  subscription?.razorpay.scalePlanConfigured ?? false
+                }
+                startAction={startRazorpayCheckoutAction}
               />
               {hasActiveSub && (
-                <form action={cancelSubscriptionAction}>
+                <form action={cancelAction}>
                   <button
                     type="submit"
                     className="inline-flex h-9 items-center rounded-full border border-rule-2 px-4 text-sm font-medium text-ink hover:bg-paper-2"
@@ -172,49 +225,75 @@ export function BillingView({
 
       <Card title="Invoices">
         <div className="rounded-xl border border-dashed border-rule p-6 text-center text-sm text-muted">
-          Invoices live in your{" "}
-          <a
-            href="https://www.paypal.com/myaccount/autopay/"
-            target="_blank"
-            rel="noreferrer"
-            className="underline-offset-4 hover:underline"
-          >
-            PayPal account
-          </a>
-          . Cancel or update payment method there too.
+          {provider === "razorpay" ? (
+            <>
+              Invoices live in your{" "}
+              <a
+                href="https://dashboard.razorpay.com/app/subscriptions"
+                target="_blank"
+                rel="noreferrer"
+                className="underline-offset-4 hover:underline"
+              >
+                Razorpay account
+              </a>
+              . Cancel or update payment method there too.
+            </>
+          ) : (
+            <>
+              Invoices live in your{" "}
+              <a
+                href="https://www.paypal.com/myaccount/autopay/"
+                target="_blank"
+                rel="noreferrer"
+                className="underline-offset-4 hover:underline"
+              >
+                PayPal account
+              </a>
+              . Cancel or update payment method there too.
+            </>
+          )}
         </div>
       </Card>
     </>
   );
 }
 
-function UpgradeButtons({
+function UpgradeBlock({
+  provider,
+  title,
   currentPlan,
   hasActiveSub,
+  configured,
   teamConfigured,
   scaleConfigured,
-  paypalConfigured,
+  startAction,
 }: {
+  provider: "paypal" | "razorpay";
+  title: string;
   currentPlan: "spark" | "team" | "scale" | "enterprise";
   hasActiveSub: boolean;
+  configured: boolean;
   teamConfigured: boolean;
   scaleConfigured: boolean;
-  paypalConfigured: boolean;
+  startAction: (plan: "team" | "scale") => Promise<void>;
 }) {
   if (currentPlan === "enterprise") return null;
   if (hasActiveSub && (currentPlan === "team" || currentPlan === "scale"))
     return null;
-  if (!paypalConfigured) {
+  if (!configured) {
     return (
       <span className="inline-flex h-9 items-center rounded-full border border-rule-2 px-4 text-sm font-medium text-muted">
-        Billing not yet configured
+        {title} not configured
       </span>
     );
   }
   return (
-    <>
+    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+      <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+        {title}
+      </span>
       {currentPlan === "spark" && teamConfigured && (
-        <form action={startCheckoutAction.bind(null, "team")}>
+        <form action={startAction.bind(null, "team")}>
           <button
             type="submit"
             className="inline-flex h-9 items-center rounded-full border border-rule-2 px-4 text-sm font-medium text-ink hover:bg-paper-2"
@@ -224,16 +303,20 @@ function UpgradeButtons({
         </form>
       )}
       {scaleConfigured && (
-        <form action={startCheckoutAction.bind(null, "scale")}>
+        <form action={startAction.bind(null, "scale")}>
           <button
             type="submit"
-            className="inline-flex h-9 items-center rounded-full bg-ink px-4 text-sm font-medium text-paper hover:opacity-90"
+            className={
+              provider === "razorpay"
+                ? "inline-flex h-9 items-center rounded-full border border-rule-2 px-4 text-sm font-medium text-ink hover:bg-paper-2"
+                : "inline-flex h-9 items-center rounded-full bg-ink px-4 text-sm font-medium text-paper hover:opacity-90"
+            }
           >
             Upgrade to Scale
           </button>
         </form>
       )}
-    </>
+    </div>
   );
 }
 

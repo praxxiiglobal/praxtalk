@@ -22,10 +22,16 @@ export default defineSchema({
       v.literal("scale"),
       v.literal("enterprise"),
     ),
-    // PayPal Subscriptions API state — populated by the webhook at
-    // /api/paypal/webhook. Absent on workspaces that have never upgraded.
+    // Subscription state — populated by the webhook for whichever
+    // provider the customer used to subscribe. A workspace can only
+    // have one active subscription at a time across providers.
+    subscriptionProvider: v.optional(
+      v.union(v.literal("paypal"), v.literal("razorpay")),
+    ),
     paypalSubscriptionId: v.optional(v.string()),
     paypalPayerId: v.optional(v.string()),
+    razorpaySubscriptionId: v.optional(v.string()),
+    razorpayCustomerId: v.optional(v.string()),
     subscriptionStatus: v.optional(
       v.union(
         v.literal("active"),
@@ -42,7 +48,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_slug", ["slug"])
-    .index("by_paypal_subscription", ["paypalSubscriptionId"]),
+    .index("by_paypal_subscription", ["paypalSubscriptionId"])
+    .index("by_razorpay_subscription", ["razorpaySubscriptionId"]),
 
   // ── Brands ─────────────────────────────────────────────────────────
   // One workspace owns N brands. Each brand has its own widget snippet,

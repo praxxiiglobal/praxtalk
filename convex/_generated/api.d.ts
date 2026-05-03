@@ -28,6 +28,7 @@ import type * as invites from "../invites.js";
 import type * as leads from "../leads.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_paypal from "../lib/paypal.js";
+import type * as lib_razorpay from "../lib/razorpay.js";
 import type * as lobby from "../lobby.js";
 import type * as messageDrafts from "../messageDrafts.js";
 import type * as messages from "../messages.js";
@@ -76,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   leads: typeof leads;
   "lib/auth": typeof lib_auth;
   "lib/paypal": typeof lib_paypal;
+  "lib/razorpay": typeof lib_razorpay;
   lobby: typeof lobby;
   messageDrafts: typeof messageDrafts;
   messages: typeof messages;

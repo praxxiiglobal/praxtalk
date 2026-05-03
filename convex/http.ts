@@ -3,6 +3,7 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import * as paypal from "./lib/paypal";
+import * as razorpay from "./lib/razorpay";
 
 /**
  * REST API for headless integrations. Customers who don't want to use
@@ -1331,6 +1332,74 @@ http.route({
       customId: evt.resource?.custom_id,
     });
 
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }),
+});
+
+// ── Razorpay billing webhook ──────────────────────────────────────────
+// Razorpay POSTs subscription-lifecycle events here. We HMAC-verify the
+// X-Razorpay-Signature header against the raw body using the webhook
+// secret, then dispatch to billing._handleRazorpayWebhookEvent which
+// re-fetches the subscription and updates workspace state.
+//
+// Configure in Razorpay Dashboard → Settings → Webhooks:
+//   URL    : https://<deployment>.convex.site/api/razorpay/webhook
+//   Secret : matches RAZORPAY_WEBHOOK_SECRET in Convex env
+//   Events : subscription.activated / charged / completed / cancelled /
+//            paused / resumed / pending / halted / updated
+http.route({
+  path: "/api/razorpay/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const rawBody = await req.text();
+    const signature = req.headers.get("x-razorpay-signature") ?? "";
+    const verified = await razorpay.verifyWebhookSignature({
+      rawBody,
+      signature,
+    });
+    if (!verified) {
+      return new Response(JSON.stringify({ error: "invalid signature" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    let evt: {
+      event?: string;
+      payload?: {
+        subscription?: {
+          entity?: {
+            id?: string;
+            notes?: Record<string, string>;
+          };
+        };
+      };
+    };
+    try {
+      evt = JSON.parse(rawBody);
+    } catch {
+      return new Response(JSON.stringify({ error: "bad json" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const subscriptionEntity = evt.payload?.subscription?.entity;
+    const razorpaySubscriptionId = subscriptionEntity?.id;
+    const eventType = evt.event;
+    if (!razorpaySubscriptionId || !eventType) {
+      // Not a subscription event we care about; ack so Razorpay doesn't retry.
+      return new Response(JSON.stringify({ ok: true, ignored: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    await ctx.runAction(internal.billing._handleRazorpayWebhookEvent, {
+      eventType,
+      razorpaySubscriptionId,
+      notesWorkspaceId: subscriptionEntity?.notes?.workspaceId,
+    });
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "content-type": "application/json" },

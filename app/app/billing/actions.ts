@@ -25,6 +25,26 @@ export async function startCheckoutAction(plan: "team" | "scale") {
   redirect(approvalUrl);
 }
 
+export async function startRazorpayCheckoutAction(plan: "team" | "scale") {
+  const sessionToken = await readSessionToken();
+  if (!sessionToken) {
+    redirect("/login?next=/app/billing");
+  }
+  let approvalUrl: string;
+  try {
+    const result = await convexServer.action(
+      api.billing.createRazorpayCheckoutLink,
+      { sessionToken, plan },
+    );
+    approvalUrl = result.approvalUrl;
+  } catch (e) {
+    const message =
+      e instanceof Error ? e.message : "Could not start Razorpay checkout.";
+    redirect(`/app/billing?razorpay_error=${encodeURIComponent(message)}`);
+  }
+  redirect(approvalUrl);
+}
+
 export async function cancelSubscriptionAction() {
   const sessionToken = await readSessionToken();
   if (!sessionToken) {
@@ -40,4 +60,21 @@ export async function cancelSubscriptionAction() {
     redirect(`/app/billing?paypal_error=${encodeURIComponent(message)}`);
   }
   redirect("/app/billing?paypal=cancelled");
+}
+
+export async function cancelRazorpaySubscriptionAction() {
+  const sessionToken = await readSessionToken();
+  if (!sessionToken) {
+    redirect("/login?next=/app/billing");
+  }
+  try {
+    await convexServer.action(api.billing.cancelRazorpaySubscription, {
+      sessionToken,
+    });
+  } catch (e) {
+    const message =
+      e instanceof Error ? e.message : "Could not cancel subscription.";
+    redirect(`/app/billing?razorpay_error=${encodeURIComponent(message)}`);
+  }
+  redirect("/app/billing?razorpay=cancelled");
 }

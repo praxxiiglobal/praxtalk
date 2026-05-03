@@ -11,6 +11,7 @@ import {
 import type { Id } from "./_generated/dataModel";
 import { requireOperator } from "./auth";
 import * as paypal from "./lib/paypal";
+import * as razorpay from "./lib/razorpay";
 
 type PlanTier = "spark" | "team" | "scale" | "enterprise";
 type BillablePlan = "team" | "scale";
@@ -24,15 +25,27 @@ const SUBSCRIPTION_STATUS = v.union(
   v.literal("paused"),
 );
 
-function planIdFor(plan: BillablePlan): string | undefined {
+function paypalPlanIdFor(plan: BillablePlan): string | undefined {
   return plan === "team"
     ? process.env.PAYPAL_PLAN_ID_TEAM
     : process.env.PAYPAL_PLAN_ID_SCALE;
 }
 
-function planForId(planId: string): BillablePlan | null {
+function paypalPlanForId(planId: string): BillablePlan | null {
   if (planId === process.env.PAYPAL_PLAN_ID_TEAM) return "team";
   if (planId === process.env.PAYPAL_PLAN_ID_SCALE) return "scale";
+  return null;
+}
+
+function razorpayPlanIdFor(plan: BillablePlan): string | undefined {
+  return plan === "team"
+    ? process.env.RAZORPAY_PLAN_ID_TEAM
+    : process.env.RAZORPAY_PLAN_ID_SCALE;
+}
+
+function razorpayPlanForId(planId: string): BillablePlan | null {
+  if (planId === process.env.RAZORPAY_PLAN_ID_TEAM) return "team";
+  if (planId === process.env.RAZORPAY_PLAN_ID_SCALE) return "scale";
   return null;
 }
 
@@ -50,12 +63,27 @@ export const getSubscription = query({
       v.literal("scale"),
       v.literal("enterprise"),
     ),
+    subscriptionProvider: v.union(
+      v.literal("paypal"),
+      v.literal("razorpay"),
+      v.null(),
+    ),
     paypalSubscriptionId: v.union(v.string(), v.null()),
+    razorpaySubscriptionId: v.union(v.string(), v.null()),
     subscriptionStatus: v.union(SUBSCRIPTION_STATUS, v.null()),
     currentPeriodEnd: v.union(v.number(), v.null()),
-    paypalConfigured: v.boolean(),
-    teamPlanConfigured: v.boolean(),
-    scalePlanConfigured: v.boolean(),
+    // Per-provider configuration flags + plan id flags so the UI can
+    // render available upgrade buttons (and which CTAs to disable).
+    paypal: v.object({
+      configured: v.boolean(),
+      teamPlanConfigured: v.boolean(),
+      scalePlanConfigured: v.boolean(),
+    }),
+    razorpay: v.object({
+      configured: v.boolean(),
+      teamPlanConfigured: v.boolean(),
+      scalePlanConfigured: v.boolean(),
+    }),
   }),
   handler: async (ctx, args) => {
     const { workspaceId } = await requireOperator(ctx, args.sessionToken);
@@ -63,12 +91,21 @@ export const getSubscription = query({
     if (!ws) throw new ConvexError("Workspace not found.");
     return {
       plan: ws.plan,
+      subscriptionProvider: ws.subscriptionProvider ?? null,
       paypalSubscriptionId: ws.paypalSubscriptionId ?? null,
+      razorpaySubscriptionId: ws.razorpaySubscriptionId ?? null,
       subscriptionStatus: ws.subscriptionStatus ?? null,
       currentPeriodEnd: ws.currentPeriodEnd ?? null,
-      paypalConfigured: paypal.isConfigured(),
-      teamPlanConfigured: Boolean(process.env.PAYPAL_PLAN_ID_TEAM),
-      scalePlanConfigured: Boolean(process.env.PAYPAL_PLAN_ID_SCALE),
+      paypal: {
+        configured: paypal.isConfigured(),
+        teamPlanConfigured: Boolean(process.env.PAYPAL_PLAN_ID_TEAM),
+        scalePlanConfigured: Boolean(process.env.PAYPAL_PLAN_ID_SCALE),
+      },
+      razorpay: {
+        configured: razorpay.isConfigured(),
+        teamPlanConfigured: Boolean(process.env.RAZORPAY_PLAN_ID_TEAM),
+        scalePlanConfigured: Boolean(process.env.RAZORPAY_PLAN_ID_SCALE),
+      },
     };
   },
 });
@@ -120,7 +157,7 @@ export const createCheckoutLink = action({
         "PayPal billing isn't configured yet. Contact hello@praxtalk.com.",
       );
     }
-    const planId = planIdFor(args.plan);
+    const planId = paypalPlanIdFor(args.plan);
     if (!planId) {
       throw new ConvexError(
         `PayPal plan id for "${args.plan}" not configured.`,
@@ -314,7 +351,7 @@ export const _handleWebhookEvent = internalAction({
     if (!workspaceId) return null; // stale event for an unknown sub — drop
 
     const sub = await paypal.getSubscription(args.paypalSubscriptionId);
-    const tier = planForId(sub.plan_id);
+    const tier = paypalPlanForId(sub.plan_id);
 
     let nextStatus: "active" | "past_due" | "cancelled" | "paused";
     let nextPlan: "spark" | "team" | "scale";
@@ -353,6 +390,248 @@ export const _handleWebhookEvent = internalAction({
       plan: nextPlan,
       subscriptionStatus: nextStatus,
       currentPeriodEnd: Number.isFinite(nextBilling) ? nextBilling : undefined,
+    });
+    return null;
+  },
+});
+
+// ── Razorpay flows ────────────────────────────────────────────────────
+
+export const _stashPendingRazorpaySubscription = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    razorpaySubscriptionId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.workspaceId, {
+      razorpaySubscriptionId: args.razorpaySubscriptionId,
+      subscriptionProvider: "razorpay",
+    });
+    return null;
+  },
+});
+
+export const createRazorpayCheckoutLink = action({
+  args: {
+    sessionToken: v.string(),
+    plan: PAID_PLAN,
+  },
+  returns: v.object({ approvalUrl: v.string() }),
+  handler: async (ctx, args) => {
+    if (!razorpay.isConfigured()) {
+      throw new ConvexError(
+        "Razorpay billing isn't configured yet. Contact hello@praxtalk.com.",
+      );
+    }
+    const planId = razorpayPlanIdFor(args.plan);
+    if (!planId) {
+      throw new ConvexError(
+        `Razorpay plan id for "${args.plan}" not configured.`,
+      );
+    }
+    const ws: {
+      workspaceId: Id<"workspaces">;
+      currentPlan: PlanTier;
+      paypalSubscriptionId: string | null;
+      subscriptionStatus:
+        | "active"
+        | "past_due"
+        | "cancelled"
+        | "paused"
+        | null;
+    } = await ctx.runQuery(internal.billing._loadWorkspaceForCheckout, {
+      sessionToken: args.sessionToken,
+    });
+    const liveStatuses: ReadonlyArray<string> = [
+      "active",
+      "past_due",
+      "paused",
+    ];
+    if (
+      ws.subscriptionStatus &&
+      liveStatuses.includes(ws.subscriptionStatus)
+    ) {
+      throw new ConvexError(
+        "This workspace already has an active subscription. Cancel it before starting a new one.",
+      );
+    }
+    const callbackUrl =
+      process.env.RAZORPAY_RETURN_URL ??
+      "https://praxtalk.com/app/billing?razorpay=approved";
+
+    const sub = await razorpay.createSubscription({
+      planId,
+      totalCount: 120, // 10 years of monthly billing — effectively perpetual
+      callbackUrl,
+      notes: { workspaceId: ws.workspaceId },
+    });
+    if (!sub.short_url) {
+      throw new ConvexError(
+        "Razorpay didn't return a checkout URL — check the dashboard.",
+      );
+    }
+    await ctx.runMutation(
+      internal.billing._stashPendingRazorpaySubscription,
+      { workspaceId: ws.workspaceId, razorpaySubscriptionId: sub.id },
+    );
+    return { approvalUrl: sub.short_url };
+  },
+});
+
+export const cancelRazorpaySubscription = action({
+  args: { sessionToken: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const ws: {
+      workspaceId: Id<"workspaces">;
+      currentPlan: PlanTier;
+      paypalSubscriptionId: string | null;
+      subscriptionStatus:
+        | "active"
+        | "past_due"
+        | "cancelled"
+        | "paused"
+        | null;
+    } = await ctx.runQuery(internal.billing._loadWorkspaceForCheckout, {
+      sessionToken: args.sessionToken,
+    });
+    // We don't carry the Razorpay sub id on the loadOriginate context;
+    // re-read the workspace for the razorpay-specific id.
+    const fullWs: {
+      razorpaySubscriptionId: string | null;
+    } = await ctx.runQuery(internal.billing._loadWorkspaceRazorpay, {
+      workspaceId: ws.workspaceId,
+    });
+    if (!fullWs.razorpaySubscriptionId) {
+      throw new ConvexError("No Razorpay subscription to cancel.");
+    }
+    await razorpay.cancelSubscription({
+      subscriptionId: fullWs.razorpaySubscriptionId,
+    });
+    // Optimistic local flip — webhook converges to the same state.
+    await ctx.runMutation(internal.billing._applyRazorpayState, {
+      workspaceId: ws.workspaceId,
+      razorpaySubscriptionId: fullWs.razorpaySubscriptionId,
+      plan: "spark",
+      subscriptionStatus: "cancelled",
+    });
+    return null;
+  },
+});
+
+export const _loadWorkspaceRazorpay = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({
+    razorpaySubscriptionId: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const ws = await ctx.db.get(args.workspaceId);
+    if (!ws) throw new ConvexError("Workspace not found.");
+    return { razorpaySubscriptionId: ws.razorpaySubscriptionId ?? null };
+  },
+});
+
+export const _findWorkspaceByRazorpaySubscription = internalQuery({
+  args: { razorpaySubscriptionId: v.string() },
+  returns: v.union(v.id("workspaces"), v.null()),
+  handler: async (ctx, args) => {
+    const ws = await ctx.db
+      .query("workspaces")
+      .withIndex("by_razorpay_subscription", (q) =>
+        q.eq("razorpaySubscriptionId", args.razorpaySubscriptionId),
+      )
+      .unique();
+    return ws?._id ?? null;
+  },
+});
+
+export const _applyRazorpayState = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    razorpaySubscriptionId: v.string(),
+    razorpayCustomerId: v.optional(v.string()),
+    plan: v.union(
+      v.literal("spark"),
+      v.literal("team"),
+      v.literal("scale"),
+    ),
+    subscriptionStatus: SUBSCRIPTION_STATUS,
+    currentPeriodEnd: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const patch: Record<string, unknown> = {
+      razorpaySubscriptionId: args.razorpaySubscriptionId,
+      subscriptionProvider: "razorpay",
+      subscriptionStatus: args.subscriptionStatus,
+      plan: args.plan,
+    };
+    if (args.razorpayCustomerId) {
+      patch.razorpayCustomerId = args.razorpayCustomerId;
+    }
+    if (args.currentPeriodEnd) {
+      patch.currentPeriodEnd = args.currentPeriodEnd;
+    }
+    await ctx.db.patch(args.workspaceId, patch);
+    return null;
+  },
+});
+
+export const _handleRazorpayWebhookEvent = internalAction({
+  args: {
+    eventType: v.string(),
+    razorpaySubscriptionId: v.string(),
+    notesWorkspaceId: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    let workspaceId: Id<"workspaces"> | null = await ctx.runQuery(
+      internal.billing._findWorkspaceByRazorpaySubscription,
+      { razorpaySubscriptionId: args.razorpaySubscriptionId },
+    );
+    if (!workspaceId && args.notesWorkspaceId) {
+      workspaceId = args.notesWorkspaceId as Id<"workspaces">;
+    }
+    if (!workspaceId) return null;
+
+    const sub = await razorpay.getSubscription(args.razorpaySubscriptionId);
+    const tier = razorpayPlanForId(sub.plan_id);
+    let nextStatus: "active" | "past_due" | "cancelled" | "paused";
+    let nextPlan: "spark" | "team" | "scale";
+    switch (args.eventType) {
+      case "subscription.activated":
+      case "subscription.charged":
+      case "subscription.resumed":
+      case "subscription.updated":
+        nextStatus = "active";
+        nextPlan = tier ?? "spark";
+        break;
+      case "subscription.cancelled":
+      case "subscription.completed":
+      case "subscription.expired":
+        nextStatus = "cancelled";
+        nextPlan = "spark";
+        break;
+      case "subscription.paused":
+        nextStatus = "paused";
+        nextPlan = tier ?? "spark";
+        break;
+      case "subscription.halted":
+      case "subscription.pending":
+        nextStatus = "past_due";
+        nextPlan = tier ?? "spark";
+        break;
+      default:
+        return null;
+    }
+    await ctx.runMutation(internal.billing._applyRazorpayState, {
+      workspaceId,
+      razorpaySubscriptionId: args.razorpaySubscriptionId,
+      razorpayCustomerId: sub.customer_id,
+      plan: nextPlan,
+      subscriptionStatus: nextStatus,
+      currentPeriodEnd: sub.current_end ? sub.current_end * 1000 : undefined,
     });
     return null;
   },
