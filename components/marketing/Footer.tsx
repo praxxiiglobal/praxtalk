@@ -68,7 +68,7 @@ const socials: { label: string; href: string; icon: SocialIconName }[] = [
 
 export function Footer() {
   return (
-    <footer className="mt-[120px] border-t border-rule pb-10 pt-20">
+    <footer className="border-t border-rule pb-10 pt-20">
       <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
         {/* Brand col + 5 link cols = 6 grid slots on lg. md splits into
             3 across so the brand sits with two link columns and the
