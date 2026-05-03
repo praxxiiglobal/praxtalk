@@ -8,8 +8,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { AdminConvexProvider } from "../AdminConvexProvider";
 
 type Plan = "spark" | "team" | "scale" | "enterprise";
-type SubStatus = "active" | "past_due" | "cancelled" | "paused" | null;
-type SubValue = "none" | "active" | "past_due" | "paused" | "cancelled";
 type PlatformStatus = "active" | "suspended" | "pending_review" | "flagged";
 
 type Row = {
@@ -17,7 +15,7 @@ type Row = {
   slug: string;
   name: string;
   plan: Plan;
-  subscriptionStatus: SubStatus;
+  subscriptionStatus: "active" | "past_due" | "cancelled" | "paused" | null;
   subscriptionProvider: "paypal" | "razorpay" | null;
   platformStatus: PlatformStatus;
   createdAt: number;
@@ -30,7 +28,7 @@ type Row = {
 
 type SortKey = "lastActivityAt" | "createdAt" | "name" | "conversationCount";
 
-type StatusFilter = "all" | PlatformStatus | "paying" | "free";
+type StatusFilter = "all" | PlatformStatus;
 
 const PLATFORM_FILTER_LABELS: Record<StatusFilter, string> = {
   all: "All",
@@ -38,8 +36,6 @@ const PLATFORM_FILTER_LABELS: Record<StatusFilter, string> = {
   pending_review: "Pending review",
   flagged: "Flagged",
   suspended: "Suspended",
-  paying: "Paying",
-  free: "Free",
 };
 
 const PLAN_FILTER_LABELS: Record<"all" | Plan, string> = {
@@ -93,13 +89,9 @@ function WorkspacesTableInner({
       pending_review: 0,
       flagged: 0,
       suspended: 0,
-      paying: 0,
-      free: 0,
     };
     for (const w of workspaces) {
       c[w.platformStatus]++;
-      if (w.subscriptionStatus === "active") c.paying++;
-      else if (w.subscriptionStatus === null) c.free++;
     }
     return c;
   }, [workspaces]);
@@ -119,11 +111,7 @@ function WorkspacesTableInner({
       list = list.filter((w) => w.plan === planFilter);
     }
     if (statusFilter !== "all") {
-      list = list.filter((w) => {
-        if (statusFilter === "paying") return w.subscriptionStatus === "active";
-        if (statusFilter === "free") return w.subscriptionStatus === null;
-        return w.platformStatus === statusFilter;
-      });
+      list = list.filter((w) => w.platformStatus === statusFilter);
     }
 
     return [...list].sort((a, b) => {
@@ -191,8 +179,6 @@ function WorkspacesTableInner({
             "pending_review",
             "flagged",
             "suspended",
-            "paying",
-            "free",
           ] as StatusFilter[]
         ).map((k) => (
           <FilterChip
@@ -231,7 +217,7 @@ function WorkspacesTableInner({
 function chipTone(k: StatusFilter): "neutral" | "good" | "warn" | "danger" {
   if (k === "suspended" || k === "flagged") return "danger";
   if (k === "pending_review") return "warn";
-  if (k === "active" || k === "paying") return "good";
+  if (k === "active") return "good";
   return "neutral";
 }
 
@@ -323,12 +309,6 @@ function WorkspaceRow({
         <PlatformSelect
           workspaceId={w._id as Id<"workspaces">}
           value={w.platformStatus}
-          sessionToken={sessionToken}
-        />
-        <SubSelect
-          workspaceId={w._id as Id<"workspaces">}
-          status={w.subscriptionStatus}
-          provider={w.subscriptionProvider}
           sessionToken={sessionToken}
         />
       </div>
@@ -470,74 +450,6 @@ function PlatformSelect({
       <option value="pending_review">pending</option>
       <option value="flagged">flagged</option>
       <option value="suspended">suspended</option>
-    </select>
-  );
-}
-
-function SubSelect({
-  workspaceId,
-  status,
-  provider,
-  sessionToken,
-}: {
-  workspaceId: Id<"workspaces">;
-  status: SubStatus;
-  provider: Row["subscriptionProvider"];
-  sessionToken: string;
-}) {
-  const override = useMutation(api._admin.overrideSubscription);
-  const initial: SubValue = (status ?? "none") as SubValue;
-  const [optimistic, setOptimistic] = useState<SubValue>(initial);
-  const [busy, setBusy] = useState(false);
-  if (!busy && optimistic !== initial) setOptimistic(initial);
-
-  const tint =
-    optimistic === "active"
-      ? "bg-good/15 text-good"
-      : optimistic === "past_due"
-        ? "bg-red-100 text-red-700"
-        : optimistic === "paused"
-          ? "bg-yellow-100 text-yellow-800"
-          : optimistic === "cancelled"
-            ? "bg-paper-2 text-muted line-through"
-            : "bg-paper-2 text-muted";
-
-  const label = provider && status ? `sub · ${provider}` : "subscription";
-
-  return (
-    <select
-      value={optimistic}
-      disabled={busy}
-      onChange={async (e) => {
-        const next = e.target.value as SubValue;
-        if (next === initial) return;
-        setOptimistic(next);
-        setBusy(true);
-        try {
-          await override({
-            sessionToken,
-            workspaceId,
-            subscriptionStatus: next === "none" ? null : next,
-          });
-        } catch (err) {
-          alert(
-            err instanceof Error
-              ? err.message
-              : "Couldn't update subscription.",
-          );
-          setOptimistic(initial);
-        } finally {
-          setBusy(false);
-        }
-      }}
-      title={label}
-      className={`h-7 rounded-full px-2.5 font-mono text-[10px] uppercase tracking-[0.06em] outline-none focus:ring-1 focus:ring-ink ${tint}`}
-    >
-      <option value="none">free</option>
-      <option value="active">active{provider ? ` · ${provider}` : ""}</option>
-      <option value="past_due">past_due</option>
-      <option value="paused">paused</option>
-      <option value="cancelled">cancelled</option>
     </select>
   );
 }
