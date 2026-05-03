@@ -57,8 +57,60 @@ export function TeamView() {
       {canManage && <PendingInvitesCard />}
       {canManage && <InviteOperatorCard />}
       {canManage && <AddOperatorCard />}
+      {canManage && <AuditLogCard />}
     </>
   );
+}
+
+function AuditLogCard() {
+  const { sessionToken } = useDashboardAuth();
+  const logs = useQuery(api.operators.listAuditLogs, {
+    sessionToken,
+    limit: 30,
+  });
+
+  return (
+    <Card
+      title="Recent admin activity"
+      description="Audit trail of role changes, brand-access updates, and operator add/remove. Visible to admins and owners."
+    >
+      {logs === undefined ? (
+        <div className="text-sm text-muted">Loading…</div>
+      ) : logs.length === 0 ? (
+        <div className="text-sm text-muted">
+          No admin actions yet — every role / access change will be logged here.
+        </div>
+      ) : (
+        <ul className="divide-y divide-rule">
+          {logs.map((l) => (
+            <li
+              key={l._id}
+              className="flex items-start justify-between gap-3 py-2.5"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] text-ink">{l.summary}</div>
+                <div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+                  {l.action}
+                </div>
+              </div>
+              <div className="shrink-0 text-right font-mono text-[10px] text-muted">
+                {timeAgo(l.createdAt)}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`;
+  if (diff < 604_800_000) return `${Math.round(diff / 86_400_000)}d ago`;
+  return new Date(ts).toLocaleDateString();
 }
 
 function PendingInvitesCard() {
