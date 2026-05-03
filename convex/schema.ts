@@ -1146,4 +1146,33 @@ export default defineSchema({
   })
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_target_operator", ["targetOperatorId"]),
+
+  // ── Marketing pricing (Level 1 editable) ──────────────────────────
+  // Overrides for the public /pricing page + homepage Pricing block.
+  // One row per planKey ("spark" | "team" | "scale" | "enterprise").
+  // Missing row = use the hardcoded default in components/marketing/
+  // Pricing.tsx. Operators edit via /app/settings/pricing (owner/admin
+  // only). Display only — actual billing prices are set when plans
+  // are minted via setup-paypal-plans.mjs / setup-razorpay-plans.mjs
+  // and are price-locked at subscription-create time. Updating a
+  // displayed price here does NOT change what existing or new
+  // subscribers are charged on either provider.
+  marketingPricing: defineTable({
+    planKey: v.union(
+      v.literal("spark"),
+      v.literal("team"),
+      v.literal("scale"),
+      v.literal("enterprise"),
+    ),
+    name: v.optional(v.string()),
+    price: v.optional(v.string()),
+    priceSub: v.optional(v.string()),
+    lede: v.optional(v.string()),
+    features: v.optional(v.array(v.string())),
+    ctaLabel: v.optional(v.string()),
+    ctaHref: v.optional(v.string()),
+    ribbon: v.optional(v.string()),
+    updatedAt: v.number(),
+    updatedByOperatorId: v.optional(v.id("operators")),
+  }).index("by_plan_key", ["planKey"]),
 });

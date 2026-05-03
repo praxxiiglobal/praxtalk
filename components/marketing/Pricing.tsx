@@ -1,7 +1,12 @@
+import { fetchQuery } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
 import { SectionHead } from "./SectionHead";
 import { cn } from "@/lib/cn";
 
+type PlanKey = "spark" | "team" | "scale" | "enterprise";
+
 type Plan = {
+  key: PlanKey;
   name: string;
   price: string;
   priceSub: string;
@@ -12,8 +17,15 @@ type Plan = {
   ribbon?: string;
 };
 
-const plans: Plan[] = [
+/**
+ * Hardcoded defaults — the source of truth when no Convex override
+ * exists. Editable from /app/settings/pricing (Level 1 — overrides
+ * are display-only; actual billing prices stay locked to the
+ * PayPal / Razorpay plan IDs in env vars).
+ */
+const DEFAULTS: Plan[] = [
   {
+    key: "spark",
     name: "Spark",
     price: "$0",
     priceSub: "forever",
@@ -27,6 +39,7 @@ const plans: Plan[] = [
     cta: { label: "Start free", style: "ghost", href: "/sign-up" },
   },
   {
+    key: "team",
     name: "Team",
     price: "$29",
     priceSub: "/seat / mo",
@@ -41,6 +54,7 @@ const plans: Plan[] = [
     cta: { label: "Start 14-day trial", style: "dark", href: "/sign-up" },
   },
   {
+    key: "scale",
     name: "Scale",
     price: "$89",
     priceSub: "/seat / mo",
@@ -62,6 +76,7 @@ const plans: Plan[] = [
     ribbon: "Most popular",
   },
   {
+    key: "enterprise",
     name: "Enterprise",
     price: "Custom",
     priceSub: "",
@@ -82,7 +97,61 @@ const plans: Plan[] = [
   },
 ];
 
-export function Pricing() {
+/**
+ * Merge a default plan with the Convex override. Any null override
+ * field falls through to the default. Empty arrays clear the
+ * override (back to default features list).
+ */
+function mergePlan(
+  d: Plan,
+  o: {
+    name: string | null;
+    price: string | null;
+    priceSub: string | null;
+    lede: string | null;
+    features: string[] | null;
+    ctaLabel: string | null;
+    ctaHref: string | null;
+    ribbon: string | null;
+  } | undefined,
+): Plan {
+  if (!o) return d;
+  return {
+    ...d,
+    name: o.name ?? d.name,
+    price: o.price ?? d.price,
+    priceSub: o.priceSub ?? d.priceSub,
+    lede: o.lede ?? d.lede,
+    features: o.features && o.features.length > 0 ? o.features : d.features,
+    cta: {
+      ...d.cta,
+      label: o.ctaLabel ?? d.cta.label,
+      href: o.ctaHref ?? d.cta.href,
+    },
+    ribbon: o.ribbon ?? d.ribbon,
+  };
+}
+
+export async function Pricing() {
+  // Fetch overrides server-side. fetchQuery resolves at render
+  // time; the Vercel deploy honours the page's revalidate hint
+  // (defaults to dynamic for now — flip to ISR with a revalidate
+  // export if it gets traffic-heavy).
+  let overrides: Awaited<
+    ReturnType<typeof fetchQuery<typeof api.pricing.getPublic>>
+  > = [];
+  try {
+    overrides = await fetchQuery(api.pricing.getPublic, {});
+  } catch {
+    // Convex unreachable / bootstrap — fall back to defaults so the
+    // marketing page never breaks because the backend hiccupped.
+    overrides = [];
+  }
+
+  const plans = DEFAULTS.map((d) =>
+    mergePlan(d, overrides.find((o) => o.planKey === d.key)),
+  );
+
   return (
     <section id="pricing" className="relative pb-[120px]">
       <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
@@ -99,7 +168,7 @@ export function Pricing() {
 
         <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 lg:grid-cols-4">
           {plans.map((p) => (
-            <PlanCard key={p.name} plan={p} />
+            <PlanCard key={p.key} plan={p} />
           ))}
         </div>
       </div>

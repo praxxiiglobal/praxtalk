@@ -39,6 +39,12 @@ const WORKSPACE_LINKS: { href: string; label: string; description: string }[] = 
     description:
       "Current plan, AI auto-reply usage, PayPal/Razorpay subscription state, and invoices — upgrade or cancel here.",
   },
+  {
+    href: "/app/settings/pricing",
+    label: "Marketing pricing",
+    description:
+      "Override the public /pricing page copy — tier names, prices, lede, features, CTAs. Display only — actual billing prices stay locked to PayPal/Razorpay plan IDs.",
+  },
 ];
 
 export function WorkspaceSettings() {

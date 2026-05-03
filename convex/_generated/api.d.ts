@@ -36,6 +36,7 @@ import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
 import type * as operators from "../operators.js";
 import type * as passwordReset from "../passwordReset.js";
+import type * as pricing from "../pricing.js";
 import type * as publicApi from "../publicApi.js";
 import type * as pushNotifications from "../pushNotifications.js";
 import type * as pushSubscriptions from "../pushSubscriptions.js";
@@ -86,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   notifications: typeof notifications;
   operators: typeof operators;
   passwordReset: typeof passwordReset;
+  pricing: typeof pricing;
   publicApi: typeof publicApi;
   pushNotifications: typeof pushNotifications;
   pushSubscriptions: typeof pushSubscriptions;
