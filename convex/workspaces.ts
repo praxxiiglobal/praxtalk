@@ -141,6 +141,71 @@ export const setDashboardAccent = mutation({
   },
 });
 
+/**
+ * Owner / admin renames the workspace and/or changes its slug. Plan
+ * tier is read-only here — that's managed via the billing webhook.
+ *
+ * Slug changes are validated for uniqueness across the table. Pending
+ * invite links that reference the old slug are NOT migrated; we just
+ * trust the admin understands they'll stop matching.
+ */
+export const updateIdentity = mutation({
+  args: {
+    sessionToken: v.string(),
+    name: v.optional(v.string()),
+    slug: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    if (operator.role === "agent") {
+      throw new Error(
+        "Only admins and owners can rename the workspace.",
+      );
+    }
+    const ws = await ctx.db.get(workspaceId);
+    if (!ws) throw new Error("Workspace not found.");
+
+    const patch: Record<string, unknown> = {};
+
+    if (args.name !== undefined) {
+      const nextName = args.name.trim();
+      if (!nextName) throw new Error("Workspace name can't be empty.");
+      if (nextName.length > 80) {
+        throw new Error("Workspace name is too long (max 80 chars).");
+      }
+      if (nextName !== ws.name) patch.name = nextName;
+    }
+
+    if (args.slug !== undefined) {
+      const nextSlug = slugify(args.slug);
+      if (!nextSlug) {
+        throw new Error("Slug must contain letters or numbers.");
+      }
+      if (nextSlug.length > 60) {
+        throw new Error("Slug is too long (max 60 chars).");
+      }
+      if (nextSlug !== ws.slug) {
+        const taken = await ctx.db
+          .query("workspaces")
+          .withIndex("by_slug", (q) => q.eq("slug", nextSlug))
+          .unique();
+        if (taken && taken._id !== workspaceId) {
+          throw new Error(`Slug "${nextSlug}" is already taken.`);
+        }
+        patch.slug = nextSlug;
+      }
+    }
+
+    if (Object.keys(patch).length === 0) return null;
+    await ctx.db.patch(workspaceId, patch);
+    return null;
+  },
+});
+
 export const getBySlug = query({
   args: { slug: v.string() },
   returns: v.union(

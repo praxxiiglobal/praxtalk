@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useMutation } from "convex/react";
+import { useState } from "react";
+import { api } from "@/convex/_generated/api";
 import { useDashboardAuth } from "../DashboardShell";
 import { Card } from "../PageHeader";
 import { DashboardThemeSection } from "./DashboardThemeSection";
@@ -32,14 +35,16 @@ const WORKSPACE_LINKS: { href: string; label: string; description: string }[] = 
   },
   {
     href: "/app/billing",
-    label: "Billing",
+    label: "Plan & billing",
     description:
-      "Plan, AI auto-reply usage, PayPal/Razorpay subscription state, and invoices.",
+      "Current plan, AI auto-reply usage, PayPal/Razorpay subscription state, and invoices — upgrade or cancel here.",
   },
 ];
 
 export function WorkspaceSettings() {
-  const { workspace } = useDashboardAuth();
+  const { workspace, sessionToken, operator } = useDashboardAuth();
+  const updateIdentity = useMutation(api.workspaces.updateIdentity);
+  const canEdit = operator.role !== "agent";
 
   return (
     <Card
@@ -48,10 +53,26 @@ export function WorkspaceSettings() {
     >
       <SectionHeader>Identity</SectionHeader>
       <dl className="divide-y divide-rule">
-        <Row label="Name" value={workspace.name} />
-        <Row label="Slug" value={workspace.slug} mono />
-        <Row label="Plan" value={workspace.plan} mono uppercase />
-        <Row label="Workspace ID" value={workspace._id} mono truncate />
+        <EditableRow
+          label="Name"
+          value={workspace.name}
+          editable={canEdit}
+          hint="Shown in the dashboard, invite emails, and the visitor widget header."
+          onSave={async (next) => {
+            await updateIdentity({ sessionToken, name: next });
+          }}
+        />
+        <EditableRow
+          label="Slug"
+          value={workspace.slug}
+          editable={canEdit}
+          mono
+          hint="Used in invite links. Lowercase letters, numbers, and dashes only."
+          onSave={async (next) => {
+            await updateIdentity({ sessionToken, slug: next });
+          }}
+        />
+        <ReadOnlyRow label="Workspace ID" value={workspace._id} mono truncate />
       </dl>
 
       <SectionHeader>Manage</SectionHeader>
@@ -96,17 +117,15 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Row({
+function ReadOnlyRow({
   label,
   value,
   mono,
-  uppercase,
   truncate,
 }: {
   label: string;
   value: string;
   mono?: boolean;
-  uppercase?: boolean;
   truncate?: boolean;
 }) {
   return (
@@ -116,7 +135,6 @@ function Row({
         className={[
           "text-sm text-ink",
           mono ? "font-mono text-[13px]" : "",
-          uppercase ? "uppercase tracking-[0.04em]" : "",
           truncate ? "truncate sm:max-w-[60%]" : "",
         ]
           .filter(Boolean)
@@ -124,6 +142,134 @@ function Row({
       >
         {value}
       </dd>
+    </div>
+  );
+}
+
+function EditableRow({
+  label,
+  value,
+  mono,
+  editable,
+  hint,
+  onSave,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  editable: boolean;
+  hint?: string;
+  onSave: (next: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const beginEdit = () => {
+    setDraft(value);
+    setError(null);
+    setEditing(true);
+  };
+  const cancel = () => {
+    setEditing(false);
+    setError(null);
+    setDraft(value);
+  };
+  const save = async () => {
+    if (draft.trim() === value) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(draft.trim());
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't save.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <div className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <dt className="text-sm text-muted">{label}</dt>
+        <dd className="flex items-center gap-3 sm:max-w-[70%]">
+          <span
+            className={[
+              "truncate text-sm text-ink",
+              mono ? "font-mono text-[13px]" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            {value}
+          </span>
+          {editable && (
+            <button
+              type="button"
+              onClick={beginEdit}
+              className="shrink-0 rounded-full border border-rule-2 px-3 py-1 text-[11px] font-medium text-muted transition hover:text-ink"
+            >
+              Edit
+            </button>
+          )}
+        </dd>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <dt className="text-sm text-muted">{label}</dt>
+      </div>
+      <input
+        type="text"
+        value={draft}
+        autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !busy) save();
+          if (e.key === "Escape") cancel();
+        }}
+        disabled={busy}
+        className={[
+          "h-10 w-full rounded-lg border border-rule-2 bg-paper px-3 text-sm outline-none focus:border-ink",
+          mono ? "font-mono text-[13px]" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      />
+      {hint && (
+        <p className="text-[11px] leading-[1.4] text-muted">{hint}</p>
+      )}
+      {error && (
+        <p className="text-[11px] text-warn" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={cancel}
+          disabled={busy}
+          className="rounded-full border border-rule-2 px-3 py-1 text-[11px] font-medium text-muted hover:text-ink"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy || !draft.trim()}
+          className="rounded-full bg-ink px-3 py-1 text-[11px] font-medium text-paper transition hover:-translate-y-px disabled:opacity-50"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
     </div>
   );
 }
