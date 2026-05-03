@@ -55,6 +55,12 @@ export const sendOutboundForMessage = internalAction({
         : (message.emailSubject ??
           (visitor.name ? `Re: conversation with ${visitor.name}` : "Re: support request"));
 
+    const attachments = message.attachments?.map((a) => ({
+      filename: a.filename,
+      content: Buffer.from(a.contentBase64, "base64"),
+      contentType: a.mimeType,
+    }));
+
     try {
       const info = await transport.sendMail({
         from: integration.fromName
@@ -68,6 +74,7 @@ export const sendOutboundForMessage = internalAction({
         references: conversation.emailThreadId
           ? [conversation.emailThreadId]
           : undefined,
+        attachments,
       });
       // Stamp the SMTP-assigned Message-ID back onto the message so
       // future replies thread cleanly.

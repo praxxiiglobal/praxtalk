@@ -605,6 +605,8 @@ export const sendOperatorReply = internalAction({
       ? `${integration.fromName} <${integration.fromAddress}>`
       : integration.fromAddress;
 
+    const attachments = message.attachments;
+
     try {
       if (integration.provider === "postmark") {
         await postmarkSend({
@@ -614,6 +616,7 @@ export const sendOperatorReply = internalAction({
           subject,
           body: message.body,
           inReplyTo: conversation.emailThreadId,
+          attachments,
         });
       } else if (integration.provider === "sendgrid") {
         await sendgridSend({
@@ -624,6 +627,7 @@ export const sendOperatorReply = internalAction({
           subject,
           body: message.body,
           inReplyTo: conversation.emailThreadId,
+          attachments,
         });
       } else if (integration.provider === "resend") {
         await resendSend({
@@ -633,6 +637,7 @@ export const sendOperatorReply = internalAction({
           subject,
           body: message.body,
           inReplyTo: conversation.emailThreadId,
+          attachments,
         });
       } else if (integration.provider === "smtp_imap") {
         // Hand off to the Node-runtime SMTP sender (nodemailer can't
@@ -872,6 +877,12 @@ export const loadOutboundContext = internalQuery({
 
 // ── Provider adapters ─────────────────────────────────────────────────
 
+type Attachment = {
+  filename: string;
+  contentBase64: string;
+  mimeType: string;
+};
+
 async function postmarkSend(args: {
   apiKey: string;
   from: string;
@@ -879,11 +890,27 @@ async function postmarkSend(args: {
   subject: string;
   body: string;
   inReplyTo?: string;
+  attachments?: Attachment[];
 }) {
   const headers: Record<string, string>[] = [];
   if (args.inReplyTo) {
     headers.push({ Name: "In-Reply-To", Value: args.inReplyTo });
     headers.push({ Name: "References", Value: args.inReplyTo });
+  }
+  const payload: Record<string, unknown> = {
+    From: args.from,
+    To: args.to,
+    Subject: args.subject,
+    TextBody: args.body,
+    MessageStream: "outbound",
+    Headers: headers,
+  };
+  if (args.attachments && args.attachments.length > 0) {
+    payload.Attachments = args.attachments.map((a) => ({
+      Name: a.filename,
+      Content: a.contentBase64,
+      ContentType: a.mimeType,
+    }));
   }
   const res = await fetch("https://api.postmarkapp.com/email", {
     method: "POST",
@@ -892,14 +919,7 @@ async function postmarkSend(args: {
       "content-type": "application/json",
       "x-postmark-server-token": args.apiKey,
     },
-    body: JSON.stringify({
-      From: args.from,
-      To: args.to,
-      Subject: args.subject,
-      TextBody: args.body,
-      MessageStream: "outbound",
-      Headers: headers,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     throw new Error(`Postmark send failed: ${res.status} ${await res.text()}`);
@@ -914,11 +934,26 @@ async function sendgridSend(args: {
   subject: string;
   body: string;
   inReplyTo?: string;
+  attachments?: Attachment[];
 }) {
   const headers: Record<string, string> = {};
   if (args.inReplyTo) {
     headers["In-Reply-To"] = args.inReplyTo;
     headers["References"] = args.inReplyTo;
+  }
+  const payload: Record<string, unknown> = {
+    personalizations: [{ to: [{ email: args.to }], headers }],
+    from: { email: args.from, name: args.fromName },
+    subject: args.subject,
+    content: [{ type: "text/plain", value: args.body }],
+  };
+  if (args.attachments && args.attachments.length > 0) {
+    payload.attachments = args.attachments.map((a) => ({
+      filename: a.filename,
+      content: a.contentBase64,
+      type: a.mimeType,
+      disposition: "attachment",
+    }));
   }
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
@@ -926,12 +961,7 @@ async function sendgridSend(args: {
       authorization: `Bearer ${args.apiKey}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: args.to }], headers }],
-      from: { email: args.from, name: args.fromName },
-      subject: args.subject,
-      content: [{ type: "text/plain", value: args.body }],
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     throw new Error(`SendGrid send failed: ${res.status} ${await res.text()}`);
@@ -945,10 +975,24 @@ async function resendSend(args: {
   subject: string;
   body: string;
   inReplyTo?: string;
+  attachments?: Attachment[];
 }) {
   const headers: Record<string, string> = {};
   if (args.inReplyTo) {
     headers["In-Reply-To"] = args.inReplyTo;
+  }
+  const payload: Record<string, unknown> = {
+    from: args.from,
+    to: args.to,
+    subject: args.subject,
+    text: args.body,
+    headers,
+  };
+  if (args.attachments && args.attachments.length > 0) {
+    payload.attachments = args.attachments.map((a) => ({
+      filename: a.filename,
+      content: a.contentBase64,
+    }));
   }
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -956,13 +1000,7 @@ async function resendSend(args: {
       authorization: `Bearer ${args.apiKey}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      from: args.from,
-      to: args.to,
-      subject: args.subject,
-      text: args.body,
-      headers,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     throw new Error(`Resend send failed: ${res.status} ${await res.text()}`);

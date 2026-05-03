@@ -556,6 +556,18 @@ export default defineSchema({
     emailMessageId: v.optional(v.string()),
     emailInReplyTo: v.optional(v.string()),
     emailSubject: v.optional(v.string()),
+    // Optional outbound attachments. Today populated only by the
+    // booking flow (ICS calendar invites). The email outbound
+    // dispatchers know how to attach these; SMS/voice ignore them.
+    attachments: v.optional(
+      v.array(
+        v.object({
+          filename: v.string(),
+          contentBase64: v.string(),
+          mimeType: v.string(),
+        }),
+      ),
+    ),
     // Outbound delivery state for email-channel operator replies.
     // Updated by `internal.emailIntegrations.sendOperatorReply` with
     // exponential-backoff retries.

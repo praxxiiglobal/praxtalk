@@ -485,6 +485,35 @@ export const book = mutation({
       timezone: p.timezone,
       visitorName: args.name,
     });
+    // For email: attach an ICS calendar invite. Gmail / Outlook /
+    // Apple Mail auto-detect this and offer one-click "Add to
+    // calendar" — much smoother than the deep-link fallback in the
+    // body. SMS/WhatsApp ignore attachments.
+    const icsAttachment =
+      p.confirmChannel === "email"
+        ? [
+            {
+              filename: "booking.ics",
+              contentBase64: btoa(
+                buildICS({
+                  uid: `${conversationId}@praxtalk`,
+                  title: p.title,
+                  description: `${p.title} with ${
+                    (await ctx.db.get(assignedOwnerId))?.name ?? "the team"
+                  }.`,
+                  startsAt,
+                  endsAt,
+                  organizerEmail:
+                    (await ctx.db.get(assignedOwnerId))?.email ??
+                    "noreply@praxtalk.com",
+                  attendeeEmail: email,
+                }),
+              ),
+              mimeType: "text/calendar; method=REQUEST; charset=utf-8",
+            },
+          ]
+        : undefined;
+
     const confirmMsgId = await ctx.db.insert("messages", {
       conversationId,
       workspaceId: p.workspaceId,
@@ -492,6 +521,11 @@ export const book = mutation({
       channel: p.confirmChannel === "email" ? "email" : p.confirmChannel === "sms" ? "sms" : "whatsapp",
       role: "atlas",
       body: confirmationBody,
+      attachments: icsAttachment,
+      emailSubject:
+        p.confirmChannel === "email"
+          ? `Booking confirmed — ${p.title}`
+          : undefined,
       createdAt: now,
     });
     if (p.confirmChannel === "email") {
@@ -618,6 +652,58 @@ function calendarLinks(args: {
   // Outlook uses ISO 8601 with milliseconds.
   const outlook = `https://outlook.live.com/calendar/0/deeplink/compose?path=%2Fcalendar%2Faction%2Fcompose&rru=addevent&subject=${encodeURIComponent(args.title)}&body=${encodeURIComponent(args.description)}&startdt=${new Date(args.startsAt).toISOString()}&enddt=${new Date(args.endsAt).toISOString()}`;
   return { google, outlook };
+}
+
+/**
+ * Minimal RFC 5545 VEVENT generator. Enough for Gmail/Outlook/Apple
+ * to recognise as a calendar invite and offer one-click add. Pure
+ * function — no external deps, no hosting required.
+ */
+function buildICS(args: {
+  uid: string;
+  title: string;
+  description: string;
+  startsAt: number;
+  endsAt: number;
+  organizerEmail: string;
+  attendeeEmail: string;
+}): string {
+  const fmt = (ts: number): string => {
+    const d = new Date(ts);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(
+      d.getUTCDate(),
+    )}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(
+      d.getUTCSeconds(),
+    )}Z`;
+  };
+  const escape = (s: string): string =>
+    s
+      .replace(/\\/g, "\\\\")
+      .replace(/;/g, "\\;")
+      .replace(/,/g, "\\,")
+      .replace(/\n/g, "\\n");
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//PraxTalk//Booking//EN",
+    "METHOD:REQUEST",
+    "BEGIN:VEVENT",
+    `UID:${args.uid}`,
+    `DTSTAMP:${fmt(Date.now())}`,
+    `DTSTART:${fmt(args.startsAt)}`,
+    `DTEND:${fmt(args.endsAt)}`,
+    `SUMMARY:${escape(args.title)}`,
+    `DESCRIPTION:${escape(args.description)}`,
+    `ORGANIZER;CN=${escape(args.organizerEmail)}:mailto:${args.organizerEmail}`,
+    `ATTENDEE;CN=${escape(args.attendeeEmail)};RSVP=TRUE:mailto:${args.attendeeEmail}`,
+    "STATUS:CONFIRMED",
+    "SEQUENCE:0",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  // ICS lines must be CRLF-terminated.
+  return lines.join("\r\n") + "\r\n";
 }
 
 function parseDateInTz(yyyymmdd: string, _tz: string): number {
