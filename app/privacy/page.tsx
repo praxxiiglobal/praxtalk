@@ -94,6 +94,13 @@ export default function PrivacyPage() {
             <li>
               <strong>PayPal / Razorpay</strong> — billing.
             </li>
+            <li>
+              <strong>Google Analytics 4</strong> (US) — anonymous
+              traffic measurement on the marketing site only. We
+              don&apos;t cross-link analytics IDs to operator or
+              visitor accounts. Honors browser Do-Not-Track + GPC
+              headers.
+            </li>
           </ul>
         </Prose>
       </Section>

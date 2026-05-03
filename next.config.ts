@@ -30,15 +30,18 @@ const SECURITY_HEADERS = [
 const CSP = [
   "default-src 'self'",
   // Next.js inlines a small bootstrap script per page; 'unsafe-inline'
-  // covers it. Vercel scripts include analytics + insights.
-  "script-src 'self' 'unsafe-inline' https://*.vercel-scripts.com",
+  // covers it. Vercel scripts include analytics + insights. Google
+  // Analytics gtag.js loads from googletagmanager.com.
+  "script-src 'self' 'unsafe-inline' https://*.vercel-scripts.com https://www.googletagmanager.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
   // Convex subdomains for the live socket + REST. ipinfo/ipapi for the
-  // widget's geo lookup. Razorpay/PayPal callbacks land at our own
-  // backend so don't need outbound entries.
-  "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://ipinfo.io https://ipapi.co https://*.vercel-insights.com",
+  // widget's geo lookup. GA beacon endpoints (google-analytics.com +
+  // analytics.google.com + googletagmanager.com) for outbound events.
+  // Razorpay/PayPal callbacks land at our own backend so don't need
+  // outbound entries.
+  "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://ipinfo.io https://ipapi.co https://*.vercel-insights.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

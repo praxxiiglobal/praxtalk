@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Inter_Tight, JetBrains_Mono, Instrument_Serif } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
+
+const GA_MEASUREMENT_ID = "G-LSQHM1LCTE";
 
 const interTight = Inter_Tight({
   subsets: ["latin"],
@@ -113,6 +116,24 @@ export default function RootLayout({
       lang="en"
       className={`${interTight.variable} ${jetbrainsMono.variable} ${instrumentSerif.variable} antialiased`}
     >
+      <head>
+        {/* Google Analytics 4 (gtag.js). Strategy "afterInteractive"
+            so it doesn't block hydration — the same as Google's own
+            async-script recommendation, but routed through Next's
+            Script component so we don't double-load on client-nav. */}
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="ga-init" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', '${GA_MEASUREMENT_ID}');
+          `}
+        </Script>
+      </head>
       <body className="paper-grain min-h-screen bg-paper text-ink font-sans">
         {/* WCAG 2.1 AA — skip link for keyboard / screen-reader users.
             Visually hidden until focused. Marketing pages should
