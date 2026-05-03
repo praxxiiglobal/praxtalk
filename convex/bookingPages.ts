@@ -207,6 +207,72 @@ export const remove = mutation({
   },
 });
 
+/**
+ * Operator-callable cancellation. Marks the booking cancelled, deletes
+ * the corresponding event from the connected calendar (no-op if the
+ * owner had no calendar connected), and cancels every pending reminder
+ * tied to the booking's conversation.
+ */
+export const cancelBooking = mutation({
+  args: { sessionToken: v.string(), bookingId: v.id("bookings") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const b = await ctx.db.get(args.bookingId);
+    if (!b || b.workspaceId !== workspaceId) {
+      throw new ConvexError("Booking not found.");
+    }
+    const isAdmin =
+      operator.role === "owner" || operator.role === "admin";
+    if (b.ownerOperatorId !== operator._id && !isAdmin) {
+      throw new ConvexError("Not your booking.");
+    }
+    if (b.status === "cancelled") return null; // idempotent
+
+    await ctx.db.patch(args.bookingId, { status: "cancelled" });
+
+    // Cancel pending reminders for this conversation — anything that
+    // hasn't fired yet would now be misleading.
+    const pending = await ctx.db
+      .query("reminders")
+      .withIndex("by_conversation", (q) =>
+        q.eq("conversationId", b.conversationId),
+      )
+      .collect();
+    for (const r of pending) {
+      if (r.status === "pending") {
+        await ctx.db.patch(r._id, { status: "cancelled" });
+      }
+    }
+
+    // Delete from the owner's connected calendar (fire-and-forget;
+    // failures are logged inside the action).
+    if (b.calendarConnectionId && b.calendarEventExternalId) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.calendarSync.deleteBookingFromCalendar,
+        { bookingId: args.bookingId },
+      );
+    }
+
+    // Drop a system message so the operator + visitor see what happened.
+    await ctx.db.insert("messages", {
+      conversationId: b.conversationId,
+      workspaceId: b.workspaceId,
+      brandId: b.brandId,
+      channel: "email",
+      role: "system",
+      body: `📅 Booking cancelled — ${new Date(b.startsAt).toUTCString()}`,
+      createdAt: Date.now(),
+    });
+
+    return null;
+  },
+});
+
 // ── Public surfaces (visitor-facing /book/<slug>) ─────────────────────
 
 export const getPublicBySlug = query({
@@ -587,6 +653,7 @@ export const book = mutation({
       internal.calendarSync.writeBookingToCalendar,
       {
         operatorId: assignedOwnerId,
+        bookingId,
         title: `${p.title} — ${args.name}`,
         description: `Booked via PraxTalk.\n\nVisitor: ${args.name} <${email}>${
           args.notes ? `\n\nNotes:\n${args.notes}` : ""

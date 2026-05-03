@@ -518,6 +518,11 @@ export default defineSchema({
     visitorEmail: v.optional(v.string()),
     visitorPhone: v.optional(v.string()),
     notes: v.optional(v.string()),
+    // Set after a successful write-back to the owner's connected
+    // calendar — used by the cancel flow to delete the event from
+    // their calendar too.
+    calendarConnectionId: v.optional(v.id("calendarConnections")),
+    calendarEventExternalId: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_owner_starts_at", ["ownerOperatorId", "startsAt"])

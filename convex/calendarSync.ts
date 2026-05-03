@@ -406,10 +406,14 @@ export const _updateAccessToken = internalMutation({
  *
  * Triggered by bookingPages.book scheduling this action with
  * runAfter(0, ...). Failures are logged but don't block the booking.
+ *
+ * On success: stamps the calendar event id back onto the booking row
+ * so the cancel flow can delete the event later.
  */
 export const writeBookingToCalendar = internalAction({
   args: {
     operatorId: v.id("operators"),
+    bookingId: v.id("bookings"),
     title: v.string(),
     description: v.string(),
     startsAt: v.number(),
@@ -453,8 +457,9 @@ export const writeBookingToCalendar = internalAction({
     }
 
     try {
+      let externalEventId: string | undefined;
       if (conn.provider === "google") {
-        await createGoogleEvent({
+        externalEventId = await createGoogleEvent({
           accessToken,
           calendarId: conn.calendarId ?? "primary",
           title: args.title,
@@ -464,7 +469,7 @@ export const writeBookingToCalendar = internalAction({
           attendeeEmail: args.attendeeEmail,
         });
       } else {
-        await createMicrosoftEvent({
+        externalEventId = await createMicrosoftEvent({
           accessToken,
           title: args.title,
           description: args.description,
@@ -473,10 +478,138 @@ export const writeBookingToCalendar = internalAction({
           attendeeEmail: args.attendeeEmail,
         });
       }
+      if (externalEventId) {
+        await ctx.runMutation(internal.calendarSync._linkBookingToEvent, {
+          bookingId: args.bookingId,
+          calendarConnectionId: conn._id,
+          calendarEventExternalId: externalEventId,
+        });
+      }
     } catch (err) {
       console.warn("[calendar] write-back failed", err);
     }
     return null;
+  },
+});
+
+/**
+ * Counterpart to writeBookingToCalendar — deletes the event from the
+ * owner's connected calendar when a booking is cancelled. Looks up
+ * everything it needs from the booking row (connection + external
+ * event id, both stamped at write-back time).
+ */
+export const deleteBookingFromCalendar = internalAction({
+  args: { bookingId: v.id("bookings") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const ctxData: {
+      provider: "google" | "microsoft" | "caldav";
+      accessToken: string;
+      refreshToken: string | null;
+      tokenExpiresAt: number | null;
+      calendarId: string | null;
+      connectionId: Id<"calendarConnections">;
+      externalEventId: string;
+    } | null = await ctx.runQuery(
+      internal.calendarSync._loadConnectionForBooking,
+      { bookingId: args.bookingId },
+    );
+    if (!ctxData) return null;
+    if (ctxData.provider === "caldav") return null;
+
+    let accessToken = ctxData.accessToken;
+    if (
+      ctxData.tokenExpiresAt &&
+      ctxData.tokenExpiresAt < Date.now() + 60_000 &&
+      ctxData.refreshToken
+    ) {
+      const refreshed = await refreshAccessToken(
+        ctxData.provider,
+        ctxData.refreshToken,
+      );
+      if (refreshed) {
+        accessToken = refreshed.accessToken;
+        await ctx.runMutation(internal.calendarSync._updateAccessToken, {
+          connectionId: ctxData.connectionId,
+          accessToken: refreshed.accessToken,
+          tokenExpiresAt: refreshed.expiresAt,
+        });
+      }
+    }
+
+    try {
+      if (ctxData.provider === "google") {
+        const res = await fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(ctxData.calendarId ?? "primary")}/events/${encodeURIComponent(ctxData.externalEventId)}`,
+          {
+            method: "DELETE",
+            headers: { authorization: `Bearer ${accessToken}` },
+          },
+        );
+        // 410 Gone = already deleted; treat as success.
+        if (!res.ok && res.status !== 410 && res.status !== 404) {
+          console.warn(
+            "[calendar] google delete failed",
+            res.status,
+            await res.text(),
+          );
+        }
+      } else {
+        const res = await fetch(
+          `https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(ctxData.externalEventId)}`,
+          {
+            method: "DELETE",
+            headers: { authorization: `Bearer ${accessToken}` },
+          },
+        );
+        if (!res.ok && res.status !== 404) {
+          console.warn(
+            "[calendar] microsoft delete failed",
+            res.status,
+            await res.text(),
+          );
+        }
+      }
+    } catch (err) {
+      console.warn("[calendar] delete-back failed", err);
+    }
+    return null;
+  },
+});
+
+export const _linkBookingToEvent = internalMutation({
+  args: {
+    bookingId: v.id("bookings"),
+    calendarConnectionId: v.id("calendarConnections"),
+    calendarEventExternalId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.bookingId, {
+      calendarConnectionId: args.calendarConnectionId,
+      calendarEventExternalId: args.calendarEventExternalId,
+    });
+    return null;
+  },
+});
+
+export const _loadConnectionForBooking = internalQuery({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const b = await ctx.db.get(args.bookingId);
+    if (!b || !b.calendarConnectionId || !b.calendarEventExternalId)
+      return null;
+    const c = await ctx.db.get(b.calendarConnectionId);
+    if (!c) return null;
+    return {
+      provider: c.provider,
+      accessToken: c.accessToken,
+      refreshToken: c.refreshToken ?? null,
+      tokenExpiresAt: c.tokenExpiresAt ?? null,
+      calendarId: c.calendarId ?? null,
+      connectionId: c._id,
+      externalEventId: b.calendarEventExternalId,
+    };
   },
 });
 
@@ -507,7 +640,7 @@ async function createGoogleEvent(args: {
   startsAt: number;
   endsAt: number;
   attendeeEmail?: string;
-}): Promise<void> {
+}): Promise<string | undefined> {
   const body: Record<string, unknown> = {
     summary: args.title,
     description: args.description,
@@ -531,6 +664,12 @@ async function createGoogleEvent(args: {
   if (!res.ok) {
     throw new Error(`Google create event ${res.status}: ${await res.text()}`);
   }
+  try {
+    const json = (await res.json()) as { id?: string };
+    return json.id;
+  } catch {
+    return undefined;
+  }
 }
 
 async function createMicrosoftEvent(args: {
@@ -540,7 +679,7 @@ async function createMicrosoftEvent(args: {
   startsAt: number;
   endsAt: number;
   attendeeEmail?: string;
-}): Promise<void> {
+}): Promise<string | undefined> {
   const body: Record<string, unknown> = {
     subject: args.title,
     body: { contentType: "text", content: args.description },
@@ -573,5 +712,11 @@ async function createMicrosoftEvent(args: {
     throw new Error(
       `Microsoft create event ${res.status}: ${await res.text()}`,
     );
+  }
+  try {
+    const json = (await res.json()) as { id?: string };
+    return json.id;
+  } catch {
+    return undefined;
   }
 }
