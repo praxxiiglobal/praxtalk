@@ -18,6 +18,7 @@ const PAGES: { path: string; priority: number; changefreq: MetadataRoute.Sitemap
   })),
   { path: "/pricing", priority: 0.9, changefreq: "weekly" },
   { path: "/security", priority: 0.8, changefreq: "monthly" },
+  { path: "/accessibility", priority: 0.6, changefreq: "monthly" },
   { path: "/about", priority: 0.7, changefreq: "monthly" },
   { path: "/customers", priority: 0.7, changefreq: "monthly" },
   { path: "/changelog", priority: 0.7, changefreq: "weekly" },

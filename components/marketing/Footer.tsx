@@ -42,6 +42,7 @@ const cols: Array<{ title: string; links: { label: string; href: string }[] }> =
       { label: "Careers", href: "/careers" },
       { label: "Press kit", href: "/press" },
       { label: "Security", href: "/security" },
+      { label: "Accessibility", href: "/accessibility" },
       { label: "Contact", href: "/contact" },
     ],
   },

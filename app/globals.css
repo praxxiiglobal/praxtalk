@@ -25,6 +25,31 @@ html, body {
   overflow-x: clip;
 }
 
+/* WCAG 2.1 AA — visible focus on every keyboard-focusable element.
+   Tailwind's default reset removes the browser ring; we put back a
+   2px accent-coloured ring with 2px offset so the focused element
+   reads against both light + dark backgrounds. focus-visible only
+   (not :focus) so mouse clicks don't trigger a stray ring. */
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* WCAG 2.3.3 — honour user's reduced-motion preference for every
+   animated decorative element across the marketing site (hero
+   gradients, console-card glow, slot-pulses, typing dots). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

@@ -21,7 +21,7 @@ export function MarketingShell({
   return (
     <>
       <Nav />
-      <main className="relative pb-[80px] pt-[60px]">
+      <main id="main" className="relative pb-[80px] pt-[60px]">
         <div className="mx-auto max-w-[860px] px-4 sm:px-8">
           {eyebrow ? (
             <div className="eyebrow mb-4 inline-flex items-center gap-2 text-muted">

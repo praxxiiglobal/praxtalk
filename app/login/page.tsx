@@ -15,7 +15,7 @@ export default async function LoginPage({
   const { expired, reset } = await searchParams;
 
   return (
-    <main className="relative flex min-h-screen flex-col">
+    <main id="main" className="relative flex min-h-screen flex-col">
       <header className="border-b border-rule">
         <div className="mx-auto flex h-16 max-w-[1320px] items-center px-4 sm:h-20 sm:px-8">
           <Link
