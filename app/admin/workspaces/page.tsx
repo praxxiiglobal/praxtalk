@@ -38,8 +38,9 @@ export default async function WorkspacesAdminPage() {
         </h1>
         <p className="mt-2 max-w-[60ch] text-sm text-muted">
           Every PraxTalk workspace on this Convex deployment, with
-          per-workspace counts. Click a row to drill into operators,
-          brands, and recent activity.
+          per-workspace counts. Click a row to expand the management
+          panel — change plan, suspend, override subscription, cancel
+          upstream — without leaving the page.
         </p>
       </header>
 
@@ -54,7 +55,10 @@ export default async function WorkspacesAdminPage() {
         />
       </div>
 
-      <WorkspacesTable workspaces={workspaces} />
+      <WorkspacesTable
+        workspaces={workspaces}
+        sessionToken={sessionToken}
+      />
     </>
   );
 }
