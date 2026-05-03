@@ -630,6 +630,12 @@ http.route({
   path: "/api/inbound/whatsapp",
   method: "GET",
   handler: httpAction(async (ctx, req) => {
+    // Rate-limit the verify-token endpoint by IP so an attacker can't
+    // brute-force or enumerate valid tokens by observing latency
+    // differences (DB hit vs miss). Same bucket as /api/v1/.
+    const rateLimited = await checkRateLimit(ctx, req);
+    if (rateLimited) return rateLimited;
+
     const url = new URL(req.url);
     const mode = url.searchParams.get("hub.mode");
     const token = url.searchParams.get("hub.verify_token");
@@ -1366,6 +1372,7 @@ http.route({
     }
 
     let evt: {
+      id?: string;
       event_type?: string;
       resource?: { id?: string; custom_id?: string };
     };
@@ -1386,6 +1393,22 @@ http.route({
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    }
+
+    // Replay protection — same rationale as the Razorpay handler.
+    // PayPal retries every failed webhook up to 25 times over 3 days;
+    // dedupe by event id so retries become no-ops.
+    if (evt.id) {
+      const fresh = await ctx.runMutation(
+        internal.webhookDedup.markIfFresh,
+        { key: `paypal:${evt.id}` },
+      );
+      if (!fresh) {
+        return new Response(JSON.stringify({ ok: true, replay: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
     }
 
     await ctx.runAction(internal.billing._handleWebhookEvent, {
@@ -1429,6 +1452,7 @@ http.route({
       });
     }
     let evt: {
+      id?: string;
       event?: string;
       payload?: {
         subscription?: {
@@ -1456,6 +1480,22 @@ http.route({
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    }
+    // Replay protection. Razorpay retries failed deliveries up to 10
+    // times — without this guard, every retry would re-fetch the
+    // subscription and re-apply the same plan-flip event. With the
+    // dedup we ack the replay and no-op.
+    if (evt.id) {
+      const fresh = await ctx.runMutation(
+        internal.webhookDedup.markIfFresh,
+        { key: `razorpay:${evt.id}` },
+      );
+      if (!fresh) {
+        return new Response(JSON.stringify({ ok: true, replay: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
     }
     await ctx.runAction(internal.billing._handleRazorpayWebhookEvent, {
       eventType,

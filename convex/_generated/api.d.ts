@@ -45,6 +45,7 @@ import type * as savedReplies from "../savedReplies.js";
 import type * as usage from "../usage.js";
 import type * as visitors from "../visitors.js";
 import type * as voiceIntegrations from "../voiceIntegrations.js";
+import type * as webhookDedup from "../webhookDedup.js";
 import type * as webhooks from "../webhooks.js";
 import type * as whatsappIntegrations from "../whatsappIntegrations.js";
 import type * as widgets from "../widgets.js";
@@ -94,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   usage: typeof usage;
   visitors: typeof visitors;
   voiceIntegrations: typeof voiceIntegrations;
+  webhookDedup: typeof webhookDedup;
   webhooks: typeof webhooks;
   whatsappIntegrations: typeof whatsappIntegrations;
   widgets: typeof widgets;

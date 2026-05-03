@@ -337,18 +337,18 @@ export const _handleWebhookEvent = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    let workspaceId: Id<"workspaces"> | null = await ctx.runQuery(
+    const workspaceId: Id<"workspaces"> | null = await ctx.runQuery(
       internal.billing._findWorkspaceBySubscription,
       { paypalSubscriptionId: args.paypalSubscriptionId },
     );
-    // Fallback — pre-ACTIVATED webhooks arrive before our local stash
-    // is visible to the index, or if the stash mutation got lost. We
-    // round-tripped the workspaceId through PayPal's custom_id field
-    // exactly for this case.
-    if (!workspaceId && args.customId) {
-      workspaceId = args.customId as Id<"workspaces">;
-    }
-    if (!workspaceId) return null; // stale event for an unknown sub — drop
+    // No customId fallback. Trusting the webhook-supplied custom_id
+    // would mean a leaked webhook secret could flip ANY workspace's
+    // plan by forging an event with notes={customId:<victim>}. The
+    // index-by-paypalSubscriptionId is the only authoritative path;
+    // missed-stash events drop here and reconcile when the next
+    // webhook fires (PayPal retries up to 25 times over 3 days).
+    if (!workspaceId) return null;
+    void args.customId;
 
     const sub = await paypal.getSubscription(args.paypalSubscriptionId);
     const tier = paypalPlanForId(sub.plan_id);
@@ -586,14 +586,14 @@ export const _handleRazorpayWebhookEvent = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    let workspaceId: Id<"workspaces"> | null = await ctx.runQuery(
+    const workspaceId: Id<"workspaces"> | null = await ctx.runQuery(
       internal.billing._findWorkspaceByRazorpaySubscription,
       { razorpaySubscriptionId: args.razorpaySubscriptionId },
     );
-    if (!workspaceId && args.notesWorkspaceId) {
-      workspaceId = args.notesWorkspaceId as Id<"workspaces">;
-    }
+    // No notes.workspaceId fallback. See _handleWebhookEvent above
+    // for the same rationale — only the indexed lookup is trusted.
     if (!workspaceId) return null;
+    void args.notesWorkspaceId;
 
     const sub = await razorpay.getSubscription(args.razorpaySubscriptionId);
     const tier = razorpayPlanForId(sub.plan_id);

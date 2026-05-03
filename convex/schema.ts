@@ -1102,4 +1102,30 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_operator", ["workspaceId", "operatorId"])
     .index("by_inbound_alias", ["inboundAlias"]),
+
+  // Replay-protection ledger for inbound provider webhooks. We insert
+  // a row keyed by `${provider}:${eventId}` the first time we see an
+  // event; if the row already exists the handler exits idempotently.
+  // A nightly cron prunes anything older than 30 days so this table
+  // doesn't grow unbounded.
+  processedWebhooks: defineTable({
+    key: v.string(), // e.g. "razorpay:evt_NXR…" or "paypal:WH-…"
+    receivedAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  // Audit trail of privileged operator actions — role changes, brand-
+  // access changes, deletes. Populated by the relevant mutations,
+  // never deleted (operators table grows forever; this is intentional
+  // for forensics).
+  auditLogs: defineTable({
+    workspaceId: v.id("workspaces"),
+    performedByOperatorId: v.id("operators"),
+    action: v.string(), // e.g. "operator.role_changed", "operator.brand_access_changed", "operator.removed"
+    targetOperatorId: v.optional(v.id("operators")),
+    summary: v.string(),
+    payload: v.optional(v.string()), // JSON-encoded before/after diff
+    createdAt: v.number(),
+  })
+    .index("by_workspace_created", ["workspaceId", "createdAt"])
+    .index("by_target_operator", ["targetOperatorId"]),
 });
