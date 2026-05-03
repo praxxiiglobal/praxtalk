@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -208,9 +208,11 @@ function WorkspacesTableInner({
                       </div>
                     </td>
                     <td className="px-3 py-2.5">
-                      <span className="rounded-full bg-paper-2 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em]">
-                        {w.plan}
-                      </span>
+                      <PlanSelect
+                        workspaceId={w._id as Id<"workspaces">}
+                        value={w.plan}
+                        sessionToken={sessionToken}
+                      />
                     </td>
                     <td className="px-3 py-2.5">
                       <SubBadge
@@ -219,7 +221,11 @@ function WorkspacesTableInner({
                       />
                     </td>
                     <td className="px-3 py-2.5">
-                      <PlatformBadge status={w.platformStatus} />
+                      <PlatformSelect
+                        workspaceId={w._id as Id<"workspaces">}
+                        value={w.platformStatus}
+                        sessionToken={sessionToken}
+                      />
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums">
                       {w.operatorCount}
@@ -299,19 +305,110 @@ function SortableTh({
   );
 }
 
-function PlatformBadge({ status }: { status: Row["platformStatus"] }) {
-  const cls =
-    status === "active"
+function PlanSelect({
+  workspaceId,
+  value,
+  sessionToken,
+}: {
+  workspaceId: Id<"workspaces">;
+  value: Row["plan"];
+  sessionToken: string;
+}) {
+  const setPlan = useMutation(api._admin.setPlan);
+  const [optimistic, setOptimistic] = useState<Row["plan"]>(value);
+  const [busy, setBusy] = useState(false);
+  // Re-sync if the upstream value changes (e.g. another admin's edit
+  // arrives via Convex live-query).
+  if (!busy && optimistic !== value) setOptimistic(value);
+
+  return (
+    <select
+      value={optimistic}
+      disabled={busy}
+      onClick={(e) => e.stopPropagation()}
+      onChange={async (e) => {
+        const next = e.target.value as Row["plan"];
+        if (next === value) return;
+        setOptimistic(next);
+        setBusy(true);
+        try {
+          await setPlan({ sessionToken, workspaceId, plan: next });
+        } catch (err) {
+          alert(err instanceof Error ? err.message : "Couldn't update plan.");
+          setOptimistic(value);
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className="h-7 rounded-full border border-rule-2 bg-paper-2 px-2 font-mono text-[10px] uppercase tracking-[0.06em] outline-none focus:border-ink"
+    >
+      <option value="spark">spark</option>
+      <option value="team">team</option>
+      <option value="scale">scale</option>
+      <option value="enterprise">enterprise</option>
+    </select>
+  );
+}
+
+function PlatformSelect({
+  workspaceId,
+  value,
+  sessionToken,
+}: {
+  workspaceId: Id<"workspaces">;
+  value: Row["platformStatus"];
+  sessionToken: string;
+}) {
+  const setStatus = useMutation(api._admin.setPlatformStatus);
+  const [optimistic, setOptimistic] = useState<Row["platformStatus"]>(value);
+  const [busy, setBusy] = useState(false);
+  if (!busy && optimistic !== value) setOptimistic(value);
+
+  // Subtle background tint by current value so suspended rows pop.
+  const tint =
+    optimistic === "active"
       ? "bg-good/15 text-good"
-      : status === "suspended"
+      : optimistic === "suspended"
         ? "bg-red-100 text-red-700"
-        : status === "pending_review"
+        : optimistic === "pending_review"
           ? "bg-yellow-100 text-yellow-800"
           : "bg-warn/20 text-ink";
+
   return (
-    <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] ${cls}`}>
-      {status}
-    </span>
+    <select
+      value={optimistic}
+      disabled={busy}
+      onClick={(e) => e.stopPropagation()}
+      onChange={async (e) => {
+        const next = e.target.value as Row["platformStatus"];
+        if (next === value) return;
+        // Hard confirm before suspend — destructive (kills sessions).
+        if (
+          next === "suspended" &&
+          !confirm(
+            `Suspend this workspace?\n\nEvery active session will be wiped immediately and login will refuse with "workspace has been suspended" until you reactivate.`,
+          )
+        ) {
+          return;
+        }
+        setOptimistic(next);
+        setBusy(true);
+        try {
+          await setStatus({ sessionToken, workspaceId, status: next });
+        } catch (err) {
+          alert(err instanceof Error ? err.message : "Couldn't update status.");
+          setOptimistic(value);
+        } finally {
+          setBusy(false);
+        }
+      }}
+      className={`h-7 rounded-full px-2 font-mono text-[10px] uppercase tracking-[0.06em] outline-none focus:ring-1 focus:ring-ink ${tint}`}
+    >
+      <option value="active">active</option>
+      <option value="pending_review">pending_review</option>
+      <option value="flagged">flagged</option>
+      <option value="suspended">suspended</option>
+    </select>
   );
 }
 
