@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AdminConvexProvider } from "../AdminConvexProvider";
-import { WorkspaceManagement } from "./[id]/WorkspaceManagement";
 
 type Row = {
   _id: string;
@@ -23,6 +22,8 @@ type Row = {
   atlasRunsThisMonth: number;
   lastActivityAt: number | null;
 };
+
+type SubValue = "none" | "active" | "past_due" | "paused" | "cancelled";
 
 type SortKey =
   | "createdAt"
@@ -60,7 +61,6 @@ function WorkspacesTableInner({
   const [filter, setFilter] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -167,97 +167,75 @@ function WorkspacesTableInner({
                 sortDir={sortDir}
                 onClick={toggleSort}
               />
+              <th className="px-3 py-2.5"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-rule">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-muted">
+                <td colSpan={11} className="px-3 py-8 text-center text-muted">
                   No workspaces match.
                 </td>
               </tr>
             ) : (
-              filtered.flatMap((w) => {
-                const isOpen = expandedId === w._id;
-                return [
-                  <tr
-                    key={w._id}
-                    onClick={() =>
-                      setExpandedId((cur) => (cur === w._id ? null : w._id))
-                    }
-                    className={
-                      "cursor-pointer transition " +
-                      (isOpen ? "bg-paper-2/60" : "hover:bg-paper-2/30")
-                    }
-                  >
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          aria-hidden
-                          className={
-                            "inline-block transition " +
-                            (isOpen ? "rotate-90" : "")
-                          }
-                        >
-                          ▶
-                        </span>
-                        <span className="font-medium text-ink">{w.name}</span>
-                      </div>
-                      <div className="ml-4 font-mono text-[10.5px] text-muted">
-                        {w.slug}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <PlanSelect
-                        workspaceId={w._id as Id<"workspaces">}
-                        value={w.plan}
-                        sessionToken={sessionToken}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <SubBadge
-                        status={w.subscriptionStatus}
-                        provider={w.subscriptionProvider}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <PlatformSelect
-                        workspaceId={w._id as Id<"workspaces">}
-                        value={w.platformStatus}
-                        sessionToken={sessionToken}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      {w.operatorCount}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      {w.brandCount}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      {w.conversationCount}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      {w.atlasRunsThisMonth.toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-[11px] text-muted">
-                      {new Date(w.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-[11px] text-muted">
-                      {w.lastActivityAt ? relativeAgo(w.lastActivityAt) : "—"}
-                    </td>
-                  </tr>,
-                  isOpen ? (
-                    <tr key={`${w._id}-expand`} className="bg-paper">
-                      <td colSpan={10} className="border-t border-rule p-5">
-                        <ExpandedDetail
-                          workspaceId={w._id as Id<"workspaces">}
-                          sessionToken={sessionToken}
-                        />
-                      </td>
-                    </tr>
-                  ) : null,
-                ];
-              })
+              filtered.map((w) => (
+                <tr key={w._id} className="hover:bg-paper-2/30">
+                  <td className="px-3 py-2.5">
+                    <div className="font-medium text-ink">{w.name}</div>
+                    <div className="font-mono text-[10.5px] text-muted">
+                      {w.slug}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <PlanSelect
+                      workspaceId={w._id as Id<"workspaces">}
+                      value={w.plan}
+                      sessionToken={sessionToken}
+                    />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <SubSelect
+                      workspaceId={w._id as Id<"workspaces">}
+                      status={w.subscriptionStatus}
+                      provider={w.subscriptionProvider}
+                      sessionToken={sessionToken}
+                    />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <PlatformSelect
+                      workspaceId={w._id as Id<"workspaces">}
+                      value={w.platformStatus}
+                      sessionToken={sessionToken}
+                    />
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {w.operatorCount}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {w.brandCount}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {w.conversationCount}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {w.atlasRunsThisMonth.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2.5 font-mono text-[11px] text-muted">
+                    {new Date(w.createdAt).toLocaleDateString()}
+                  </td>
+                  <td className="px-3 py-2.5 font-mono text-[11px] text-muted">
+                    {w.lastActivityAt ? relativeAgo(w.lastActivityAt) : "—"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <Link
+                      href={`/admin/workspaces/${w._id}`}
+                      className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted hover:text-ink"
+                    >
+                      Open ↗
+                    </Link>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
@@ -325,7 +303,6 @@ function PlanSelect({
     <select
       value={optimistic}
       disabled={busy}
-      onClick={(e) => e.stopPropagation()}
       onChange={async (e) => {
         const next = e.target.value as Row["plan"];
         if (next === value) return;
@@ -378,7 +355,6 @@ function PlatformSelect({
     <select
       value={optimistic}
       disabled={busy}
-      onClick={(e) => e.stopPropagation()}
       onChange={async (e) => {
         const next = e.target.value as Row["platformStatus"];
         if (next === value) return;
@@ -412,33 +388,81 @@ function PlatformSelect({
   );
 }
 
-function SubBadge({
+/**
+ * Inline subscription override. "none" maps to clearing
+ * subscriptionStatus (workspace falls back to free/spark behavior at
+ * the billing layer). The mutation accepts plan optionally — we omit
+ * it here so the plan column stays under PlanSelect's control only.
+ */
+function SubSelect({
+  workspaceId,
   status,
   provider,
+  sessionToken,
 }: {
+  workspaceId: Id<"workspaces">;
   status: Row["subscriptionStatus"];
   provider: Row["subscriptionProvider"];
+  sessionToken: string;
 }) {
-  if (!status) {
-    return (
-      <span className="rounded-full bg-paper-2 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
-        free
-      </span>
-    );
-  }
-  const cls =
-    status === "active"
+  const override = useMutation(api._admin.overrideSubscription);
+  const initial: SubValue = (status ?? "none") as SubValue;
+  const [optimistic, setOptimistic] = useState<SubValue>(initial);
+  const [busy, setBusy] = useState(false);
+  if (!busy && optimistic !== initial) setOptimistic(initial);
+
+  const tint =
+    optimistic === "active"
       ? "bg-good/15 text-good"
-      : status === "past_due"
+      : optimistic === "past_due"
         ? "bg-red-100 text-red-700"
-        : status === "paused"
+        : optimistic === "paused"
           ? "bg-yellow-100 text-yellow-800"
-          : "bg-paper-2 text-muted";
+          : optimistic === "cancelled"
+            ? "bg-paper-2 text-muted line-through"
+            : "bg-paper-2 text-muted";
+
   return (
-    <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] ${cls}`}>
-      {status}
-      {provider ? ` · ${provider}` : ""}
-    </span>
+    <div className="flex items-center gap-1.5">
+      <select
+        value={optimistic}
+        disabled={busy}
+        onChange={async (e) => {
+          const next = e.target.value as SubValue;
+          if (next === initial) return;
+          setOptimistic(next);
+          setBusy(true);
+          try {
+            await override({
+              sessionToken,
+              workspaceId,
+              subscriptionStatus: next === "none" ? null : next,
+            });
+          } catch (err) {
+            alert(
+              err instanceof Error
+                ? err.message
+                : "Couldn't update subscription.",
+            );
+            setOptimistic(initial);
+          } finally {
+            setBusy(false);
+          }
+        }}
+        className={`h-7 rounded-full px-2 font-mono text-[10px] uppercase tracking-[0.06em] outline-none focus:ring-1 focus:ring-ink ${tint}`}
+      >
+        <option value="none">free</option>
+        <option value="active">active</option>
+        <option value="past_due">past_due</option>
+        <option value="paused">paused</option>
+        <option value="cancelled">cancelled</option>
+      </select>
+      {provider && status ? (
+        <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted">
+          {provider}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -449,147 +473,4 @@ function relativeAgo(ts: number): string {
   if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`;
   if (diff < 604_800_000) return `${Math.round(diff / 86_400_000)}d ago`;
   return new Date(ts).toLocaleDateString();
-}
-
-/**
- * Inline-expand panel under each row. Uses useQuery so errors land
- * in the browser console instead of a hard 500 (the SSR drill-down
- * page swallowed errors as a Vercel function crash). Renders the
- * full WorkspaceManagement editor + a quick operator / brand /
- * recent-conversation summary, plus a permalink to the standalone
- * full-screen view.
- */
-function ExpandedDetail({
-  workspaceId,
-  sessionToken,
-}: {
-  workspaceId: Id<"workspaces">;
-  sessionToken: string;
-}) {
-  const data = useQuery(api._admin.getWorkspace, {
-    sessionToken,
-    workspaceId,
-  });
-
-  if (data === undefined) {
-    return (
-      <div className="py-4 text-center text-sm text-muted">
-        Loading workspace details…
-      </div>
-    );
-  }
-  if (data === null) {
-    return (
-      <div className="py-4 text-center text-sm text-warn">
-        Workspace not found (or you lack access).
-      </div>
-    );
-  }
-
-  const { workspace, operators, brands, recentConvos } = data;
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="font-mono text-[10.5px] text-muted">
-          slug · {workspace.slug} · joined{" "}
-          {new Date(workspace.createdAt).toLocaleString()}
-        </div>
-        <Link
-          href={`/admin/workspaces/${workspaceId}`}
-          className="inline-flex h-7 items-center rounded-full border border-rule-2 px-3 text-[11px] text-muted transition hover:text-ink"
-        >
-          Open full view ↗
-        </Link>
-      </div>
-
-      <WorkspaceManagement
-        sessionToken={sessionToken}
-        workspace={workspace}
-      />
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <MiniList title={`Operators (${operators.length})`}>
-          {operators.length === 0 ? (
-            <Empty />
-          ) : (
-            operators.slice(0, 8).map((op) => (
-              <li
-                key={op._id}
-                className="flex items-center justify-between gap-3 py-1.5"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-[12.5px] text-ink">
-                    {op.name}
-                  </div>
-                  <div className="truncate font-mono text-[10.5px] text-muted">
-                    {op.email}
-                  </div>
-                </div>
-                <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted">
-                  {op.role}
-                </span>
-              </li>
-            ))
-          )}
-        </MiniList>
-
-        <MiniList title={`Brands (${brands.length})`}>
-          {brands.length === 0 ? (
-            <Empty />
-          ) : (
-            brands.slice(0, 8).map((b) => (
-              <li key={b._id} className="py-1.5">
-                <div className="text-[12.5px] text-ink">{b.name}</div>
-                <div className="truncate font-mono text-[10.5px] text-muted">
-                  {b.slug}
-                </div>
-              </li>
-            ))
-          )}
-        </MiniList>
-
-        <MiniList title={`Recent conversations (${recentConvos.length})`}>
-          {recentConvos.length === 0 ? (
-            <Empty />
-          ) : (
-            recentConvos.slice(0, 8).map((c) => (
-              <li
-                key={c._id}
-                className="flex items-center justify-between gap-3 py-1.5"
-              >
-                <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted">
-                  {c.status} · {c.channel}
-                </span>
-                <span className="font-mono text-[10.5px] text-muted">
-                  {relativeAgo(c.lastMessageAt)}
-                </span>
-              </li>
-            ))
-          )}
-        </MiniList>
-      </div>
-    </div>
-  );
-}
-
-function MiniList({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-2xl border border-rule-2 bg-paper-2/40 p-4">
-      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
-        {title}
-      </div>
-      <ul className="m-0 list-none divide-y divide-rule p-0">{children}</ul>
-    </div>
-  );
-}
-
-function Empty() {
-  return <li className="py-1 text-[12px] text-muted">None.</li>;
 }
