@@ -17,7 +17,9 @@ export function WidgetSnippet() {
         >
           /app/brands
         </Link>{" "}
-        to copy the embed code for any brand.
+        to copy the embed code for any brand. You can drop multiple
+        snippets on the same page — bubbles for different brands stagger
+        side-by-side automatically and don&apos;t collide.
       </p>
     </Card>
   );

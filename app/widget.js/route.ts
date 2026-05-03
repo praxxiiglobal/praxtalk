@@ -10,10 +10,25 @@ const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL ?? "";
 // literal below can reference it.
 const WIDGET_SHELL = `
 <style>
-  :host { all: initial; --praxtalk-accent: #0F1A12; --praxtalk-paper: #F1EFE3; --praxtalk-ink: #0F1A12; }
+  :host {
+    all: initial;
+    --praxtalk-accent: #0F1A12;
+    --praxtalk-paper: #F1EFE3;
+    --praxtalk-ink: #0F1A12;
+    /* Edge offsets are overridden per-widget when multiple PraxTalk
+       snippets share a page so bubbles don't overlap. Brand position
+       config flips between right/left by setting the *-right vars to
+       auto and the *-left vars to a numeric offset. */
+    --praxtalk-bubble-right: 20px;
+    --praxtalk-bubble-left: auto;
+    --praxtalk-panel-right: 20px;
+    --praxtalk-panel-left: auto;
+  }
   * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; }
   .bubble {
-    position: fixed; bottom: 20px; right: 20px;
+    position: fixed; bottom: 20px;
+    right: var(--praxtalk-bubble-right);
+    left: var(--praxtalk-bubble-left);
     width: 56px; height: 56px; border-radius: 999px;
     background: var(--praxtalk-accent); color: #fff;
     border: none; cursor: pointer;
@@ -25,7 +40,9 @@ const WIDGET_SHELL = `
   .bubble.hidden { display: none; }
   .bubble svg { width: 24px; height: 24px; }
   .panel {
-    position: fixed; bottom: 20px; right: 20px;
+    position: fixed; bottom: 20px;
+    right: var(--praxtalk-panel-right);
+    left: var(--praxtalk-panel-left);
     width: 360px; max-width: calc(100vw - 32px);
     height: 540px; max-height: calc(100vh - 32px);
     background: #fff; color: var(--praxtalk-ink);
@@ -200,8 +217,13 @@ const WIDGET_SHELL = `
 `;
 
 const SOURCE = /* javascript */ `(() => {
-  if (window.__PRAXTALK_WIDGET_LOADED__) return;
-  window.__PRAXTALK_WIDGET_LOADED__ = true;
+  // Per-widget guard: a single page may load multiple PraxTalk
+  // snippets (one per brand). We keep a Set of mounted widget ids
+  // so the same brand never instantiates twice, but different
+  // brands can co-exist with their bubbles staggered horizontally.
+  if (!window.__PRAXTALK_WIDGETS__) {
+    window.__PRAXTALK_WIDGETS__ = new Set();
+  }
 
   const CONVEX_URL = ${JSON.stringify(CONVEX_URL)};
   const VISITOR_KEY_STORAGE = "praxtalk_visitor_key";
@@ -232,6 +254,16 @@ const SOURCE = /* javascript */ `(() => {
     console.warn("[PraxTalk] missing data-widget-id on script tag.");
     return;
   }
+  if (window.__PRAXTALK_WIDGETS__.has(widgetId)) {
+    // This brand's widget is already mounted on the page (e.g. duplicate
+    // snippet inserted by a tag manager). Skip silently.
+    return;
+  }
+  // Slot index drives the bubble's horizontal offset so multiple
+  // widgets stagger side-by-side instead of stacking on top of each
+  // other. Captured BEFORE we mark this widget loaded.
+  const slotIndex = window.__PRAXTALK_WIDGETS__.size;
+  window.__PRAXTALK_WIDGETS__.add(widgetId);
   if (!CONVEX_URL) {
     console.warn("[PraxTalk] backend URL not configured.");
     return;
@@ -268,12 +300,22 @@ const SOURCE = /* javascript */ `(() => {
 
   // Inject host container with shadow DOM so host page styles don't bleed in.
   const host = document.createElement("div");
-  host.id = "praxtalk-host";
+  host.id = "praxtalk-host-" + widgetId;
   host.style.cssText = "position:fixed;z-index:2147483646;bottom:0;right:0;";
   document.body.appendChild(host);
   const root = host.attachShadow({ mode: "open" });
 
   root.innerHTML = ${JSON.stringify(WIDGET_SHELL)};
+
+  // Multi-widget layout: each subsequent widget on the same page
+  // shifts its bubble + panel left by 76px so they don't overlap.
+  // The CSS reads --praxtalk-bubble-right / --praxtalk-panel-right
+  // from this :host element so the slot index is honoured per widget.
+  if (slotIndex > 0) {
+    const offsetPx = 20 + slotIndex * 76;
+    host.style.setProperty("--praxtalk-bubble-right", offsetPx + "px");
+    host.style.setProperty("--praxtalk-panel-right", offsetPx + "px");
+  }
 
   const els = {
     bubble: root.querySelector(".bubble"),
@@ -434,8 +476,12 @@ const SOURCE = /* javascript */ `(() => {
       root.host.style.setProperty("--praxtalk-accent", config.primaryColor);
     }
     if (config.position === "bl") {
-      host.style.left = "0";
-      host.style.right = "auto";
+      // Flip to bottom-left while keeping the per-widget stagger.
+      const offsetPx = 20 + slotIndex * 76;
+      host.style.setProperty("--praxtalk-bubble-right", "auto");
+      host.style.setProperty("--praxtalk-bubble-left", offsetPx + "px");
+      host.style.setProperty("--praxtalk-panel-right", "auto");
+      host.style.setProperty("--praxtalk-panel-left", offsetPx + "px");
     }
   }
 
