@@ -1,8 +1,37 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { requireOperator } from "./auth";
 import { generateSessionToken, hashPassword, hashToken } from "./lib/auth";
 import { pushActivity } from "./notifications";
+
+/**
+ * Append a row to auditLogs for a privileged action. Used for
+ * forensics — never throws, never blocks the calling mutation, but
+ * does run synchronously inside the mutation's transaction so the
+ * audit row is committed iff the action succeeded.
+ */
+async function writeAuditLog(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    performedByOperatorId: Id<"operators">;
+    action: string;
+    targetOperatorId?: Id<"operators">;
+    summary: string;
+    payload?: unknown;
+  },
+): Promise<void> {
+  await ctx.db.insert("auditLogs", {
+    workspaceId: args.workspaceId,
+    performedByOperatorId: args.performedByOperatorId,
+    action: args.action,
+    targetOperatorId: args.targetOperatorId,
+    summary: args.summary,
+    payload: args.payload ? JSON.stringify(args.payload) : undefined,
+    createdAt: Date.now(),
+  });
+}
 
 const roleValidator = v.union(
   v.literal("owner"),
@@ -103,6 +132,17 @@ export const setBrandAccess = mutation({
     await ctx.db.patch(args.operatorId, {
       brandAccess: args.brandAccess,
     });
+    await writeAuditLog(ctx, {
+      workspaceId,
+      performedByOperatorId: caller._id,
+      action: "operator.brand_access_changed",
+      targetOperatorId: args.operatorId,
+      summary: `${caller.name ?? caller.email} changed ${target.name ?? target.email}'s brand access`,
+      payload: {
+        from: target.brandAccess ?? "all",
+        to: args.brandAccess,
+      },
+    });
     return null;
   },
 });
@@ -143,6 +183,14 @@ export const setRole = mutation({
     }
 
     await ctx.db.patch(args.operatorId, { role: args.role });
+    await writeAuditLog(ctx, {
+      workspaceId,
+      performedByOperatorId: caller._id,
+      action: "operator.role_changed",
+      targetOperatorId: args.operatorId,
+      summary: `${caller.name ?? caller.email} changed ${target.name ?? target.email}'s role`,
+      payload: { from: target.role, to: args.role },
+    });
     return null;
   },
 });
@@ -204,6 +252,14 @@ export const create = mutation({
       body: `${args.role} · ${email}`,
       link: "/app/team",
     });
+    await writeAuditLog(ctx, {
+      workspaceId,
+      performedByOperatorId: caller._id,
+      action: "operator.created",
+      targetOperatorId: operatorId,
+      summary: `${caller.name ?? caller.email} added operator ${args.name.trim()} (${email}, ${args.role})`,
+      payload: { email, role: args.role, brandAccess: args.brandAccess ?? "all" },
+    });
 
     return { operatorId };
   },
@@ -247,7 +303,66 @@ export const remove = mutation({
       await ctx.db.delete(s._id);
     }
     await ctx.db.delete(args.operatorId);
+    // Audit log AFTER the delete so a query for this operator's id
+    // still resolves the audit row's targetOperatorId — the row is
+    // intentional crash debris and survives the operator's removal.
+    await writeAuditLog(ctx, {
+      workspaceId,
+      performedByOperatorId: caller._id,
+      action: "operator.removed",
+      targetOperatorId: args.operatorId,
+      summary: `${caller.name ?? caller.email} removed operator ${target.name ?? target.email}`,
+      payload: { email: target.email, role: target.role },
+    });
     return null;
+  },
+});
+
+/**
+ * Recent audit-log entries for the workspace. Owner / admin only —
+ * agents have no read access. Powers the "Recent admin activity"
+ * panel on /app/team.
+ */
+export const listAuditLogs = query({
+  args: {
+    sessionToken: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    if (operator.role === "agent") return [];
+    const limit = Math.min(Math.max(1, args.limit ?? 50), 200);
+    const rows = await ctx.db
+      .query("auditLogs")
+      .withIndex("by_workspace_created", (q) =>
+        q.eq("workspaceId", workspaceId),
+      )
+      .order("desc")
+      .take(limit);
+    // Resolve performer names so the UI can render
+    // "Sarah changed Bob's role" without a per-row roundtrip.
+    const performerCache = new Map<string, string | null>();
+    return await Promise.all(
+      rows.map(async (r) => {
+        const key = String(r.performedByOperatorId);
+        let name = performerCache.get(key);
+        if (name === undefined) {
+          const op = await ctx.db.get(r.performedByOperatorId);
+          name = op?.name ?? op?.email ?? null;
+          performerCache.set(key, name);
+        }
+        return {
+          _id: r._id,
+          action: r.action,
+          summary: r.summary,
+          performerName: name,
+          createdAt: r.createdAt,
+        };
+      }),
+    );
   },
 });
 

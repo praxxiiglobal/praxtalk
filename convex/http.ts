@@ -580,13 +580,14 @@ http.route({
     );
     if (!workspace) {
       // Silent 200 so the ESP doesn't keep retrying mail to addresses
-      // we don't own. Operators won't see anything because there's no
-      // workspace to route it to.
-      return jsonResponse({ ok: true, dropped: "unknown recipient" });
+      // we don't own. Use the same response shape as the routed-OK
+      // path so an attacker can't probe whether a recipient address
+      // is recognised by inspecting body shape.
+      return jsonResponse({ ok: true });
     }
 
     try {
-      const result = await ctx.runMutation(
+      await ctx.runMutation(
         internal.emailIntegrations.recordInboundEmail,
         {
           workspaceId: workspace.workspaceId,
@@ -600,12 +601,13 @@ http.route({
           references: parsed.references,
         },
       );
-      return jsonResponse({ ok: true, ...result }, 200);
+      return jsonResponse({ ok: true }, 200);
     } catch (err) {
-      return errorResponse(
-        500,
-        err instanceof Error ? err.message : "Failed to record email.",
-      );
+      // Log internally; return the same 200 shape so failures don't
+      // reveal recipient existence either. Repeated 5xxs would just
+      // make the ESP retry against an address it now thinks works.
+      console.error("[inbound-email] record failed", err);
+      return jsonResponse({ ok: true });
     }
   }),
 });
