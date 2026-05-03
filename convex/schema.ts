@@ -41,6 +41,22 @@ export default defineSchema({
       ),
     ),
     currentPeriodEnd: v.optional(v.number()),
+    // Platform-level moderation status — set by Praxxii staff from
+    // /admin, INDEPENDENT of subscriptionStatus (which is billing).
+    // requireOperator + login refuse anything but "active". When
+    // unset, treated as "active". Suspending revokes all sessions
+    // immediately; pending_review keeps the workspace read-only-ish
+    // for staff review without locking the owner out.
+    platformStatus: v.optional(
+      v.union(
+        v.literal("active"),
+        v.literal("suspended"),
+        v.literal("pending_review"),
+        v.literal("flagged"),
+      ),
+    ),
+    platformStatusReason: v.optional(v.string()),
+    platformStatusAt: v.optional(v.number()),
     // Operator dashboard accent color — overrides the default
     // PraxTalk-green when set. Hex string (`#RRGGBB`). Customers match
     // it to their own brand color.

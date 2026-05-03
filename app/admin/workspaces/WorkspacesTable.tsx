@@ -10,6 +10,7 @@ type Row = {
   plan: "spark" | "team" | "scale" | "enterprise";
   subscriptionStatus: "active" | "past_due" | "cancelled" | "paused" | null;
   subscriptionProvider: "paypal" | "razorpay" | null;
+  platformStatus: "active" | "suspended" | "pending_review" | "flagged";
   createdAt: number;
   operatorCount: number;
   brandCount: number;
@@ -97,6 +98,7 @@ export function WorkspacesTable({ workspaces }: { workspaces: Row[] }) {
                 onClick={toggleSort}
               />
               <th className="px-3 py-2.5">Sub</th>
+              <th className="px-3 py-2.5">Platform</th>
               <SortableTh
                 label="Ops"
                 k="operatorCount"
@@ -141,7 +143,7 @@ export function WorkspacesTable({ workspaces }: { workspaces: Row[] }) {
           <tbody className="divide-y divide-rule">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-muted">
+                <td colSpan={10} className="px-3 py-8 text-center text-muted">
                   No workspaces match.
                 </td>
               </tr>
@@ -169,6 +171,9 @@ export function WorkspacesTable({ workspaces }: { workspaces: Row[] }) {
                       status={w.subscriptionStatus}
                       provider={w.subscriptionProvider}
                     />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <PlatformBadge status={w.platformStatus} />
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
                     {w.operatorCount}
@@ -236,6 +241,22 @@ function SortableTh({
         )}
       </button>
     </th>
+  );
+}
+
+function PlatformBadge({ status }: { status: Row["platformStatus"] }) {
+  const cls =
+    status === "active"
+      ? "bg-good/15 text-good"
+      : status === "suspended"
+        ? "bg-red-100 text-red-700"
+        : status === "pending_review"
+          ? "bg-yellow-100 text-yellow-800"
+          : "bg-warn/20 text-ink";
+  return (
+    <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] ${cls}`}>
+      {status}
+    </span>
   );
 }
 

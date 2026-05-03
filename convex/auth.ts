@@ -32,6 +32,15 @@ export const login = mutation({
       (await verifyPassword(args.password, operator.passwordHash));
     if (!ok || !operator) throw new ConvexError("Invalid email or password.");
 
+    // Platform-level suspension refuses login outright — same
+    // generic error so suspended-vs-bad-credentials isn't a probe.
+    const ws = await ctx.db.get(operator.workspaceId);
+    if (ws?.platformStatus === "suspended") {
+      throw new ConvexError(
+        "This workspace has been suspended. Contact hello@praxtalk.com.",
+      );
+    }
+
     // Silent migration to stronger PBKDF2 params (S-08). On every
     // successful login, if the stored hash uses an iteration count
     // below the current default, re-hash + patch. No forced reset
@@ -159,5 +168,14 @@ export async function requireOperator(
   if (!session) throw new ConvexError("Session expired. Sign in again.");
   const operator = await ctx.db.get(session.operatorId);
   if (!operator) throw new ConvexError("Operator not found.");
+  // Platform-level suspension blocks every workspace operation.
+  // Soft states (pending_review, flagged) don't lock the operator
+  // out — those are staff triage markers visible only in /admin.
+  const ws = await ctx.db.get(session.workspaceId);
+  if (ws?.platformStatus === "suspended") {
+    throw new ConvexError(
+      "This workspace has been suspended. Contact hello@praxtalk.com.",
+    );
+  }
   return { operator, workspaceId: session.workspaceId };
 }
