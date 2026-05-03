@@ -126,9 +126,12 @@ export function BookingPagesView() {
                 key={p._id}
                 className="flex items-center justify-between gap-4 py-3"
               >
-                <div className="min-w-0 flex-1">
+                <Link
+                  href={`/app/booking-pages/${p._id}`}
+                  className="min-w-0 flex-1"
+                >
                   <div className="flex items-center gap-2">
-                    <span className="text-[13.5px] font-medium text-ink">
+                    <span className="text-[13.5px] font-medium text-ink underline-offset-2 hover:underline">
                       {p.title}
                     </span>
                     <span className="rounded-full bg-paper-2 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
@@ -140,15 +143,19 @@ export function BookingPagesView() {
                       </span>
                     )}
                   </div>
-                  <a
-                    href={`/book/${p.slug}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-1 inline-block font-mono text-[11px] text-muted underline-offset-2 hover:text-ink hover:underline"
-                  >
+                  <span className="mt-1 inline-block font-mono text-[11px] text-muted">
                     {baseUrl}/book/{p.slug}
-                  </a>
-                </div>
+                  </span>
+                </Link>
+                <a
+                  href={`/book/${p.slug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 rounded-full border border-rule-2 px-3 py-1 text-[11px] font-medium text-muted hover:text-ink"
+                  title="Open public page in new tab"
+                >
+                  Preview ↗
+                </a>
                 <button
                   type="button"
                   onClick={() => {
