@@ -31,4 +31,15 @@ crons.interval(
   {},
 );
 
+// Booking approval escalation — every 15 min, push a "still
+// waiting on you" notification for any pending approval that's
+// passed its booking page's approvalEscalateAfterHours threshold.
+// No-op when nothing is pending or all pages have escalation off.
+crons.interval(
+  "escalate pending booking approvals",
+  { minutes: 15 },
+  internal.bookingPages._escalatePendingApprovals,
+  {},
+);
+
 export default crons;

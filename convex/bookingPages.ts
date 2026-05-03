@@ -165,6 +165,7 @@ export const update = mutation({
     approvalMode: v.optional(v.union(v.literal("any"), v.literal("all"))),
     approvalOperatorIds: v.optional(v.array(v.id("operators"))),
     approvalTimeoutHours: v.optional(v.number()),
+    approvalEscalateAfterHours: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -220,6 +221,15 @@ export const update = mutation({
         );
       }
       patch.approvalTimeoutHours = h;
+    }
+    if (args.approvalEscalateAfterHours !== undefined) {
+      const h = args.approvalEscalateAfterHours;
+      if (h < 0 || h > 168) {
+        throw new ConvexError(
+          "Escalate-after must be 0 (disabled) to 168 hours.",
+        );
+      }
+      patch.approvalEscalateAfterHours = h;
     }
     await ctx.db.patch(args.id, patch);
     return null;
@@ -854,6 +864,156 @@ export const _autoDeclineBooking = internalMutation({
       "Approval window expired — no approver responded in time.",
     );
     return null;
+  },
+});
+
+/**
+ * Phase 2 — delegate. The current pending approver passes the
+ * decision off to a colleague. The original row is marked
+ * "delegated" (not declined — important for the audit trail), and
+ * a fresh pending row is created for the recipient. The booking's
+ * approval rules (any/all) are unchanged; the recipient just
+ * counts in place of the original approver from now on.
+ */
+export const delegateBookingApproval = mutation({
+  args: {
+    sessionToken: v.string(),
+    bookingId: v.id("bookings"),
+    toOperatorId: v.id("operators"),
+    note: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking || booking.workspaceId !== workspaceId) {
+      throw new ConvexError("Booking not found.");
+    }
+    if (booking.status !== "pending_approval") {
+      throw new ConvexError("Booking is no longer pending.");
+    }
+    if (!hasBrandAccess(operator, booking.brandId)) {
+      throw new ConvexError("No access to this brand.");
+    }
+    const recipient = await ctx.db.get(args.toOperatorId);
+    if (!recipient || recipient.workspaceId !== workspaceId) {
+      throw new ConvexError("Recipient operator not found.");
+    }
+
+    // Find the caller's pending row.
+    const myRow = await ctx.db
+      .query("bookingApprovals")
+      .withIndex("by_booking", (q) => q.eq("bookingId", args.bookingId))
+      .collect()
+      .then((rows) =>
+        rows.find(
+          (r) =>
+            r.approverOperatorId === operator._id && r.decision === "pending",
+        ),
+      );
+    if (!myRow) {
+      throw new ConvexError("You're not currently pending on this booking.");
+    }
+    // Refuse self-delegation + delegating to someone who's already
+    // an approver on this booking.
+    if (args.toOperatorId === operator._id) {
+      throw new ConvexError("Can't delegate to yourself.");
+    }
+    const existingForRecipient = (
+      await ctx.db
+        .query("bookingApprovals")
+        .withIndex("by_booking", (q) => q.eq("bookingId", args.bookingId))
+        .collect()
+    ).find((r) => r.approverOperatorId === args.toOperatorId);
+    if (existingForRecipient) {
+      throw new ConvexError(
+        "That operator is already an approver on this booking.",
+      );
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(myRow._id, {
+      delegatedToOperatorId: args.toOperatorId,
+      delegatedAt: now,
+      note: args.note?.trim() || undefined,
+      // Keep decision="pending" so the audit trail shows
+      // "delegated by Sarah → Bob"; the recipient's fresh row is
+      // what now satisfies the approval rules.
+    });
+    await ctx.db.insert("bookingApprovals", {
+      bookingId: args.bookingId,
+      workspaceId,
+      approverOperatorId: args.toOperatorId,
+      decision: "pending",
+      createdAt: now,
+    });
+    // Notify the recipient.
+    const page = await ctx.db.get(booking.bookingPageId);
+    await ctx.db.insert("notifications", {
+      workspaceId,
+      operatorId: args.toOperatorId,
+      kind: "human_requested",
+      severity: "warn",
+      title: `Booking delegated to you — ${page?.title ?? "booking"}`,
+      body: `${operator.name ?? operator.email} passed this approval to you.`,
+      link: `/app/booking-pages?approval=${args.bookingId}`,
+      createdAt: now,
+    });
+    return null;
+  },
+});
+
+/**
+ * Phase 2 — escalation. Cron runs this every 15 minutes. For every
+ * pending approval older than the booking's
+ * approvalEscalateAfterHours threshold (default 4 hours; 0 / unset
+ * = disabled), push a "still waiting on you" notification to the
+ * approver and stamp escalatedAt so we don't re-notify on
+ * subsequent passes.
+ */
+export const _escalatePendingApprovals = internalMutation({
+  args: {},
+  returns: v.object({ escalated: v.number() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const pending = await ctx.db
+      .query("bookingApprovals")
+      .withIndex("by_decision_created", (q) => q.eq("decision", "pending"))
+      .collect();
+
+    let escalated = 0;
+    for (const row of pending) {
+      if (row.escalatedAt) continue; // already nudged once
+      if (row.delegatedAt) continue; // delegated rows are stale
+
+      const booking = await ctx.db.get(row.bookingId);
+      if (!booking || booking.status !== "pending_approval") continue;
+      const page = await ctx.db.get(booking.bookingPageId);
+      if (!page) continue;
+      const escalateAfterHours = page.approvalEscalateAfterHours ?? 4;
+      if (escalateAfterHours <= 0) continue; // disabled for this page
+
+      const ageMs = now - row.createdAt;
+      if (ageMs < escalateAfterHours * 60 * 60 * 1000) continue;
+
+      // Push escalation notification + stamp.
+      await ctx.db.insert("notifications", {
+        workspaceId: row.workspaceId,
+        operatorId: row.approverOperatorId,
+        kind: "human_requested",
+        severity: "error",
+        title: `🚨 Booking still awaiting your approval — ${page.title}`,
+        body: `Pending for ${Math.round(ageMs / (60 * 60 * 1000))}h. Auto-declines if not actioned soon.`,
+        link: `/app/booking-pages?approval=${row.bookingId}`,
+        createdAt: now,
+      });
+      await ctx.db.patch(row._id, { escalatedAt: now });
+      escalated++;
+    }
+    return { escalated };
   },
 });
 

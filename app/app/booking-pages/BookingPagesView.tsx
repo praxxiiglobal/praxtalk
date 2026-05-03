@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useDashboardAuth } from "../DashboardShell";
 import { Card } from "../PageHeader";
 import { cn } from "@/lib/cn";
@@ -16,9 +17,11 @@ export function BookingPagesView() {
   const pending = useQuery(api.bookingPages.listPendingApprovals, {
     sessionToken,
   });
+  const team = useQuery(api.operators.list, { sessionToken });
   const create = useMutation(api.bookingPages.create);
   const remove = useMutation(api.bookingPages.remove);
   const respond = useMutation(api.bookingPages.respondToBookingApproval);
+  const delegate = useMutation(api.bookingPages.delegateBookingApproval);
 
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
@@ -106,6 +109,7 @@ export function BookingPagesView() {
                     )}
                   </div>
                   <ApprovalButtons
+                    teammates={team ?? []}
                     onDecide={async (decision) => {
                       const note =
                         decision === "declined"
@@ -117,6 +121,18 @@ export function BookingPagesView() {
                         sessionToken,
                         bookingId: p.bookingId,
                         decision,
+                        note,
+                      });
+                    }}
+                    onDelegate={async (toOperatorId) => {
+                      const note =
+                        prompt(
+                          "Optional note for the recipient (e.g. 'You know this customer better'):",
+                        ) ?? undefined;
+                      await delegate({
+                        sessionToken,
+                        bookingId: p.bookingId,
+                        toOperatorId: toOperatorId as Id<"operators">,
                         note,
                       });
                     }}
@@ -276,11 +292,16 @@ function Field({
 }
 
 function ApprovalButtons({
+  teammates,
   onDecide,
+  onDelegate,
 }: {
+  teammates: Array<{ _id: string; name: string }>;
   onDecide: (decision: "approved" | "declined") => Promise<void>;
+  onDelegate: (toOperatorId: string) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [showDelegate, setShowDelegate] = useState(false);
   const click = async (decision: "approved" | "declined") => {
     setBusy(true);
     try {
@@ -289,8 +310,26 @@ function ApprovalButtons({
       setBusy(false);
     }
   };
+  const onPickDelegate = async (id: string) => {
+    setShowDelegate(false);
+    setBusy(true);
+    try {
+      await onDelegate(id);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <div className="flex shrink-0 gap-2">
+    <div className="relative flex shrink-0 gap-2">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setShowDelegate((v) => !v)}
+        className="rounded-full border border-rule-2 px-3 py-1 text-[11px] font-medium text-muted hover:text-ink disabled:opacity-50"
+        title="Pass this approval to a teammate"
+      >
+        Delegate
+      </button>
       <button
         type="button"
         disabled={busy}
@@ -307,6 +346,32 @@ function ApprovalButtons({
       >
         Approve
       </button>
+      {showDelegate && (
+        <div className="absolute right-0 top-full z-10 mt-1 w-56 overflow-hidden rounded-xl border border-rule-2 bg-paper shadow-lg">
+          <div className="border-b border-rule px-3 py-2 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+            Delegate to
+          </div>
+          {teammates.length === 0 ? (
+            <div className="px-3 py-3 text-[12px] text-muted">
+              No teammates to delegate to.
+            </div>
+          ) : (
+            <ul className="max-h-48 overflow-y-auto">
+              {teammates.map((t) => (
+                <li key={t._id}>
+                  <button
+                    type="button"
+                    onClick={() => onPickDelegate(t._id)}
+                    className="block w-full px-3 py-2 text-left text-[12.5px] text-ink hover:bg-paper-2"
+                  >
+                    {t.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

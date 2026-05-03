@@ -36,6 +36,8 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [approvalMode, setApprovalMode] = useState<"any" | "all">("any");
   const [approvalTimeoutHours, setApprovalTimeoutHours] = useState(24);
+  const [approvalEscalateAfterHours, setApprovalEscalateAfterHours] =
+    useState(4);
   const [approvers, setApprovers] = useState<Id<"operators">[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(
@@ -59,6 +61,7 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
     setRequiresApproval(page.requiresApproval ?? false);
     setApprovalMode((page.approvalMode as "any" | "all") ?? "any");
     setApprovalTimeoutHours(page.approvalTimeoutHours ?? 24);
+    setApprovalEscalateAfterHours(page.approvalEscalateAfterHours ?? 4);
     setApprovers(page.approvalOperatorIds ?? []);
   }, [page?._id]);
 
@@ -104,6 +107,7 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
         approvalMode,
         approvalOperatorIds: approvers,
         approvalTimeoutHours,
+        approvalEscalateAfterHours,
       });
       setMsg({ kind: "ok", text: "Saved." });
     } catch (e) {
@@ -313,6 +317,20 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
                     onChange={(e) =>
                       setApprovalTimeoutHours(
                         Math.max(1, Math.min(168, Number(e.target.value))),
+                      )
+                    }
+                    className="h-10 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"
+                  />
+                </Field>
+                <Field label="Escalate after (hours · 0 = off)">
+                  <input
+                    type="number"
+                    min={0}
+                    max={168}
+                    value={approvalEscalateAfterHours}
+                    onChange={(e) =>
+                      setApprovalEscalateAfterHours(
+                        Math.max(0, Math.min(168, Number(e.target.value))),
                       )
                     }
                     className="h-10 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"

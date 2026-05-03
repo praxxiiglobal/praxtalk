@@ -534,6 +534,10 @@ export default defineSchema({
     ),
     approvalOperatorIds: v.optional(v.array(v.id("operators"))),
     approvalTimeoutHours: v.optional(v.number()),
+    // Phase 2: send a "still waiting on you" escalation to all
+    // pending approvers after this many hours. Cron checks every
+    // 15 minutes; default 4 hours when set, off when unset/0.
+    approvalEscalateAfterHours: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_slug", ["slug"])
@@ -604,10 +608,24 @@ export default defineSchema({
     ),
     note: v.optional(v.string()),
     respondedAt: v.optional(v.number()),
+    // Phase 2 — escalation timestamp. The escalation cron sets this
+    // the first time it pushes a "still waiting on you" notification
+    // for a pending approver row, so the cron is idempotent on
+    // subsequent passes (we don't spam the same approver every 15min).
+    escalatedAt: v.optional(v.number()),
+    // Phase 2 — delegation. When an approver delegates, we mark the
+    // original row "delegated" and create a fresh pending row for the
+    // recipient. Audit trail stays attached to the booking via
+    // by_booking index.
+    delegatedToOperatorId: v.optional(v.id("operators")),
+    delegatedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_booking", ["bookingId"])
-    .index("by_approver_pending", ["approverOperatorId", "decision"]),
+    .index("by_approver_pending", ["approverOperatorId", "decision"])
+    // Cron escalation scan — find all pending approvals across the
+    // workspace efficiently without a full table scan.
+    .index("by_decision_created", ["decision", "createdAt"]),
 
   // ── REST API rate limiting ─────────────────────────────────────────
   // One row per IP. Tracks the current 60-second window's request
