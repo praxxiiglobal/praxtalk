@@ -159,13 +159,24 @@ export const remove = mutation({
 // ── Per-operator personal mailbox ─────────────────────────────────────
 
 export const getMine = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, { sessionToken }) => {
-    const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+  args: {
+    sessionToken: v.string(),
+    targetOperatorId: v.optional(v.id("operators")),
+  },
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const target =
+      args.targetOperatorId &&
+      (operator.role === "owner" || operator.role === "admin")
+        ? args.targetOperatorId
+        : operator._id;
     const integration = await ctx.db
       .query("emailIntegrations")
       .withIndex("by_workspace_operator", (q) =>
-        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+        q.eq("workspaceId", workspaceId).eq("operatorId", target),
       )
       .first();
     if (!integration) return null;
@@ -188,6 +199,7 @@ export const getMine = query({
 export const upsertMine = mutation({
   args: {
     sessionToken: v.string(),
+    targetOperatorId: v.optional(v.id("operators")),
     provider: providerValidator,
     apiKey: v.optional(v.string()),
     fromAddress: v.string(),
@@ -206,6 +218,13 @@ export const upsertMine = mutation({
       ctx,
       args.sessionToken,
     );
+    const isAdmin = operator.role === "owner" || operator.role === "admin";
+    if (args.targetOperatorId && !isAdmin) {
+      throw new Error(
+        "Only admins/owners can manage other operators' integrations.",
+      );
+    }
+    const targetId = args.targetOperatorId ?? operator._id;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args.fromAddress)) {
       throw new Error("From address must be a valid email.");
     }
@@ -213,7 +232,7 @@ export const upsertMine = mutation({
     const existing = await ctx.db
       .query("emailIntegrations")
       .withIndex("by_workspace_operator", (q) =>
-        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+        q.eq("workspaceId", workspaceId).eq("operatorId", targetId),
       )
       .first();
 
@@ -249,7 +268,7 @@ export const upsertMine = mutation({
 
     return await ctx.db.insert("emailIntegrations", {
       workspaceId,
-      operatorId: operator._id,
+      operatorId: targetId,
       provider: args.provider,
       apiKey: args.apiKey.trim(),
       fromAddress: args.fromAddress,
@@ -268,17 +287,27 @@ export const upsertMine = mutation({
 });
 
 export const removeMine = mutation({
-  args: { sessionToken: v.string() },
+  args: {
+    sessionToken: v.string(),
+    targetOperatorId: v.optional(v.id("operators")),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const { operator, workspaceId } = await requireOperator(
       ctx,
       args.sessionToken,
     );
+    const isAdmin = operator.role === "owner" || operator.role === "admin";
+    if (args.targetOperatorId && !isAdmin) {
+      throw new Error(
+        "Only admins/owners can remove other operators' integrations.",
+      );
+    }
+    const targetId = args.targetOperatorId ?? operator._id;
     const existing = await ctx.db
       .query("emailIntegrations")
       .withIndex("by_workspace_operator", (q) =>
-        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+        q.eq("workspaceId", workspaceId).eq("operatorId", targetId),
       )
       .first();
     if (existing) await ctx.db.delete(existing._id);

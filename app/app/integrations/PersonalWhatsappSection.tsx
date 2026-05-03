@@ -3,6 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useDashboardAuth } from "../DashboardShell";
 import { Card } from "../PageHeader";
 import { cn } from "@/lib/cn";
@@ -20,7 +21,21 @@ import { cn } from "@/lib/cn";
  */
 export function PersonalWhatsappSection() {
   const { sessionToken, operator } = useDashboardAuth();
-  const mine = useQuery(api.whatsappIntegrations.getMine, { sessionToken });
+  const isAdmin = operator.role === "owner" || operator.role === "admin";
+  const teamOps = useQuery(
+    api.operators.list,
+    isAdmin ? { sessionToken } : "skip",
+  );
+  const [targetOperatorId, setTargetOperatorId] =
+    useState<Id<"operators"> | null>(null);
+  const effectiveTargetId = targetOperatorId ?? (operator._id as Id<"operators">);
+  const isManagingOther =
+    targetOperatorId !== null && targetOperatorId !== operator._id;
+
+  const mine = useQuery(api.whatsappIntegrations.getMine, {
+    sessionToken,
+    targetOperatorId: targetOperatorId ?? undefined,
+  });
   const team = useQuery(api.whatsappIntegrations.listTeamPersonalNumbers, {
     sessionToken,
   });
@@ -51,6 +66,7 @@ export function PersonalWhatsappSection() {
     try {
       await upsert({
         sessionToken,
+        targetOperatorId: targetOperatorId ?? undefined,
         phoneNumberId,
         businessAccountId: businessAccountId || undefined,
         displayPhoneNumber: displayPhoneNumber || undefined,
@@ -79,7 +95,10 @@ export function PersonalWhatsappSection() {
     setBusy(true);
     setMsg(null);
     try {
-      await remove({ sessionToken });
+      await remove({
+        sessionToken,
+        targetOperatorId: targetOperatorId ?? undefined,
+      });
       setPhoneNumberId("");
       setBusinessAccountId("");
       setDisplayPhoneNumber("");
@@ -101,6 +120,35 @@ export function PersonalWhatsappSection() {
       description={`Optional — give ${operator.name} their own WABA number. Inbound auto-assigns to you; outbound from your dial pad uses this number. You'll need a separate Meta Business app + phone number per operator (Meta doesn't share numbers across Cloud API connections).`}
     >
       <div className="flex flex-col gap-4">
+        {isAdmin && teamOps && teamOps.length > 1 && (
+          <div className="flex items-center gap-2 rounded-xl border border-rule-2 bg-paper-2/40 px-3 py-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+              Manage on behalf of
+            </span>
+            <select
+              value={effectiveTargetId}
+              onChange={(e) => {
+                const v = e.target.value;
+                setTargetOperatorId(v === operator._id ? null : (v as Id<"operators">));
+              }}
+              className="h-8 flex-1 rounded-lg border border-rule-2 bg-paper px-2 text-[12px] outline-none focus:border-ink"
+            >
+              <option value={operator._id}>Me ({operator.name})</option>
+              {teamOps
+                .filter((op) => op._id !== operator._id)
+                .map((op) => (
+                  <option key={op._id} value={op._id}>
+                    {op.name} · {op.role}
+                  </option>
+                ))}
+            </select>
+            {isManagingOther && (
+              <span className="rounded-full bg-warn/15 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-warn">
+                Admin override
+              </span>
+            )}
+          </div>
+        )}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Phone Number ID (from Meta)">
             <input

@@ -136,13 +136,24 @@ export const remove = mutation({
 // ── Per-operator personal WhatsApp number ─────────────────────────────
 
 export const getMine = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, { sessionToken }) => {
-    const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+  args: {
+    sessionToken: v.string(),
+    targetOperatorId: v.optional(v.id("operators")),
+  },
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const target =
+      args.targetOperatorId &&
+      (operator.role === "owner" || operator.role === "admin")
+        ? args.targetOperatorId
+        : operator._id;
     const integration = await ctx.db
       .query("whatsappIntegrations")
       .withIndex("by_workspace_operator", (q) =>
-        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+        q.eq("workspaceId", workspaceId).eq("operatorId", target),
       )
       .first();
     if (!integration) return null;
@@ -165,6 +176,7 @@ export const getMine = query({
 export const upsertMine = mutation({
   args: {
     sessionToken: v.string(),
+    targetOperatorId: v.optional(v.id("operators")),
     phoneNumberId: v.string(),
     businessAccountId: v.optional(v.string()),
     displayPhoneNumber: v.optional(v.string()),
@@ -177,6 +189,13 @@ export const upsertMine = mutation({
       ctx,
       args.sessionToken,
     );
+    const isAdmin = operator.role === "owner" || operator.role === "admin";
+    if (args.targetOperatorId && !isAdmin) {
+      throw new ConvexError(
+        "Only admins/owners can manage other operators' integrations.",
+      );
+    }
+    const targetId = args.targetOperatorId ?? operator._id;
     if (!args.phoneNumberId.trim()) {
       throw new ConvexError("Phone number ID is required.");
     }
@@ -184,7 +203,7 @@ export const upsertMine = mutation({
     const existing = await ctx.db
       .query("whatsappIntegrations")
       .withIndex("by_workspace_operator", (q) =>
-        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+        q.eq("workspaceId", workspaceId).eq("operatorId", targetId),
       )
       .first();
 
@@ -210,7 +229,7 @@ export const upsertMine = mutation({
 
     return await ctx.db.insert("whatsappIntegrations", {
       workspaceId,
-      operatorId: operator._id,
+      operatorId: targetId,
       phoneNumberId: args.phoneNumberId.trim(),
       businessAccountId: args.businessAccountId?.trim() || undefined,
       displayPhoneNumber: args.displayPhoneNumber?.trim() || undefined,
@@ -224,17 +243,27 @@ export const upsertMine = mutation({
 });
 
 export const removeMine = mutation({
-  args: { sessionToken: v.string() },
+  args: {
+    sessionToken: v.string(),
+    targetOperatorId: v.optional(v.id("operators")),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const { operator, workspaceId } = await requireOperator(
       ctx,
       args.sessionToken,
     );
+    const isAdmin = operator.role === "owner" || operator.role === "admin";
+    if (args.targetOperatorId && !isAdmin) {
+      throw new ConvexError(
+        "Only admins/owners can remove other operators' integrations.",
+      );
+    }
+    const targetId = args.targetOperatorId ?? operator._id;
     const existing = await ctx.db
       .query("whatsappIntegrations")
       .withIndex("by_workspace_operator", (q) =>
-        q.eq("workspaceId", workspaceId).eq("operatorId", operator._id),
+        q.eq("workspaceId", workspaceId).eq("operatorId", targetId),
       )
       .first();
     if (existing) await ctx.db.delete(existing._id);
