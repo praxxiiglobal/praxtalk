@@ -388,6 +388,18 @@ export const evaluate = internalAction({
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
         });
+        // Atlas tool calls — only fire on auto-reply (high confidence).
+        // Drafts wait for operator review; if the operator accepts the
+        // draft, they can schedule reminders manually.
+        if (result.actions.length > 0) {
+          await ctx.runMutation(internal.atlas._scheduleAtlasReminders, {
+            workspaceId: args.workspaceId,
+            brandId: conversation.brandId,
+            conversationId: args.conversationId,
+            visitorId: conversation.visitorId,
+            actions: result.actions,
+          });
+        }
       } else {
         await ctx.runMutation(internal.atlas.completeRunAsDraft, {
           runId: startId,
@@ -573,6 +585,48 @@ export const completeRunAndAutoReply = internalMutation({
   },
 });
 
+/**
+ * Persist Atlas-scheduled reminders directly into the reminders
+ * table. Channel is locked to "chat" — Atlas can't autonomously fire
+ * email/SMS/WhatsApp/voice reminders without operator approval since
+ * those would surprise visitors more.
+ */
+export const _scheduleAtlasReminders = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    brandId: v.id("brands"),
+    conversationId: v.id("conversations"),
+    visitorId: v.id("visitors"),
+    actions: v.array(
+      v.object({
+        type: v.literal("schedule_reminder"),
+        in_minutes: v.number(),
+        body: v.string(),
+      }),
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    for (const a of args.actions) {
+      const sendAt = now + a.in_minutes * 60_000;
+      await ctx.db.insert("reminders", {
+        workspaceId: args.workspaceId,
+        brandId: args.brandId,
+        conversationId: args.conversationId,
+        visitorId: args.visitorId,
+        channel: "chat",
+        sendAt,
+        body: a.body,
+        status: "pending",
+        scheduledByOperatorId: undefined, // null = Atlas
+        scheduledAt: now,
+      });
+    }
+    return null;
+  },
+});
+
 export const failRun = internalMutation({
   args: { runId: v.id("atlasRuns"), error: v.string() },
   returns: v.null(),
@@ -631,10 +685,35 @@ function buildSystemPrompt(
     );
   }
   parts.push(
-    `\n\nReturn JSON ONLY (no markdown), with the shape:\n{ "reply": string, "confidence": number between 0 and 1, "reasoning": short string }\nConfidence reflects how sure you are the reply is correct + on-policy. If confidence < ${DEFAULT_THRESHOLD}, the reply is held as a draft for a human operator to review. Be honest about uncertainty.`,
+    `\n\nReturn JSON ONLY (no markdown), with the shape:
+{
+  "reply": string,
+  "confidence": number between 0 and 1,
+  "reasoning": short string,
+  "actions": optional array of action objects
+}
+
+Confidence reflects how sure you are the reply is correct + on-policy. If confidence < ${DEFAULT_THRESHOLD}, the reply is held as a draft for a human operator to review. Be honest about uncertainty.
+
+Available actions (only emit when genuinely useful — over-scheduling annoys visitors):
+
+  { "type": "schedule_reminder", "in_minutes": number, "body": string }
+    Schedules a chat-channel follow-up reminder for this conversation.
+    Use sparingly — e.g. "follow up tomorrow if no response" after the
+    visitor goes quiet on a real task. Don't schedule for trivial chats.
+    Body should be a short friendly message addressed to the visitor
+    (e.g. "Just checking in — did the docs help?"). Max +14 days out.
+    Actions only fire when you also auto-reply (high confidence). On
+    drafts (held for operator review), actions are ignored.`,
   );
   return parts.join("");
 }
+
+export type AtlasAction = {
+  type: "schedule_reminder";
+  in_minutes: number;
+  body: string;
+};
 
 async function callAnthropic(args: {
   apiKey: string;
@@ -646,6 +725,7 @@ async function callAnthropic(args: {
   reply: string;
   confidence: number;
   reasoning: string;
+  actions: AtlasAction[];
   inputTokens?: number;
   outputTokens?: number;
 }> {
@@ -675,7 +755,12 @@ async function callAnthropic(args: {
   const text = data.content?.find((c) => c.type === "text")?.text ?? "";
   // The model is asked to return JSON; tolerate code-fenced output.
   const clean = text.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-  let parsed: { reply?: unknown; confidence?: unknown; reasoning?: unknown };
+  let parsed: {
+    reply?: unknown;
+    confidence?: unknown;
+    reasoning?: unknown;
+    actions?: unknown;
+  };
   try {
     parsed = JSON.parse(clean);
   } catch {
@@ -684,6 +769,7 @@ async function callAnthropic(args: {
       reply: text.trim() || "Let me get a teammate to help you with that.",
       confidence: 0.4,
       reasoning: "Model returned non-JSON output; downgraded to draft.",
+      actions: [],
       inputTokens: data.usage?.input_tokens,
       outputTokens: data.usage?.output_tokens,
     };
@@ -695,13 +781,35 @@ async function callAnthropic(args: {
       : 0.4;
   const reasoning =
     typeof parsed.reasoning === "string" ? parsed.reasoning : "";
+  const actions = parseActions(parsed.actions);
   return {
     reply: reply || "Let me get a teammate to help you with that.",
     confidence,
     reasoning,
+    actions,
     inputTokens: data.usage?.input_tokens,
     outputTokens: data.usage?.output_tokens,
   };
+}
+
+function parseActions(raw: unknown): AtlasAction[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AtlasAction[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const a = item as Record<string, unknown>;
+    if (a.type === "schedule_reminder") {
+      const inMinutes =
+        typeof a.in_minutes === "number" ? Math.round(a.in_minutes) : 0;
+      const body = typeof a.body === "string" ? a.body.trim() : "";
+      // Sanity bounds: between +1 minute and +14 days. Skip junk.
+      if (inMinutes < 1 || inMinutes > 14 * 24 * 60) continue;
+      if (!body) continue;
+      out.push({ type: "schedule_reminder", in_minutes: inMinutes, body });
+    }
+    // Future action types slot in here; unknown types are dropped.
+  }
+  return out.slice(0, 3); // hard cap — model can't queue dozens
 }
 
 // ── RAG: chunking + Voyage embeddings + retrieval ─────────────────────
