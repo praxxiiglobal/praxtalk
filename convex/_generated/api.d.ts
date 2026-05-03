@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as _admin from "../_admin.js";
 import type * as analytics from "../analytics.js";
 import type * as apiKeys from "../apiKeys.js";
 import type * as atlas from "../atlas.js";
@@ -28,6 +29,7 @@ import type * as invites from "../invites.js";
 import type * as leads from "../leads.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_paypal from "../lib/paypal.js";
+import type * as lib_platformAdmin from "../lib/platformAdmin.js";
 import type * as lib_razorpay from "../lib/razorpay.js";
 import type * as lobby from "../lobby.js";
 import type * as messageDrafts from "../messageDrafts.js";
@@ -59,6 +61,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  _admin: typeof _admin;
   analytics: typeof analytics;
   apiKeys: typeof apiKeys;
   atlas: typeof atlas;
@@ -79,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   leads: typeof leads;
   "lib/auth": typeof lib_auth;
   "lib/paypal": typeof lib_paypal;
+  "lib/platformAdmin": typeof lib_platformAdmin;
   "lib/razorpay": typeof lib_razorpay;
   lobby: typeof lobby;
   messageDrafts: typeof messageDrafts;

@@ -20,6 +20,8 @@ export default function robots(): MetadataRoute.Robots {
           "/book/",
           "/widget-demo",
           "/status",
+          "/admin/",
+          "/admin",
         ],
       },
     ],

@@ -227,6 +227,12 @@ export default defineSchema({
       "status",
       "lastMessageAt",
     ])
+    // Used by the platform-admin /admin/workspaces query to grab a
+    // workspace's whole timeline + most-recent activity in one
+    // ordered scan (the by_workspace_status_lastmsg index above
+    // requires status, which doesn't fit "give me everything for
+    // this tenant").
+    .index("by_workspace_lastmsg", ["workspaceId", "lastMessageAt"])
     .index("by_workspace_visitor", ["workspaceId", "visitorId"])
     .index("by_brand_status_lastmsg", ["brandId", "status", "lastMessageAt"])
     .index("by_email_thread", ["emailThreadId"]),
