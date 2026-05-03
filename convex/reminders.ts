@@ -40,6 +40,7 @@ export const schedule = mutation({
     sendAt: v.number(), // unix ms
     body: v.string(),
     whatsappTemplateName: v.optional(v.string()),
+    remarks: v.optional(v.string()),
   },
   returns: v.id("reminders"),
   handler: async (ctx, args) => {
@@ -77,7 +78,39 @@ export const schedule = mutation({
       status: "pending",
       scheduledByOperatorId: operator._id,
       scheduledAt: Date.now(),
+      remarks: args.remarks?.trim() || undefined,
     });
+  },
+});
+
+/**
+ * Edit operator-only remarks on an existing reminder. Doesn't touch
+ * the body / sendAt / channel — those are immutable once scheduled
+ * (cancel + re-create if you need to change them).
+ */
+export const updateRemarks = mutation({
+  args: {
+    sessionToken: v.string(),
+    reminderId: v.id("reminders"),
+    remarks: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const r = await ctx.db.get(args.reminderId);
+    if (!r || r.workspaceId !== workspaceId) {
+      throw new ConvexError("Reminder not found.");
+    }
+    if (!hasBrandAccess(operator, r.brandId)) {
+      throw new ConvexError("No access to this brand.");
+    }
+    await ctx.db.patch(args.reminderId, {
+      remarks: args.remarks.trim() || undefined,
+    });
+    return null;
   },
 });
 
@@ -122,6 +155,7 @@ export const listForWorkspace = query({
       channel: channelValidator,
       sendAt: v.number(),
       body: v.string(),
+      remarks: v.union(v.string(), v.null()),
       status: statusValidator,
       sentAt: v.union(v.number(), v.null()),
       error: v.union(v.string(), v.null()),
@@ -158,6 +192,7 @@ export const listForWorkspace = query({
           channel: r.channel,
           sendAt: r.sendAt,
           body: r.body,
+          remarks: r.remarks ?? null,
           status: r.status,
           sentAt: r.sentAt ?? null,
           error: r.error ?? null,

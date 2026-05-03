@@ -423,6 +423,10 @@ export default defineSchema({
     scheduledAt: v.number(),
     sentAt: v.optional(v.number()),
     error: v.optional(v.string()),
+    // Operator-only free-text notes ("circle back about pricing",
+    // "follow up after demo"). Never sent to the visitor; surfaces in
+    // the dashboard reminder + schedule views only.
+    remarks: v.optional(v.string()),
   })
     .index("by_status_send_at", ["status", "sendAt"])
     .index("by_workspace_send_at", ["workspaceId", "sendAt"])
@@ -517,7 +521,11 @@ export default defineSchema({
     ),
     visitorEmail: v.optional(v.string()),
     visitorPhone: v.optional(v.string()),
-    notes: v.optional(v.string()),
+    notes: v.optional(v.string()), // visitor-supplied at booking time
+    // Operator-only remarks added after the booking — separate from
+    // visitor notes so the operator can add reminders/context that
+    // the visitor never sees.
+    remarks: v.optional(v.string()),
     // Set after a successful write-back to the owner's connected
     // calendar — used by the cancel flow to delete the event from
     // their calendar too.

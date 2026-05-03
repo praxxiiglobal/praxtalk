@@ -13,17 +13,14 @@ export const navItems: { href: string; label: string; icon: NavIconName }[] = [
   { href: "/app/leads", label: "Leads", icon: "lead" },
   { href: "/app/calls", label: "Calls", icon: "phone" },
   { href: "/app/emails", label: "Emails", icon: "reply" },
-  { href: "/app/reminders", label: "Reminders", icon: "bell" },
-  { href: "/app/booking-pages", label: "Booking pages", icon: "lobby" },
+  // Reminders + Booking pages now live together under Schedules.
+  { href: "/app/schedules", label: "Schedules", icon: "lobby" },
   { href: "/app/atlas", label: "Atlas AI", icon: "atlas" },
   { href: "/app/lobby", label: "Lobby intake", icon: "lobby" },
   { href: "/app/analytics", label: "Analytics", icon: "chart" },
-  { href: "/app/brands", label: "Brands", icon: "brand" },
-  { href: "/app/team", label: "Team", icon: "team" },
-  { href: "/app/saved-replies", label: "Saved replies", icon: "reply" },
   { href: "/app/integrations", label: "Integrations", icon: "plug" },
+  // Brands, Team, Saved replies, Billing — moved into /app/settings.
   { href: "/app/settings", label: "Settings", icon: "settings" },
-  { href: "/app/billing", label: "Billing", icon: "card" },
 ];
 
 export function SideNav() {

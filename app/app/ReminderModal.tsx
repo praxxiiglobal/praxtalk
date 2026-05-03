@@ -54,6 +54,7 @@ export function ReminderModal({
   const [body, setBody] = useState("");
   const [whenISO, setWhenISO] = useState(() => isoLocalIn(15));
   const [whatsappTemplate, setWhatsappTemplate] = useState("");
+  const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,8 +90,10 @@ export function ReminderModal({
         body: body.trim(),
         whatsappTemplateName:
           channel === "whatsapp" ? whatsappTemplate.trim() || undefined : undefined,
+        remarks: remarks.trim() || undefined,
       });
       setBody("");
+      setRemarks("");
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't schedule.");
@@ -210,6 +213,19 @@ export function ReminderModal({
             </p>
           </div>
         )}
+
+        <div className="mb-3">
+          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+            Internal remarks (optional, never sent to visitor)
+          </div>
+          <textarea
+            value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            placeholder="Notes for the team — e.g. 'circle back about pricing tier'"
+            rows={2}
+            className="w-full resize-none rounded-xl border border-rule-2 bg-paper-2/40 px-3 py-2 text-[13px] outline-none focus:border-ink"
+          />
+        </div>
 
         {error && (
           <div

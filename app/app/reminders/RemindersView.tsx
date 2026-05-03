@@ -78,6 +78,11 @@ export function RemindersView() {
                 <p className="mt-1 line-clamp-2 text-[13px] text-ink">
                   {r.body}
                 </p>
+                {r.remarks && (
+                  <div className="mt-1 rounded-md bg-paper-2/40 px-2 py-1 text-[11px] text-muted">
+                    📝 {r.remarks}
+                  </div>
+                )}
                 {r.error && (
                   <div className="mt-1 text-[11px] text-red-700">
                     {r.error}
