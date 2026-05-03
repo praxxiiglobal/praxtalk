@@ -13,4 +13,13 @@ crons.interval(
   {},
 );
 
+// Fire any reminders whose sendAt has passed. Cheap — by_status_send_at
+// index makes the lookup constant-time when no reminders are due.
+crons.interval(
+  "dispatch due reminders",
+  { minutes: 1 },
+  internal.reminders.dispatchDue,
+  {},
+);
+
 export default crons;

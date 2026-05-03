@@ -11,6 +11,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useDashboardAuth } from "./DashboardShell";
+import { ReminderModal } from "./ReminderModal";
 import { useSelectedBrand } from "./useSelectedBrand";
 import { cn } from "@/lib/cn";
 
@@ -314,6 +315,7 @@ function ConversationPane({
   const [body, setBody] = useState("");
   const [internal, setInternal] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
+  const [showReminder, setShowReminder] = useState(false);
 
   if (convo === undefined || messages === undefined) {
     return (
@@ -583,7 +585,22 @@ function ConversationPane({
               sessionToken={sessionToken}
             />
           ) : null}
+          <button
+            type="button"
+            onClick={() => setShowReminder(true)}
+            className="rounded-full border border-rule-2 px-2.5 py-1 text-muted transition hover:text-ink"
+            title="Schedule a reminder for this conversation"
+          >
+            ⏰ Remind
+          </button>
         </div>
+        {showReminder && (
+          <ReminderModal
+            conversationId={conversationId}
+            conversationChannel={convo.channel as never}
+            onClose={() => setShowReminder(false)}
+          />
+        )}
         <div className="flex items-end gap-2">
           <textarea
             value={body}

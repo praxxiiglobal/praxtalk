@@ -262,6 +262,44 @@ export default defineSchema({
     .index("by_operator", ["operatorId"])
     .index("by_endpoint", ["endpoint"]),
 
+  // ── Reminders ──────────────────────────────────────────────────────
+  // Operator (or Atlas) schedules a reminder tied to a conversation.
+  // Cron `reminders.dispatchDue` fires at sendAt → routes to the
+  // chosen channel (reuses email/SMS integrations; chat just drops a
+  // system message). One row per scheduled reminder; no compaction
+  // until status moves to "sent" or "cancelled".
+  reminders: defineTable({
+    workspaceId: v.id("workspaces"),
+    brandId: v.id("brands"),
+    conversationId: v.id("conversations"),
+    visitorId: v.id("visitors"),
+    channel: v.union(
+      v.literal("chat"),
+      v.literal("email"),
+      v.literal("sms"),
+      v.literal("whatsapp"),
+      v.literal("voice"),
+    ),
+    sendAt: v.number(),
+    body: v.string(),
+    // For WhatsApp outside the 24h customer-service-window — must
+    // reference an approved template name. Unused for other channels.
+    whatsappTemplateName: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+    ),
+    scheduledByOperatorId: v.optional(v.id("operators")), // null = scheduled by Atlas
+    scheduledAt: v.number(),
+    sentAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  })
+    .index("by_status_send_at", ["status", "sendAt"])
+    .index("by_workspace_send_at", ["workspaceId", "sendAt"])
+    .index("by_conversation", ["conversationId"]),
+
   // ── REST API rate limiting ─────────────────────────────────────────
   // One row per IP. Tracks the current 60-second window's request
   // count. When the window rolls over the existing row is patched
