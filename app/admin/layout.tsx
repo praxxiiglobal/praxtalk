@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { api } from "@/convex/_generated/api";
 import { convexServer } from "@/lib/convexServer";
 import { readSessionToken } from "@/lib/session";
+import { AdminConvexProvider } from "./AdminConvexProvider";
 
 export const metadata = {
   title: "Platform admin · PraxTalk",
@@ -110,7 +111,7 @@ export default async function AdminLayout({
               </div>
             </div>
           ) : (
-            children
+            <AdminConvexProvider>{children}</AdminConvexProvider>
           )}
         </div>
       </main>
