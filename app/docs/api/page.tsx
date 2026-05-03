@@ -59,30 +59,59 @@ export default function ApiDocsPage() {
           <pre>{`https://<your-deployment>.convex.site`}</pre>
           <p>
             All endpoints below are relative to this base. CORS is open
-            (<code>Access-Control-Allow-Origin: *</code>) so you can call from
-            a browser context too.
+            (<code>Access-Control-Allow-Origin: *</code>) so other backends
+            in your stack can call it from anywhere.
           </p>
+          <div className="my-4 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-[13.5px]">
+            <strong className="font-semibold">
+              ⚠ Don&apos;t embed <code>ptk_live_</code> keys in front-end
+              JavaScript.
+            </strong>{" "}
+            Anyone who views your bundle (or scrapes it) can extract the
+            key and read or mutate everything in your workspace until you
+            notice + revoke. The wildcard CORS lets the API answer
+            cross-origin requests from your <em>backend</em> code; it
+            should not be read as a green-light for shipping the secret
+            into a browser. For browser-driven flows (a visitor widget,
+            an in-page chat), use{" "}
+            <a href="/widget.js?id=…">PraxTalk&apos;s widget</a> or
+            mint short-lived tokens in your own backend and hand them
+            to the page.
+          </div>
         </Prose>
       </Section>
 
       <Section
         id="rate-limits"
         title="Rate limits"
-        description="60 requests per minute per IP. Errors include Retry-After."
+        description="60 req/min per IP, plus 6,000/min per read-scope key and 600/min per write-scope key. Errors include Retry-After + X-RateLimit-* headers."
       >
         <Prose>
           <p>
-            When you exceed the per-IP limit, the API returns{" "}
-            <code>429 Too Many Requests</code> with a{" "}
-            <code>Retry-After</code> header (in seconds) and a JSON body:
+            Two layered limits apply to every authenticated request:
           </p>
-          <pre>{`{
-  "error": "Rate limit exceeded. Try again in a moment.",
-  "retryAfterSeconds": 12
-}`}</pre>
+          <ul>
+            <li>
+              <strong>Per-IP</strong> — 60 req/min. Catches malformed
+              clients and brute-force attempts.
+            </li>
+            <li>
+              <strong>Per-key</strong> — 6,000 req/min for read-scope
+              keys, 600 req/min for write-scope keys. Bounds the blast
+              radius of a leaked key + prevents one tenant from
+              starving another.
+            </li>
+          </ul>
           <p>
-            Honour the header — well-behaved clients automatically back off.
-            Need a higher limit? Email{" "}
+            When you exceed either limit, the API returns{" "}
+            <code>429 Too Many Requests</code> with these headers:
+          </p>
+          <pre>{`Retry-After: 12
+X-RateLimit-Limit: 600
+X-RateLimit-Remaining: 0`}</pre>
+          <p>
+            Honour <code>Retry-After</code> — well-behaved clients back
+            off automatically. Need a higher limit? Email{" "}
             <a href="mailto:hello@praxtalk.com">hello@praxtalk.com</a>.
           </p>
         </Prose>
