@@ -9,10 +9,6 @@ const initial: SetupState = { status: "idle" };
 export function SetupForm() {
   const [state, formAction] = useActionState(createWorkspaceAction, initial);
 
-  if (state.status === "ok") {
-    return <SetupSuccess slug={state.workspaceSlug} widgetId={state.widgetId} />;
-  }
-
   return (
     <form action={formAction} className="flex flex-col gap-5">
       <Field
@@ -99,42 +95,3 @@ function Submit() {
   );
 }
 
-function SetupSuccess({
-  slug,
-  widgetId,
-}: {
-  slug: string;
-  widgetId: string;
-}) {
-  const snippet = `<script src="https://cdn.praxtalk.com/widget.js" data-workspace-id="${widgetId}" defer></script>`;
-  return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <div className="eyebrow mb-2 text-accent">Workspace created</div>
-        <h2 className="text-2xl font-semibold tracking-[-0.02em]">
-          Welcome to PraxTalk, {slug}.
-        </h2>
-        <p className="mt-2 text-sm text-muted">
-          You&apos;re signed in as the workspace owner. Your widget is ready
-          to embed on any page.
-        </p>
-      </div>
-
-      <div>
-        <div className="eyebrow mb-2 text-muted">Embed snippet</div>
-        <pre className="overflow-x-auto rounded-xl border border-rule bg-ink p-4 font-mono text-[12px] leading-relaxed text-paper">
-          {snippet}
-        </pre>
-        <p className="mt-2 text-xs text-muted">
-          Paste this just before <code className="font-mono">&lt;/body&gt;</code>{" "}
-          on any page where you want the chat bubble to appear.
-        </p>
-      </div>
-
-      <div className="rounded-xl border border-dashed border-rule-2 bg-paper-2 p-4 text-sm text-muted">
-        <b className="font-semibold text-ink">Operator dashboard coming soon.</b>{" "}
-        We&apos;re wiring it up next — your conversations will land there.
-      </div>
-    </div>
-  );
-}

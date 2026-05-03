@@ -1,13 +1,13 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { convexServer } from "@/lib/convexServer";
 import { setSessionCookie } from "@/lib/session";
 
 export type SetupState =
   | { status: "idle" }
-  | { status: "error"; message: string }
-  | { status: "ok"; workspaceSlug: string; widgetId: string };
+  | { status: "error"; message: string };
 
 export async function createWorkspaceAction(
   _prev: SetupState,
@@ -36,18 +36,15 @@ export async function createWorkspaceAction(
       ownerPassword,
     });
     await setSessionCookie(result.sessionToken);
-
-    // Slug is derived deterministically from the name on the server, but
-    // we don't have it in the response. Re-derive client-side display name
-    // from the input. Slug isn't user-facing here so we just echo the name.
-    return {
-      status: "ok",
-      workspaceSlug: workspaceName,
-      widgetId: result.widgetId,
-    };
   } catch (e) {
     const message =
       e instanceof Error ? e.message : "Could not create workspace.";
     return { status: "error", message };
   }
+
+  // Send the new owner to /app — the layout there gates pending_review
+  // workspaces behind PendingReviewScreen, then drops them into the
+  // dashboard once a platform admin approves. Never serve the embed
+  // snippet inline here; it leaks the widgetId before review.
+  redirect("/app");
 }
