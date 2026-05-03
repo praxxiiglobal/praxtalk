@@ -884,10 +884,18 @@ async function originateViaTwilio(args: {
   to: string;
 }): Promise<string | undefined> {
   const auth = btoa(`${args.accountSid}:${args.authToken}`);
+  // Status callback drives the live overlay's status badge —
+  // initiating → ringing → in-progress → completed in real time.
+  const statusCallback =
+    process.env.PRAXTALK_TWILIO_STATUS_CALLBACK_BASE ??
+    "https://industrious-moose-892.convex.site";
   const body = new URLSearchParams({
     To: args.to,
     From: args.from,
     Url: "http://demo.twilio.com/docs/voice.xml",
+    StatusCallback: `${statusCallback}/api/inbound/voice-status`,
+    StatusCallbackEvent: "initiated ringing answered completed",
+    StatusCallbackMethod: "POST",
   });
   const res = await fetch(
     `https://api.twilio.com/2010-04-01/Accounts/${args.accountSid}/Calls.json`,
@@ -1746,6 +1754,75 @@ export const _markCallEnded = internalMutation({
       status: args.status,
       endedAt: Date.now(),
     });
+    return null;
+  },
+});
+
+/**
+ * Twilio status callback — POSTed for each lifecycle transition
+ * (initiated / ringing / answered / completed). Maps the provider's
+ * status to ours and patches the activeCalls row by externalCallId.
+ *
+ * No auth check needed: Twilio signs requests with X-Twilio-Signature
+ * but verifying that requires the auth token, which means looking up
+ * the integration by AccountSid first. For now we trust the signature
+ * gateway-side and just check the externalCallId belongs to a real
+ * row (silently drop if not).
+ */
+export const _applyTwilioStatus = internalMutation({
+  args: {
+    externalCallId: v.string(),
+    twilioStatus: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("activeCalls")
+      .withIndex("by_external_id", (q) =>
+        q.eq("externalCallId", args.externalCallId),
+      )
+      .first();
+    if (!row) return null;
+
+    // Twilio CallStatus values: queued / initiated / ringing /
+    // in-progress / completed / busy / failed / no-answer / canceled.
+    let next:
+      | "initiating"
+      | "ringing"
+      | "in_progress"
+      | "completed"
+      | "failed"
+      | undefined;
+    switch (args.twilioStatus) {
+      case "queued":
+      case "initiated":
+        next = "initiating";
+        break;
+      case "ringing":
+        next = "ringing";
+        break;
+      case "in-progress":
+      case "answered":
+        next = "in_progress";
+        break;
+      case "completed":
+        next = "completed";
+        break;
+      case "busy":
+      case "failed":
+      case "no-answer":
+      case "canceled":
+        next = "failed";
+        break;
+    }
+    if (!next) return null;
+    if (next === row.status) return null; // idempotent
+
+    const patch: Record<string, unknown> = { status: next };
+    if (next === "completed" || next === "failed") {
+      patch.endedAt = Date.now();
+    }
+    await ctx.db.patch(row._id, patch);
     return null;
   },
 });

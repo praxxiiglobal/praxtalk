@@ -1081,6 +1081,35 @@ function extractName(s: string): string | undefined {
   const m = s.match(/^([^<]+?)\s*<[^>]+>$/);
   return m ? m[1].replace(/^"|"$/g, "").trim() : undefined;
 }
+// ── Twilio voice status callback ──────────────────────────────────────
+// Twilio POSTs here at each lifecycle transition (initiated / ringing /
+// answered / completed). We map the status to our activeCalls.status
+// so the live UI overlay shows the real state in near-real-time.
+http.route({
+  path: "/api/inbound/voice-status",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const text = await req.text();
+    const params = new URLSearchParams(text);
+    const callSid = params.get("CallSid");
+    const callStatus = params.get("CallStatus");
+    if (!callSid || !callStatus) {
+      return new Response(JSON.stringify({ ok: true, dropped: "missing fields" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    await ctx.runMutation(internal.voiceIntegrations._applyTwilioStatus, {
+      externalCallId: callSid,
+      twilioStatus: callStatus,
+    });
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }),
+});
+
 // ── Calendar OAuth callbacks ──────────────────────────────────────────
 // Provider redirects here with ?code=... after the user grants
 // access. We exchange the code for tokens via the provider's token
