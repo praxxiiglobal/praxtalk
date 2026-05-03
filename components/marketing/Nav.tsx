@@ -9,7 +9,7 @@ const links = [
   { href: "/#ai", label: "AI Suite", caret: true },
   { href: "/#compare", label: "Why Prax" },
   { href: "/#integrations", label: "Integrations" },
-  { href: "/#pricing", label: "Pricing" },
+  { href: "/pricing", label: "Pricing" },
   { href: "/docs", label: "Docs" },
 ];
 
@@ -63,13 +63,13 @@ export function Nav() {
               Sign in
             </Link>
             <Link
-              href="mailto:hello@praxtalk.com?subject=PraxTalk%20demo%20request"
+              href="/book-demo"
               className="hidden h-9 items-center rounded-full border border-rule-2 px-4 text-sm font-medium transition hover:-translate-y-px sm:inline-flex"
             >
               Book demo
             </Link>
             <Link
-              href="/setup"
+              href="/sign-up"
               className="group hidden h-9 items-center gap-2 rounded-full bg-ink px-4 text-sm font-medium text-paper transition hover:-translate-y-px hover:bg-black sm:inline-flex"
             >
               Start free
@@ -114,14 +114,14 @@ export function Nav() {
               Sign in
             </Link>
             <Link
-              href="mailto:hello@praxtalk.com?subject=PraxTalk%20demo%20request"
+              href="/book-demo"
               onClick={() => setOpen(false)}
               className="inline-flex h-11 items-center justify-center rounded-full border border-rule-2 text-sm font-medium"
             >
               Book demo
             </Link>
             <Link
-              href="/setup"
+              href="/sign-up"
               onClick={() => setOpen(false)}
               className="inline-flex h-11 items-center justify-center rounded-full bg-ink text-sm font-medium text-paper"
             >

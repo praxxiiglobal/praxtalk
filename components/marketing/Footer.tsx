@@ -42,7 +42,17 @@ const cols: Array<{ title: string; links: { label: string; href: string }[] }> =
       { label: "Careers", href: "/careers" },
       { label: "Press kit", href: "/press" },
       { label: "Security", href: "/security" },
-      { label: "Contact", href: "mailto:hello@praxtalk.com" },
+      { label: "Contact", href: "/contact" },
+    ],
+  },
+  {
+    title: "Legal",
+    links: [
+      { label: "Privacy", href: "/privacy" },
+      { label: "Terms", href: "/terms" },
+      { label: "Pricing", href: "/pricing" },
+      { label: "Sign up", href: "/sign-up" },
+      { label: "Book a demo", href: "/book-demo" },
     ],
   },
 ];
@@ -132,7 +142,10 @@ export function Footer() {
               hello@praxtalk.com
             </a>
           </span>
-          <span>GDPR ready · SOC 2 Type II in progress</span>
+          {/* M-02 audit fix: don't claim "ready" until /privacy + DPA
+              + sub-processor list ship. SOC 2 reads as "roadmap"
+              instead of "in progress" since there's no auditor yet. */}
+          <span>GDPR roadmap · SOC 2 Type II planned for v1.0</span>
         </div>
       </div>
     </footer>
