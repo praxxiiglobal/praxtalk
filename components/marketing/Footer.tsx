@@ -15,12 +15,12 @@ const cols: Array<{ title: string; links: { label: string; href: string }[] }> =
     title: "Compare",
     links: [
       { label: "All comparisons", href: "/compare" },
-      { label: "vs. Intercom", href: "/compare" },
-      { label: "vs. Crisp", href: "/compare" },
-      { label: "vs. LiveChat", href: "/compare" },
-      { label: "vs. Drift", href: "/compare" },
-      { label: "vs. HubSpot Chat", href: "/compare" },
-      { label: "vs. Tawk.to", href: "/compare" },
+      { label: "vs. Intercom", href: "/compare/intercom" },
+      { label: "vs. Crisp", href: "/compare/crisp" },
+      { label: "vs. LiveChat", href: "/compare/livechat" },
+      { label: "vs. Drift", href: "/compare/drift" },
+      { label: "vs. HubSpot Chat", href: "/compare/hubspot-chat" },
+      { label: "vs. Tawk.to", href: "/compare/tawk-to" },
     ],
   },
   {

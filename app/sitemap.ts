@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { VENDORS } from "./compare/_vendors";
 
 const BASE = "https://www.praxtalk.com";
 
@@ -9,6 +10,12 @@ const PAGES: { path: string; priority: number; changefreq: MetadataRoute.Sitemap
   { path: "/ai", priority: 0.9, changefreq: "weekly" },
   { path: "/integrations", priority: 0.9, changefreq: "weekly" },
   { path: "/compare", priority: 0.9, changefreq: "weekly" },
+  // Per-vendor long-tail SEO pages — generated from VENDORS list.
+  ...VENDORS.map((v) => ({
+    path: `/compare/${v.slug}`,
+    priority: 0.8,
+    changefreq: "monthly" as const,
+  })),
   { path: "/pricing", priority: 0.9, changefreq: "weekly" },
   { path: "/security", priority: 0.8, changefreq: "monthly" },
   { path: "/about", priority: 0.7, changefreq: "monthly" },
