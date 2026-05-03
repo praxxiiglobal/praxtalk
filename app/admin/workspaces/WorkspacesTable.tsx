@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { AdminConvexProvider } from "../AdminConvexProvider";
 import { WorkspaceManagement } from "./[id]/WorkspaceManagement";
 
 type Row = {
@@ -32,7 +33,24 @@ type SortKey =
   | "atlasRunsThisMonth"
   | "lastActivityAt";
 
-export function WorkspacesTable({
+/**
+ * Public wrapper — co-locates the Convex provider with the
+ * components that use it so this works regardless of whether
+ * the layout's wrap is in effect (which has been a moving
+ * target during the recent admin refactors).
+ */
+export function WorkspacesTable(props: {
+  workspaces: Row[];
+  sessionToken: string;
+}) {
+  return (
+    <AdminConvexProvider>
+      <WorkspacesTableInner {...props} />
+    </AdminConvexProvider>
+  );
+}
+
+function WorkspacesTableInner({
   workspaces,
   sessionToken,
 }: {
