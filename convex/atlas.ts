@@ -1240,32 +1240,44 @@ export const _runWebsiteIngest = internalAction({
 
     try {
       const origin = new URL(args.url).origin;
-      const urls = await discoverUrls(args.url);
+      // Respect robots.txt up front so we don't waste fetches on
+      // routes the site explicitly opts out of indexing.
+      const disallow = await fetchRobotsDisallow(origin);
+      const urls = await discoverUrls(args.url, disallow);
       if (urls.length === 0) {
         throw new Error(
           `No reachable pages from ${args.url}. Check the URL is publicly accessible.`,
         );
       }
 
-      const pages: { url: string; title: string; text: string }[] = [];
+      const pages: ExtractedPage[] = [];
+      const canonicalSeen = new Set<string>();
+      let jsRenderedSkipped = 0;
       for (const u of urls) {
         if (pages.length >= MAX_PAGES) break;
         const page = await fetchAndExtract(u);
-        if (page && page.text.length > 80) pages.push(page);
+        if (!page) continue;
+        if (page.jsRendered) {
+          jsRenderedSkipped++;
+          continue;
+        }
+        // Canonical-URL dedup: two URLs (e.g. /docs/foo and /docs/foo?ref=…)
+        // can canonicalise to the same page; keep just the first.
+        const dedupeKey = page.canonicalUrl ?? page.url;
+        if (canonicalSeen.has(dedupeKey)) continue;
+        canonicalSeen.add(dedupeKey);
+        if (page.text.length > 80) pages.push(page);
       }
 
       if (pages.length === 0) {
-        throw new Error(
-          "Crawled the site but didn't find any text content — pages may be JS-rendered.",
-        );
+        const msg =
+          jsRenderedSkipped > 0
+            ? `Crawled the site but every page (${jsRenderedSkipped}) appears to be JS-rendered — Atlas can only read server-rendered HTML. Try linking your sitemap.xml of static-rendered pages directly.`
+            : "Crawled the site but didn't find any text content.";
+        throw new Error(msg);
       }
 
-      const assembled = pages
-        .map(
-          (p) =>
-            `# ${p.title || p.url}\nURL: ${p.url}\n\n${p.text}\n\n---\n`,
-        )
-        .join("\n");
+      const assembled = pages.map(formatPageForKb).join("\n");
       // Clamp to a sane size — Voyage chunking + Anthropic context will
       // cope, but a 5MB KB just means we wasted bandwidth.
       const KB_MAX_CHARS = 500_000;
@@ -1280,7 +1292,9 @@ export const _runWebsiteIngest = internalAction({
         knowledgeBase: finalKb,
         pagesFetched: pages.length,
       });
-      void origin; // referenced for future per-domain settings
+      // jsRenderedSkipped count is informational — surfaced via
+      // pagesFetched + the next ingest's banner if all were skipped.
+      void jsRenderedSkipped;
     } catch (err) {
       await ctx.runMutation(internal.atlas._setKbIngestStatus, {
         workspaceId: args.workspaceId,
@@ -1291,6 +1305,24 @@ export const _runWebsiteIngest = internalAction({
     return null;
   },
 });
+
+type ExtractedPage = {
+  url: string;
+  title: string;
+  description: string | null;
+  h1: string | null;
+  canonicalUrl: string | null;
+  text: string;
+  jsRendered: boolean;
+};
+
+function formatPageForKb(p: ExtractedPage): string {
+  const headerLines: string[] = [`# ${p.title || p.url}`];
+  if (p.h1 && p.h1 !== p.title) headerLines.push(`## ${p.h1}`);
+  headerLines.push(`URL: ${p.canonicalUrl ?? p.url}`);
+  if (p.description) headerLines.push(`Description: ${p.description}`);
+  return `${headerLines.join("\n")}\n\n${p.text}\n\n---\n`;
+}
 
 function normaliseUrl(input: string): string | null {
   const trimmed = input.trim();
@@ -1346,13 +1378,17 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
  * Try the site's sitemap.xml first; fall back to a same-origin BFS
  * from the supplied URL. Returns a unique, deduplicated list of URLs
  * to fetch (caller still applies MAX_PAGES). The root URL is always
- * included first.
+ * included first. Skips paths matching the robots.txt Disallow rules.
  */
-async function discoverUrls(rootUrl: string): Promise<string[]> {
+async function discoverUrls(
+  rootUrl: string,
+  disallow: string[],
+): Promise<string[]> {
   const root = new URL(rootUrl);
   const origin = root.origin;
   const seen = new Set<string>([rootUrl]);
   const ordered: string[] = [rootUrl];
+  const isAllowed = (url: string) => !isDisallowed(url, disallow);
 
   // 1) sitemap.xml — single fetch, parses fast, gives us the
   // canonical page list when the site exposes one.
@@ -1361,6 +1397,7 @@ async function discoverUrls(rootUrl: string): Promise<string[]> {
     if (seen.size >= MAX_PAGES * 2) break;
     if (!u.startsWith(origin)) continue;
     if (shouldSkipUrl(u)) continue;
+    if (!isAllowed(u)) continue;
     if (seen.has(u)) continue;
     seen.add(u);
     ordered.push(u);
@@ -1379,12 +1416,56 @@ async function discoverUrls(rootUrl: string): Promise<string[]> {
       if (ordered.length >= MAX_PAGES) break;
       if (seen.has(link)) continue;
       if (shouldSkipUrl(link)) continue;
+      if (!isAllowed(link)) continue;
       seen.add(link);
       ordered.push(link);
       queue.push({ url: link, depth: next.depth + 1 });
     }
   }
   return ordered;
+}
+
+/**
+ * Fetch /robots.txt and collect Disallow patterns that apply to our
+ * crawler. We only honour the wildcard `User-agent: *` block — sites
+ * specifically targeting our user-agent is vanishingly rare for a
+ * brand-new product. Returns prefix paths to refuse.
+ */
+async function fetchRobotsDisallow(origin: string): Promise<string[]> {
+  const res = await fetchWithTimeout(`${origin}/robots.txt`);
+  if (!res || !res.ok) return [];
+  const text = await res.text();
+  const out: string[] = [];
+  let inWildcardBlock = false;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/#.*$/, "").trim();
+    if (!line) continue;
+    const m = line.match(/^(user-agent|disallow|allow):\s*(.*)$/i);
+    if (!m) continue;
+    const directive = m[1].toLowerCase();
+    const value = m[2].trim();
+    if (directive === "user-agent") {
+      inWildcardBlock = value === "*";
+    } else if (directive === "disallow" && inWildcardBlock && value) {
+      // Skip `Disallow:` (empty) which means "allow everything".
+      out.push(value);
+    }
+  }
+  return out;
+}
+
+function isDisallowed(url: string, disallow: string[]): boolean {
+  if (disallow.length === 0) return false;
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return false;
+  }
+  return disallow.some((rule) => {
+    if (rule === "/") return true;
+    return path.startsWith(rule);
+  });
 }
 
 async function fetchSitemap(origin: string): Promise<string[]> {
@@ -1425,16 +1506,30 @@ async function extractLinksFrom(
   if (!ct.toLowerCase().includes("text/html")) return [];
   const html = await res.text();
   const out: string[] = [];
-  const matches = html.matchAll(/href\s*=\s*["']([^"'#]+)["']/gi);
-  for (const m of matches) {
+  // Two link patterns: standard <a href="…">, and <link rel="next">
+  // for paginated docs. The latter routinely matters for blogs and
+  // archive pages (rel="next" / rel="prev" are part of HTML5).
+  const hrefMatches = html.matchAll(/href\s*=\s*["']([^"'#]+)["']/gi);
+  for (const m of hrefMatches) {
     try {
       const resolved = new URL(m[1], url).toString();
       if (!resolved.startsWith(origin)) continue;
-      // Strip URL fragment and trailing slash for dedupe.
       const cleaned = resolved.split("#")[0];
       out.push(cleaned);
     } catch {
       // Bad href — skip.
+    }
+  }
+  const nextMatches = html.matchAll(
+    /<link[^>]+rel\s*=\s*["']next["'][^>]+href\s*=\s*["']([^"'#]+)["']/gi,
+  );
+  for (const m of nextMatches) {
+    try {
+      const resolved = new URL(m[1], url).toString();
+      if (!resolved.startsWith(origin)) continue;
+      out.push(resolved.split("#")[0]);
+    } catch {
+      // Skip.
     }
   }
   return out;
@@ -1442,18 +1537,90 @@ async function extractLinksFrom(
 
 async function fetchAndExtract(
   url: string,
-): Promise<{ url: string; title: string; text: string } | null> {
+): Promise<ExtractedPage | null> {
   const res = await fetchWithTimeout(url);
   if (!res || !res.ok) return null;
   const ct = res.headers.get("content-type") ?? "";
   if (!ct.toLowerCase().includes("text/html")) return null;
   const html = await res.text();
-  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const title = titleMatch
-    ? decodeEntities(titleMatch[1].replace(/\s+/g, " ").trim())
-    : "";
+  const meta = extractMeta(html, url);
   const text = htmlToText(html);
-  return { url, title, text };
+  // Heuristic JS-render detection: very-short body + significant
+  // <noscript> content suggests a SPA shell where Atlas can't see
+  // the real content. Threshold tuned so static pages without much
+  // copy (e.g. a thin landing page) still pass.
+  const hasNoscriptShell =
+    /<noscript[\s\S]{0,5000}?<\/noscript>/i.test(html) &&
+    /please\s+enable\s+javascript|requires\s+javascript|you\s+need\s+to\s+enable\s+javascript/i.test(
+      html,
+    );
+  const jsRendered = text.length < 120 && hasNoscriptShell;
+  return {
+    url,
+    title: meta.title || meta.ogTitle || "",
+    description: meta.description || meta.ogDescription || null,
+    h1: meta.h1,
+    canonicalUrl: meta.canonicalUrl,
+    text,
+    jsRendered,
+  };
+}
+
+function extractMeta(
+  html: string,
+  pageUrl: string,
+): {
+  title: string;
+  description: string | null;
+  ogTitle: string;
+  ogDescription: string | null;
+  h1: string | null;
+  canonicalUrl: string | null;
+} {
+  const grabAttr = (re: RegExp): string | null => {
+    const m = html.match(re);
+    return m ? decodeEntities(m[1].replace(/\s+/g, " ").trim()) : null;
+  };
+  const title =
+    grabAttr(/<title[^>]*>([\s\S]*?)<\/title>/i) ?? "";
+  const description = grabAttr(
+    /<meta[^>]+name\s*=\s*["']description["'][^>]+content\s*=\s*["']([^"']*)["']/i,
+  );
+  const ogTitle =
+    grabAttr(
+      /<meta[^>]+property\s*=\s*["']og:title["'][^>]+content\s*=\s*["']([^"']*)["']/i,
+    ) ?? "";
+  const ogDescription = grabAttr(
+    /<meta[^>]+property\s*=\s*["']og:description["'][^>]+content\s*=\s*["']([^"']*)["']/i,
+  );
+  const h1 = grabAttr(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  // Canonical href can be absolute or relative — resolve against the page URL.
+  const canonicalRaw = grabAttr(
+    /<link[^>]+rel\s*=\s*["']canonical["'][^>]+href\s*=\s*["']([^"']*)["']/i,
+  );
+  let canonicalUrl: string | null = null;
+  if (canonicalRaw) {
+    try {
+      canonicalUrl = new URL(canonicalRaw, pageUrl).toString();
+    } catch {
+      canonicalUrl = null;
+    }
+  }
+  return {
+    title,
+    description,
+    ogTitle,
+    ogDescription,
+    h1: h1 ? stripInlineTags(h1) : null,
+    canonicalUrl,
+  };
+}
+
+function stripInlineTags(s: string): string {
+  return s
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
