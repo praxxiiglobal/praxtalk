@@ -88,12 +88,13 @@ export function FeatureGrid() {
           <Feat span={4} num="A.07" title="Compliance & redaction">
             <p>
               Field-level PII redaction before any prompt leaves your tenant.
-              GDPR ready today; SOC 2 Type II in progress.
+              GDPR on roadmap; SOC 2 Type II planned for v1.0.
             </p>
             <Chips
+              wrap
               chips={[
                 { label: "GDPR" },
-                { label: "SOC 2 (in prog)" },
+                { label: "SOC 2 (planned)" },
                 { label: "PII redact" },
                 { label: "EU residency" },
               ]}

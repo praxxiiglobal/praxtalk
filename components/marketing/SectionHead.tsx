@@ -20,7 +20,7 @@ export function SectionHead({
         <h2 className="mt-3.5 text-[clamp(40px,5vw,72px)] font-semibold leading-[0.95] tracking-[-0.035em]">
           {children}
         </h2>
-        <p className="mt-0 max-w-[520px] text-[17px] leading-[1.5] text-muted">
+        <p className="mt-6 max-w-[520px] text-[17px] leading-[1.5] text-muted">
           {description}
         </p>
       </div>
