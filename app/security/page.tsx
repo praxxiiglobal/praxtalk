@@ -5,9 +5,16 @@ import {
 } from "@/components/marketing/MarketingShell";
 
 export const metadata = {
-  title: "Security · PraxTalk",
+  title: "Security & data handling · PraxTalk",
   description:
-    "PraxTalk's security posture — encryption, auth, isolation, and disclosure.",
+    "How PraxTalk protects your data: tenant isolation, bcrypt auth, HMAC-signed webhooks, GDPR posture, vulnerability disclosure, SOC 2 roadmap.",
+  alternates: { canonical: "/security" },
+  openGraph: {
+    title: "Security & data handling · PraxTalk",
+    description:
+      "Tenant isolation, bcrypt auth, HMAC webhooks, GDPR posture, SOC 2 roadmap.",
+    url: "/security",
+  },
 };
 
 export default function SecurityPage() {

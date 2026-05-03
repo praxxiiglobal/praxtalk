@@ -1,9 +1,15 @@
 import { MarketingShell, Section, Prose } from "@/components/marketing/MarketingShell";
 
 export const metadata = {
-  title: "Docs · PraxTalk",
+  title: "Developer docs · PraxTalk",
   description:
-    "Embed the widget, integrate via REST, listen to webhooks, and use the Atlas Agent SDK.",
+    "Embed the widget, integrate via REST, listen to webhooks, and build custom agents with the Atlas SDK. TypeScript-first, document-native.",
+  alternates: { canonical: "/docs" },
+  openGraph: {
+    title: "Build with PraxTalk",
+    description: "Widget embed, REST API, webhooks, Atlas Agent SDK.",
+    url: "/docs",
+  },
 };
 
 export default function DocsPage() {

@@ -5,8 +5,13 @@ import {
 } from "@/components/marketing/MarketingShell";
 
 export const metadata = {
-  title: "Status · PraxTalk",
-  description: "Live status of PraxTalk's APIs, dashboards, and AI services.",
+  title: "System status · PraxTalk",
+  description:
+    "Live status of PraxTalk's APIs, dashboards, widget, webhooks, Atlas AI, and email channel.",
+  alternates: { canonical: "/status" },
+  // Operational pages aren't search targets — keep out of organic
+  // results so visitors land on the marketing surface instead.
+  robots: { index: false, follow: false },
 };
 
 const components = [

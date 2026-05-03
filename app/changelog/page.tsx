@@ -5,8 +5,15 @@ import {
 } from "@/components/marketing/MarketingShell";
 
 export const metadata = {
-  title: "Changelog · PraxTalk",
-  description: "What's new in PraxTalk. Released regularly during the open beta.",
+  title: "Changelog & release notes · PraxTalk",
+  description:
+    "What's new in PraxTalk. Multi-brand release, REST API, HMAC webhooks, Atlas BYOK, email channel, real-time analytics. Updated weekly.",
+  alternates: { canonical: "/changelog" },
+  openGraph: {
+    title: "PraxTalk changelog & release notes",
+    description: "What's new in PraxTalk. Updated weekly.",
+    url: "/changelog",
+  },
 };
 
 const releases = [

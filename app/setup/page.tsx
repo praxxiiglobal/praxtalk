@@ -7,6 +7,10 @@ export const metadata = {
   title: "Set up your workspace · PraxTalk",
   description:
     "Create your PraxTalk workspace in under a minute. Free forever for 100 AI resolutions per month.",
+  alternates: { canonical: "/setup" },
+  // Transactional onboarding flow — has no business in SERPs.
+  // /sign-up is the indexable marketing-CTA equivalent.
+  robots: { index: false, follow: false },
 };
 
 export default function SetupPage() {

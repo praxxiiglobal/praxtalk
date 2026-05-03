@@ -5,9 +5,16 @@ import {
 } from "@/components/marketing/MarketingShell";
 
 export const metadata = {
-  title: "Careers · PraxTalk",
+  title: "Careers · build the AI-native messaging platform · PraxTalk",
   description:
-    "Build the AI-native customer messaging platform. PraxTalk is hiring across engineering, design, and go-to-market.",
+    "Hiring full-stack engineers, founding designer, founding GTM. Remote, async-first, meaningful equity. Email careers@praxtalk.com.",
+  alternates: { canonical: "/careers" },
+  openGraph: {
+    title: "Careers at PraxTalk",
+    description:
+      "Build the AI-native customer messaging platform. Remote, async-first, meaningful equity.",
+    url: "/careers",
+  },
 };
 
 export default function CareersPage() {

@@ -5,9 +5,15 @@ import {
 } from "@/components/marketing/MarketingShell";
 
 export const metadata = {
-  title: "REST API · PraxTalk",
+  title: "REST API reference · PraxTalk docs",
   description:
-    "Run PraxTalk fully headless from your CRM. Endpoints, authentication, rate limits, and example requests.",
+    "PraxTalk REST API: authentication, base URL, rate limits, conversations, messages, leads, brands. Run PraxTalk fully headless from your CRM.",
+  alternates: { canonical: "/docs/api" },
+  openGraph: {
+    title: "PraxTalk REST API reference",
+    description: "Auth, rate limits, conversations, messages, leads, brands.",
+    url: "/docs/api",
+  },
 };
 
 export default function ApiDocsPage() {

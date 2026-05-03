@@ -20,13 +20,13 @@ const PAGES: { path: string; priority: number; changefreq: MetadataRoute.Sitemap
   { path: "/security", priority: 0.8, changefreq: "monthly" },
   { path: "/accessibility", priority: 0.6, changefreq: "monthly" },
   { path: "/about", priority: 0.7, changefreq: "monthly" },
-  { path: "/customers", priority: 0.7, changefreq: "monthly" },
+  // /customers excluded — noindex until real case studies exist.
   { path: "/changelog", priority: 0.7, changefreq: "weekly" },
   { path: "/docs", priority: 0.7, changefreq: "weekly" },
   { path: "/docs/api", priority: 0.7, changefreq: "weekly" },
   { path: "/careers", priority: 0.6, changefreq: "monthly" },
   { path: "/press", priority: 0.5, changefreq: "monthly" },
-  { path: "/status", priority: 0.5, changefreq: "weekly" },
+  // /status excluded — operational page, noindex.
   { path: "/privacy", priority: 0.6, changefreq: "monthly" },
   { path: "/terms", priority: 0.6, changefreq: "monthly" },
   { path: "/contact", priority: 0.6, changefreq: "monthly" },

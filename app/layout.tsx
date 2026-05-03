@@ -30,12 +30,14 @@ export const metadata: Metadata = {
   description:
     "PraxTalk is the AI-native customer messaging platform. One inbox for live chat, email, WhatsApp, voice and in-app — with Atlas, an autonomous agent that resolves conversations end to end.",
   metadataBase: new URL("https://www.praxtalk.com"),
-  alternates: { canonical: "/" },
+  // NO global alternates.canonical here — it would override every
+  // page's own canonical and de-index secondary routes. Each
+  // page.tsx sets its own alternates.canonical (and openGraph.url
+  // for social shares).
   openGraph: {
     title: "PraxTalk — Conversations that close themselves",
     description:
       "AI-native customer messaging. Six agents. One inbox. Zero hand-offs.",
-    url: "https://www.praxtalk.com",
     siteName: "PraxTalk",
     type: "website",
   },

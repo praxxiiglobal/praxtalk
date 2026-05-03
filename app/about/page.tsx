@@ -5,9 +5,16 @@ import {
 } from "@/components/marketing/MarketingShell";
 
 export const metadata = {
-  title: "About · PraxTalk",
+  title: "About PraxTalk · the team behind Atlas",
   description:
-    "PraxTalk is a Praxxii Global product — the AI-native customer messaging platform.",
+    "PraxTalk is built by Praxxii Global, headquartered in Aligarh, India. Meet the team building the AI-native customer messaging platform.",
+  alternates: { canonical: "/about" },
+  openGraph: {
+    title: "About PraxTalk · the team behind Atlas",
+    description:
+      "Built by Praxxii Global from Aligarh, India. Meet the team behind the AI-native customer messaging platform.",
+    url: "/about",
+  },
 };
 
 export default function AboutPage() {

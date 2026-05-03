@@ -5,6 +5,9 @@ import { LoginForm } from "./LoginForm";
 
 export const metadata = {
   title: "Sign in · PraxTalk",
+  alternates: { canonical: "/login" },
+  // Auth wall — never appears in SERPs.
+  robots: { index: false, follow: false },
 };
 
 export default async function LoginPage({

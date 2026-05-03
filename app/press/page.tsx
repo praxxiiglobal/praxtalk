@@ -5,8 +5,15 @@ import {
 } from "@/components/marketing/MarketingShell";
 
 export const metadata = {
-  title: "Press kit · PraxTalk",
-  description: "Logos, screenshots, and boilerplate for press and partners.",
+  title: "Press kit · PraxTalk logos, screenshots & boilerplate",
+  description:
+    "Logos, screenshots, and boilerplate for stories, partner integrations, and community posts. Press inquiries: hello@praxtalk.com.",
+  alternates: { canonical: "/press" },
+  openGraph: {
+    title: "PraxTalk press kit",
+    description: "Logos, screenshots, boilerplate. Press: hello@praxtalk.com.",
+    url: "/press",
+  },
 };
 
 export default function PressPage() {

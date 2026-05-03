@@ -6,9 +6,18 @@ import {
 } from "@/components/marketing/MarketingShell";
 
 export const metadata = {
-  title: "Customers · PraxTalk",
+  title: "Customers shipping with PraxTalk · open beta",
   description:
-    "PraxTalk is in open beta. Early customers ship with us — case studies follow once the v1.0 launch lands.",
+    "PraxTalk is in open beta. Early customers shipping with us today; case studies follow at v1.0. Talk to us at hello@praxtalk.com.",
+  alternates: { canonical: "/customers" },
+  // Audit recommended noindex until real customer case studies
+  // exist — thin pages are a quality drag on the whole domain.
+  robots: { index: false, follow: false },
+  openGraph: {
+    title: "Customers shipping with PraxTalk",
+    description: "Early customers shipping today; case studies at v1.0.",
+    url: "/customers",
+  },
 };
 
 export default function CustomersPage() {
