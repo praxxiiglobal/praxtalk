@@ -418,6 +418,7 @@ export const book = mutation({
       title: p.title,
       ownerName: (await ctx.db.get(p.ownerOperatorId))?.name ?? "the team",
       startsAt,
+      endsAt,
       timezone: p.timezone,
       visitorName: args.name,
     });
@@ -498,6 +499,7 @@ function renderConfirmation(args: {
   title: string;
   ownerName: string;
   startsAt: number;
+  endsAt: number;
   timezone: string;
   visitorName: string;
 }): string {
@@ -509,13 +511,50 @@ function renderConfirmation(args: {
     minute: "2-digit",
     timeZoneName: "short",
   });
+  const links = calendarLinks({
+    title: args.title,
+    description: `${args.title} with ${args.ownerName}.`,
+    startsAt: args.startsAt,
+    endsAt: args.endsAt,
+  });
   return `Hi ${args.visitorName},
 
 You're booked in for "${args.title}" with ${args.ownerName} on ${when}.
 
+Add to your calendar:
+  • Google: ${links.google}
+  • Outlook: ${links.outlook}
+
 We'll send a reminder closer to the time. To reschedule or cancel, just reply to this message and we'll sort it out.
 
 Looking forward to chatting!`;
+}
+
+/**
+ * Build add-to-calendar deep links. No backend hosting required —
+ * Google/Outlook accept the event payload as URL params and open
+ * their compose UI pre-filled. Apple Calendar uses the same Google
+ * link in practice (most desktop browsers respect the .ics MIME type).
+ */
+function calendarLinks(args: {
+  title: string;
+  description: string;
+  startsAt: number;
+  endsAt: number;
+}): { google: string; outlook: string } {
+  const fmtUTC = (ts: number): string => {
+    const d = new Date(ts);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(
+      d.getUTCDate(),
+    )}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
+  };
+  const startUTC = fmtUTC(args.startsAt);
+  const endUTC = fmtUTC(args.endsAt);
+  const google = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(args.title)}&dates=${startUTC}/${endUTC}&details=${encodeURIComponent(args.description)}`;
+  // Outlook uses ISO 8601 with milliseconds.
+  const outlook = `https://outlook.live.com/calendar/0/deeplink/compose?path=%2Fcalendar%2Faction%2Fcompose&rru=addevent&subject=${encodeURIComponent(args.title)}&body=${encodeURIComponent(args.description)}&startdt=${new Date(args.startsAt).toISOString()}&enddt=${new Date(args.endsAt).toISOString()}`;
+  return { google, outlook };
 }
 
 function parseDateInTz(yyyymmdd: string, _tz: string): number {
