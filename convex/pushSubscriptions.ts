@@ -105,6 +105,35 @@ export const myActiveCount = query({
 
 // ── Internal helpers used by the push action ──────────────────────────
 
+/**
+ * Subscriptions belonging to one specific operator. Used by manual
+ * (operator-personal) reminder dispatch — fans out to that operator's
+ * devices only, not the rest of the team.
+ */
+export const _listForOperator = internalQuery({
+  args: { operatorId: v.id("operators") },
+  returns: v.array(
+    v.object({
+      _id: v.id("pushSubscriptions"),
+      endpoint: v.string(),
+      p256dh: v.string(),
+      auth: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const subs = await ctx.db
+      .query("pushSubscriptions")
+      .withIndex("by_operator", (q) => q.eq("operatorId", args.operatorId))
+      .collect();
+    return subs.map((s) => ({
+      _id: s._id,
+      endpoint: s.endpoint,
+      p256dh: s.p256dh,
+      auth: s.auth,
+    }));
+  },
+});
+
 export const _listForWorkspace = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.array(

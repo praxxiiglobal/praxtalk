@@ -18,8 +18,8 @@ export const navItems: { href: string; label: string; icon: NavIconName }[] = [
   { href: "/app/atlas", label: "Atlas AI", icon: "atlas" },
   { href: "/app/lobby", label: "Lobby intake", icon: "lobby" },
   { href: "/app/analytics", label: "Analytics", icon: "chart" },
-  { href: "/app/integrations", label: "Integrations", icon: "plug" },
-  // Brands, Team, Saved replies, Billing — moved into /app/settings.
+  // Integrations / Brands / Team / Saved replies / Billing — all
+  // moved into /app/settings as link rows.
   { href: "/app/settings", label: "Settings", icon: "settings" },
 ];
 

@@ -398,15 +398,23 @@ export default defineSchema({
   // until status moves to "sent" or "cancelled".
   reminders: defineTable({
     workspaceId: v.id("workspaces"),
-    brandId: v.id("brands"),
-    conversationId: v.id("conversations"),
-    visitorId: v.id("visitors"),
+    // brandId/conversationId/visitorId are optional now: manual
+    // reminders ("ping the operator at 3pm to follow up") aren't
+    // tied to a conversation. The mutation requires one OR the
+    // other depending on channel.
+    brandId: v.optional(v.id("brands")),
+    conversationId: v.optional(v.id("conversations")),
+    visitorId: v.optional(v.id("visitors")),
     channel: v.union(
       v.literal("chat"),
       v.literal("email"),
       v.literal("sms"),
       v.literal("whatsapp"),
       v.literal("voice"),
+      // Personal reminder for the scheduling operator — fires as a
+      // browser push notification + stays in the reminders list. No
+      // visitor-facing dispatch.
+      v.literal("internal"),
     ),
     sendAt: v.number(),
     body: v.string(),

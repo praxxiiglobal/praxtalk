@@ -18,6 +18,76 @@ import { internal } from "./_generated/api";
  * logged and swallowed; we don't want one bad endpoint to block the
  * fan-out.
  */
+/**
+ * Same shape as sendToWorkspace, but fans only to one operator's
+ * devices. Used by manual (internal-channel) reminder dispatch.
+ */
+export const sendToOperator = internalAction({
+  args: {
+    operatorId: v.id("operators"),
+    title: v.string(),
+    body: v.string(),
+    url: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const publicKey = process.env.VAPID_PUBLIC_KEY;
+    const privateKey = process.env.VAPID_PRIVATE_KEY;
+    const subject =
+      process.env.VAPID_SUBJECT ?? "mailto:hello@praxtalk.com";
+    if (!publicKey || !privateKey) return null;
+    webpush.setVapidDetails(subject, publicKey, privateKey);
+
+    const subs: Array<{
+      _id: string;
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+    }> = await ctx.runQuery(internal.pushSubscriptions._listForOperator, {
+      operatorId: args.operatorId,
+    });
+    if (subs.length === 0) return null;
+
+    const payload = JSON.stringify({
+      title: args.title,
+      body: args.body,
+      url: args.url ?? "/app/schedules",
+    });
+
+    await Promise.all(
+      subs.map(async (s) => {
+        try {
+          await webpush.sendNotification(
+            {
+              endpoint: s.endpoint,
+              keys: { p256dh: s.p256dh, auth: s.auth },
+            },
+            payload,
+            { TTL: 60 * 60 },
+          );
+        } catch (err: unknown) {
+          const status =
+            err && typeof err === "object" && "statusCode" in err
+              ? Number((err as { statusCode: unknown }).statusCode)
+              : 0;
+          if (status === 404 || status === 410) {
+            await ctx.runMutation(
+              internal.pushSubscriptions._deleteByEndpoint,
+              { endpoint: s.endpoint },
+            );
+          } else {
+            console.warn(
+              `[push] op-fan failed (status=${status})`,
+              err,
+            );
+          }
+        }
+      }),
+    );
+    return null;
+  },
+});
+
 export const sendToWorkspace = internalAction({
   args: {
     workspaceId: v.id("workspaces"),

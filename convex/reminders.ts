@@ -18,6 +18,7 @@ const channelValidator = v.union(
   v.literal("sms"),
   v.literal("whatsapp"),
   v.literal("voice"),
+  v.literal("internal"),
 );
 
 const statusValidator = v.union(
@@ -84,6 +85,45 @@ export const schedule = mutation({
 });
 
 /**
+ * Standalone reminder — no conversation required. Fires as a browser
+ * push notification to the scheduling operator at sendAt and shows
+ * up in /app/schedules. Useful for personal "ping me at 3pm to
+ * follow up" tasks.
+ */
+export const scheduleManual = mutation({
+  args: {
+    sessionToken: v.string(),
+    sendAt: v.number(),
+    body: v.string(),
+    remarks: v.optional(v.string()),
+  },
+  returns: v.id("reminders"),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const body = args.body.trim();
+    if (!body) throw new ConvexError("Reminder body is required.");
+    if (args.sendAt < Date.now() - 30_000) {
+      throw new ConvexError("sendAt must be in the future.");
+    }
+    return await ctx.db.insert("reminders", {
+      workspaceId,
+      // brandId / conversationId / visitorId intentionally omitted —
+      // manual reminders are operator-personal.
+      channel: "internal",
+      sendAt: args.sendAt,
+      body,
+      status: "pending",
+      scheduledByOperatorId: operator._id,
+      scheduledAt: Date.now(),
+      remarks: args.remarks?.trim() || undefined,
+    });
+  },
+});
+
+/**
  * Edit operator-only remarks on an existing reminder. Doesn't touch
  * the body / sendAt / channel — those are immutable once scheduled
  * (cancel + re-create if you need to change them).
@@ -104,7 +144,9 @@ export const updateRemarks = mutation({
     if (!r || r.workspaceId !== workspaceId) {
       throw new ConvexError("Reminder not found.");
     }
-    if (!hasBrandAccess(operator, r.brandId)) {
+    // brandId can be null on manual reminders — only enforce brand
+    // access when one is set.
+    if (r.brandId && !hasBrandAccess(operator, r.brandId)) {
       throw new ConvexError("No access to this brand.");
     }
     await ctx.db.patch(args.reminderId, {
@@ -126,7 +168,9 @@ export const cancel = mutation({
     if (!r || r.workspaceId !== workspaceId) {
       throw new ConvexError("Reminder not found.");
     }
-    if (!hasBrandAccess(operator, r.brandId)) {
+    // brandId can be null on manual reminders — only enforce brand
+    // access when one is set.
+    if (r.brandId && !hasBrandAccess(operator, r.brandId)) {
       throw new ConvexError("No access to this brand.");
     }
     if (r.status !== "pending") {
@@ -150,7 +194,7 @@ export const listForWorkspace = query({
   returns: v.array(
     v.object({
       _id: v.id("reminders"),
-      conversationId: v.id("conversations"),
+      conversationId: v.union(v.id("conversations"), v.null()),
       visitorName: v.union(v.string(), v.null()),
       channel: channelValidator,
       sendAt: v.number(),
@@ -177,17 +221,33 @@ export const listForWorkspace = query({
     const filtered = args.status
       ? all.filter((r) => r.status === args.status)
       : all;
-    const accessible = filtered.filter((r) =>
-      hasBrandAccess(operator, r.brandId),
+    // Brand access only matters for reminders that have a brand;
+    // manual reminders (channel="internal") have no brandId and are
+    // visible to anyone in the workspace.
+    const accessible = filtered.filter(
+      (r) => !r.brandId || hasBrandAccess(operator, r.brandId),
     );
     return await Promise.all(
       accessible.slice(0, limit).map(async (r) => {
-        const visitor = await ctx.db.get(r.visitorId);
+        const visitor = r.visitorId ? await ctx.db.get(r.visitorId) : null;
+        // Visitor doc isn't typed as a visitor row at the .get callsite
+        // (returns the union of every table's doc); narrow safely.
+        const visitorRow =
+          visitor && "visitorKey" in visitor
+            ? (visitor as {
+                name?: string;
+                email?: string;
+                phone?: string;
+              })
+            : null;
         return {
           _id: r._id,
-          conversationId: r.conversationId,
-          visitorName: visitor
-            ? (visitor.name ?? visitor.email ?? visitor.phone ?? null)
+          conversationId: r.conversationId ?? null,
+          visitorName: visitorRow
+            ? (visitorRow.name ??
+              visitorRow.email ??
+              visitorRow.phone ??
+              null)
             : null,
           channel: r.channel,
           sendAt: r.sendAt,
@@ -251,19 +311,46 @@ export const dispatchDue = internalAction({
     const due: Array<{
       _id: Id<"reminders">;
       workspaceId: Id<"workspaces">;
-      conversationId: Id<"conversations">;
+      conversationId: Id<"conversations"> | null;
       channel:
         | "chat"
         | "email"
         | "sms"
         | "whatsapp"
-        | "voice";
+        | "voice"
+        | "internal";
       body: string;
       whatsappTemplateName: string | null;
     }> = await ctx.runQuery(internal.reminders._claimDue);
 
     for (const r of due) {
       try {
+        if (r.channel === "internal") {
+          // Manual operator-personal reminder. Push fan-out to only
+          // their own devices, then mark sent.
+          const ctxRow: {
+            scheduledByOperatorId: Id<"operators"> | null;
+            body: string;
+          } = await ctx.runQuery(internal.reminders._loadOperatorForInternal, {
+            reminderId: r._id,
+          });
+          if (ctxRow.scheduledByOperatorId) {
+            await ctx.runAction(
+              internal.pushNotifications.sendToOperator,
+              {
+                operatorId: ctxRow.scheduledByOperatorId,
+                title: "Reminder",
+                body: ctxRow.body,
+                url: "/app/schedules",
+              },
+            );
+          }
+          await ctx.runMutation(internal.reminders._markSent, {
+            reminderId: r._id,
+          });
+          continue;
+        }
+
         if (r.channel === "chat" || r.channel === "email" || r.channel === "sms") {
           // DB-only dispatch (chat=system msg; email/sms=insert msg +
           // schedule existing outbound action). Mutation transaction.
@@ -274,6 +361,15 @@ export const dispatchDue = internalAction({
         }
 
         if (r.channel === "whatsapp") {
+          if (!r.conversationId) {
+            // Defensive: schedule() requires a conversationId for any
+            // non-internal channel, so this should never fire.
+            await ctx.runMutation(internal.reminders._markFailed, {
+              reminderId: r._id,
+              error: "WhatsApp reminder missing conversation.",
+            });
+            continue;
+          }
           if (!r.whatsappTemplateName) {
             await ctx.runMutation(internal.reminders._markFailed, {
               reminderId: r._id,
@@ -304,6 +400,13 @@ export const dispatchDue = internalAction({
         }
 
         if (r.channel === "voice") {
+          if (!r.conversationId) {
+            await ctx.runMutation(internal.reminders._markFailed, {
+              reminderId: r._id,
+              error: "Voice reminder missing conversation.",
+            });
+            continue;
+          }
           const result: { ok: boolean; error?: string } = await ctx.runAction(
             internal.voiceIntegrations._sendReminderVoice,
             {
@@ -341,7 +444,7 @@ export const _claimDue = internalQuery({
     v.object({
       _id: v.id("reminders"),
       workspaceId: v.id("workspaces"),
-      conversationId: v.id("conversations"),
+      conversationId: v.union(v.id("conversations"), v.null()),
       channel: channelValidator,
       body: v.string(),
       whatsappTemplateName: v.union(v.string(), v.null()),
@@ -349,7 +452,6 @@ export const _claimDue = internalQuery({
   ),
   handler: async (ctx) => {
     const now = Date.now();
-    // Pull pending reminders due in the past — capped to bound work.
     const rows = await ctx.db
       .query("reminders")
       .withIndex("by_status_send_at", (q) =>
@@ -359,11 +461,27 @@ export const _claimDue = internalQuery({
     return rows.map((r) => ({
       _id: r._id,
       workspaceId: r.workspaceId,
-      conversationId: r.conversationId,
+      conversationId: r.conversationId ?? null,
       channel: r.channel,
       body: r.body,
       whatsappTemplateName: r.whatsappTemplateName ?? null,
     }));
+  },
+});
+
+export const _loadOperatorForInternal = internalQuery({
+  args: { reminderId: v.id("reminders") },
+  returns: v.object({
+    scheduledByOperatorId: v.union(v.id("operators"), v.null()),
+    body: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const r = await ctx.db.get(args.reminderId);
+    if (!r) return { scheduledByOperatorId: null, body: "" };
+    return {
+      scheduledByOperatorId: r.scheduledByOperatorId ?? null,
+      body: r.body,
+    };
   },
 });
 
@@ -395,48 +513,57 @@ export const _dispatchOne = internalMutation({
   handler: async (ctx, args) => {
     const r = await ctx.db.get(args.reminderId);
     if (!r || r.status !== "pending") return null;
-    const convo = await ctx.db.get(r.conversationId);
-    if (!convo) {
+    // Defensive — schedule() requires conversationId/brandId for any
+    // non-internal channel, so these guards should never trip.
+    if (!r.conversationId || !r.brandId) {
+      await ctx.db.patch(r._id, {
+        status: "failed",
+        error: "Reminder missing conversation/brand context.",
+      });
+      return null;
+    }
+    const conversationId = r.conversationId;
+    const brandId = r.brandId;
+    const convoDoc = await ctx.db.get(conversationId);
+    if (!convoDoc || !("channel" in convoDoc)) {
       await ctx.db.patch(r._id, {
         status: "failed",
         error: "Conversation no longer exists",
       });
       return null;
     }
+    // Narrow to a conversations row.
+    const convo = convoDoc as { channel: "web_chat" | "email" | "whatsapp" | "voice" | "sms" };
     const now = Date.now();
 
     if (r.channel === "chat") {
       // System message in-thread — visitor sees it next time they
       // open the widget; operator sees it in the inbox immediately.
       await ctx.db.insert("messages", {
-        conversationId: r.conversationId,
+        conversationId,
         workspaceId: r.workspaceId,
-        brandId: r.brandId,
+        brandId,
         channel: convo.channel,
         role: "system",
         body: `🔔 Reminder: ${r.body}`,
         createdAt: now,
       });
-      await ctx.db.patch(r.conversationId, { lastMessageAt: now });
+      await ctx.db.patch(conversationId, { lastMessageAt: now });
       await ctx.db.patch(r._id, { status: "sent", sentAt: now });
       return null;
     }
 
     if (r.channel === "email" || r.channel === "sms") {
-      // Insert an operator-authored message in the right channel and
-      // let the existing outbound dispatchers handle the actual send.
-      // We pretend the message was sent by Atlas (no operator id) so
-      // it doesn't attribute to a specific person.
       const msgId = await ctx.db.insert("messages", {
-        conversationId: r.conversationId,
+        conversationId,
         workspaceId: r.workspaceId,
-        brandId: r.brandId,
+        brandId,
         channel: r.channel === "email" ? "email" : "sms",
         role: "atlas",
         body: r.body,
         createdAt: now,
       });
-      await ctx.db.patch(r.conversationId, { lastMessageAt: now });
+      await ctx.db.patch(conversationId, { lastMessageAt: now });
       if (r.channel === "email") {
         await ctx.scheduler.runAfter(
           0,
