@@ -579,6 +579,24 @@ export const book = mutation({
       createdAt: now,
     });
 
+    // Phase 3 slice 4: write the booking back to the assigned owner's
+    // connected calendar (Google / Microsoft) so it appears in their
+    // own UI immediately. No-op when they haven't connected one.
+    await ctx.scheduler.runAfter(
+      0,
+      internal.calendarSync.writeBookingToCalendar,
+      {
+        operatorId: assignedOwnerId,
+        title: `${p.title} — ${args.name}`,
+        description: `Booked via PraxTalk.\n\nVisitor: ${args.name} <${email}>${
+          args.notes ? `\n\nNotes:\n${args.notes}` : ""
+        }`,
+        startsAt,
+        endsAt,
+        attendeeEmail: email,
+      },
+    );
+
     // Auto-schedule reminders at each configured offset. Skip ones
     // whose computed sendAt is already in the past.
     for (const offsetMin of p.reminderOffsetMin) {

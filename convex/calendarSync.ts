@@ -395,3 +395,183 @@ export const _updateAccessToken = internalMutation({
     return null;
   },
 });
+
+// ── Booking write-back (slice 4) ──────────────────────────────────────
+
+/**
+ * Create the corresponding event in the booking owner's connected
+ * calendar so it shows up in their Google / Outlook UI immediately.
+ * No-op when the owner has no connected calendar — graceful degradation;
+ * booking still works, just doesn't sync out.
+ *
+ * Triggered by bookingPages.book scheduling this action with
+ * runAfter(0, ...). Failures are logged but don't block the booking.
+ */
+export const writeBookingToCalendar = internalAction({
+  args: {
+    operatorId: v.id("operators"),
+    title: v.string(),
+    description: v.string(),
+    startsAt: v.number(),
+    endsAt: v.number(),
+    attendeeEmail: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const conn: {
+      _id: Id<"calendarConnections">;
+      provider: "google" | "microsoft" | "caldav";
+      accessToken: string;
+      refreshToken: string | null;
+      tokenExpiresAt: number | null;
+      calendarId: string | null;
+    } | null = await ctx.runQuery(
+      internal.calendarSync._loadConnectionForOperator,
+      { operatorId: args.operatorId },
+    );
+    if (!conn) return null;
+    if (conn.provider === "caldav") return null; // not yet implemented
+
+    let accessToken = conn.accessToken;
+    if (
+      conn.tokenExpiresAt &&
+      conn.tokenExpiresAt < Date.now() + 60_000 &&
+      conn.refreshToken
+    ) {
+      const refreshed = await refreshAccessToken(
+        conn.provider,
+        conn.refreshToken,
+      );
+      if (refreshed) {
+        accessToken = refreshed.accessToken;
+        await ctx.runMutation(internal.calendarSync._updateAccessToken, {
+          connectionId: conn._id,
+          accessToken: refreshed.accessToken,
+          tokenExpiresAt: refreshed.expiresAt,
+        });
+      }
+    }
+
+    try {
+      if (conn.provider === "google") {
+        await createGoogleEvent({
+          accessToken,
+          calendarId: conn.calendarId ?? "primary",
+          title: args.title,
+          description: args.description,
+          startsAt: args.startsAt,
+          endsAt: args.endsAt,
+          attendeeEmail: args.attendeeEmail,
+        });
+      } else {
+        await createMicrosoftEvent({
+          accessToken,
+          title: args.title,
+          description: args.description,
+          startsAt: args.startsAt,
+          endsAt: args.endsAt,
+          attendeeEmail: args.attendeeEmail,
+        });
+      }
+    } catch (err) {
+      console.warn("[calendar] write-back failed", err);
+    }
+    return null;
+  },
+});
+
+export const _loadConnectionForOperator = internalQuery({
+  args: { operatorId: v.id("operators") },
+  handler: async (ctx, args) => {
+    const c = await ctx.db
+      .query("calendarConnections")
+      .withIndex("by_operator", (q) => q.eq("operatorId", args.operatorId))
+      .first();
+    if (!c) return null;
+    return {
+      _id: c._id,
+      provider: c.provider,
+      accessToken: c.accessToken,
+      refreshToken: c.refreshToken ?? null,
+      tokenExpiresAt: c.tokenExpiresAt ?? null,
+      calendarId: c.calendarId ?? null,
+    };
+  },
+});
+
+async function createGoogleEvent(args: {
+  accessToken: string;
+  calendarId: string;
+  title: string;
+  description: string;
+  startsAt: number;
+  endsAt: number;
+  attendeeEmail?: string;
+}): Promise<void> {
+  const body: Record<string, unknown> = {
+    summary: args.title,
+    description: args.description,
+    start: { dateTime: new Date(args.startsAt).toISOString() },
+    end: { dateTime: new Date(args.endsAt).toISOString() },
+  };
+  if (args.attendeeEmail) {
+    body.attendees = [{ email: args.attendeeEmail }];
+  }
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(args.calendarId)}/events`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${args.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Google create event ${res.status}: ${await res.text()}`);
+  }
+}
+
+async function createMicrosoftEvent(args: {
+  accessToken: string;
+  title: string;
+  description: string;
+  startsAt: number;
+  endsAt: number;
+  attendeeEmail?: string;
+}): Promise<void> {
+  const body: Record<string, unknown> = {
+    subject: args.title,
+    body: { contentType: "text", content: args.description },
+    start: {
+      dateTime: new Date(args.startsAt).toISOString(),
+      timeZone: "UTC",
+    },
+    end: {
+      dateTime: new Date(args.endsAt).toISOString(),
+      timeZone: "UTC",
+    },
+  };
+  if (args.attendeeEmail) {
+    body.attendees = [
+      {
+        emailAddress: { address: args.attendeeEmail },
+        type: "required",
+      },
+    ];
+  }
+  const res = await fetch("https://graph.microsoft.com/v1.0/me/events", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${args.accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Microsoft create event ${res.status}: ${await res.text()}`,
+    );
+  }
+}
