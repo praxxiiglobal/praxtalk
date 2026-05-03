@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 import {
   internalAction,
   internalMutation,
@@ -58,6 +58,12 @@ export const getConfig = query({
       autoReplyThreshold: config.autoReplyThreshold,
       maxTokens: config.maxTokens,
       updatedAt: config.updatedAt,
+      kbSourceUrl: config.kbSourceUrl ?? null,
+      kbIngestStatus: config.kbIngestStatus ?? null,
+      kbIngestStartedAt: config.kbIngestStartedAt ?? null,
+      kbIngestCompletedAt: config.kbIngestCompletedAt ?? null,
+      kbIngestPagesFetched: config.kbIngestPagesFetched ?? null,
+      kbIngestError: config.kbIngestError ?? null,
     };
   },
 });
@@ -1078,3 +1084,422 @@ async function retrieveRelevantChunks(args: {
 }
 
 void VOYAGE_RERANK_MODEL; // reserved for future re-ranking step
+
+// ── Website-crawl knowledge-base ingest ───────────────────────────────
+//
+// Customer pastes their website URL; we fetch the sitemap (or crawl
+// from the homepage), extract page text, concatenate into the KB
+// field, and trigger the existing Voyage re-embed path. Cap at
+// MAX_PAGES so a giant docs site doesn't blow out the KB.
+
+const MAX_PAGES = 60;
+const MAX_CRAWL_DEPTH = 3;
+const FETCH_TIMEOUT_MS = 8_000;
+const SKIP_EXTENSIONS = [
+  ".pdf",
+  ".zip",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".svg",
+  ".webp",
+  ".mp4",
+  ".mov",
+  ".css",
+  ".js",
+  ".ico",
+  ".xml",
+  ".json",
+];
+
+/**
+ * Public mutation. Admin pastes a URL; we stash the URL + flip status
+ * to "pending" and schedule the crawl action. The action does the
+ * fetching and writes the assembled KB.
+ */
+export const startKbWebsiteIngest = mutation({
+  args: {
+    sessionToken: v.string(),
+    url: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    if (operator.role === "agent") {
+      throw new ConvexError("Only admins and owners can ingest website KBs.");
+    }
+    const normalised = normaliseUrl(args.url);
+    if (!normalised) {
+      throw new ConvexError("Couldn't parse that URL — needs http:// or https://.");
+    }
+    const config = await loadConfig(ctx, workspaceId);
+    if (!config) {
+      throw new ConvexError(
+        "Connect Atlas with an API key first, then run an ingest.",
+      );
+    }
+    if (config.kbIngestStatus === "running") {
+      throw new ConvexError(
+        "An ingest is already running — wait for it to finish.",
+      );
+    }
+    await ctx.db.patch(config._id, {
+      kbSourceUrl: normalised,
+      kbIngestStatus: "pending",
+      kbIngestStartedAt: Date.now(),
+      kbIngestCompletedAt: undefined,
+      kbIngestPagesFetched: undefined,
+      kbIngestError: undefined,
+    });
+    await ctx.scheduler.runAfter(0, internal.atlas._runWebsiteIngest, {
+      workspaceId,
+      url: normalised,
+    });
+    return null;
+  },
+});
+
+export const _setKbIngestStatus = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    error: v.optional(v.string()),
+    pagesFetched: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const config = await loadConfig(ctx, args.workspaceId);
+    if (!config) return null;
+    const patch: Record<string, unknown> = { kbIngestStatus: args.status };
+    if (args.error !== undefined) patch.kbIngestError = args.error;
+    if (args.pagesFetched !== undefined)
+      patch.kbIngestPagesFetched = args.pagesFetched;
+    if (args.status === "completed" || args.status === "failed") {
+      patch.kbIngestCompletedAt = Date.now();
+    }
+    await ctx.db.patch(config._id, patch);
+    return null;
+  },
+});
+
+/**
+ * Write the assembled KB text into the config + bump the version. We
+ * intentionally don't go through upsertConfig because we already have
+ * the resolved values + want to skip the role check (the action runs
+ * after the original admin's call already passed it).
+ */
+export const _writeIngestedKb = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    knowledgeBase: v.string(),
+    pagesFetched: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const config = await loadConfig(ctx, args.workspaceId);
+    if (!config) return null;
+    const nextVersion = (config.knowledgeBaseVersion ?? 0) + 1;
+    await ctx.db.patch(config._id, {
+      knowledgeBase: args.knowledgeBase,
+      knowledgeBaseVersion: nextVersion,
+      kbIngestStatus: "completed",
+      kbIngestCompletedAt: Date.now(),
+      kbIngestPagesFetched: args.pagesFetched,
+      kbIngestError: undefined,
+      updatedAt: Date.now(),
+    });
+    if (config.voyageApiKey) {
+      await ctx.scheduler.runAfter(0, internal.atlas.reembedKnowledgeBase, {
+        workspaceId: args.workspaceId,
+      });
+    }
+    return null;
+  },
+});
+
+export const _runWebsiteIngest = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    url: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    await ctx.runMutation(internal.atlas._setKbIngestStatus, {
+      workspaceId: args.workspaceId,
+      status: "running",
+    });
+
+    try {
+      const origin = new URL(args.url).origin;
+      const urls = await discoverUrls(args.url);
+      if (urls.length === 0) {
+        throw new Error(
+          `No reachable pages from ${args.url}. Check the URL is publicly accessible.`,
+        );
+      }
+
+      const pages: { url: string; title: string; text: string }[] = [];
+      for (const u of urls) {
+        if (pages.length >= MAX_PAGES) break;
+        const page = await fetchAndExtract(u);
+        if (page && page.text.length > 80) pages.push(page);
+      }
+
+      if (pages.length === 0) {
+        throw new Error(
+          "Crawled the site but didn't find any text content — pages may be JS-rendered.",
+        );
+      }
+
+      const assembled = pages
+        .map(
+          (p) =>
+            `# ${p.title || p.url}\nURL: ${p.url}\n\n${p.text}\n\n---\n`,
+        )
+        .join("\n");
+      // Clamp to a sane size — Voyage chunking + Anthropic context will
+      // cope, but a 5MB KB just means we wasted bandwidth.
+      const KB_MAX_CHARS = 500_000;
+      const finalKb =
+        assembled.length > KB_MAX_CHARS
+          ? assembled.slice(0, KB_MAX_CHARS) +
+            "\n\n[truncated — KB exceeded 500KB cap]"
+          : assembled;
+
+      await ctx.runMutation(internal.atlas._writeIngestedKb, {
+        workspaceId: args.workspaceId,
+        knowledgeBase: finalKb,
+        pagesFetched: pages.length,
+      });
+      void origin; // referenced for future per-domain settings
+    } catch (err) {
+      await ctx.runMutation(internal.atlas._setKbIngestStatus, {
+        workspaceId: args.workspaceId,
+        status: "failed",
+        error: err instanceof Error ? err.message : "Crawl failed.",
+      });
+    }
+    return null;
+  },
+});
+
+function normaliseUrl(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  let candidate = trimmed;
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = "https://" + candidate;
+  }
+  try {
+    const u = new URL(candidate);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    if (!u.hostname || !u.hostname.includes(".")) return null;
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+function shouldSkipUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return SKIP_EXTENSIONS.some((ext) => {
+    const i = lower.indexOf(ext);
+    if (i < 0) return false;
+    // Must end the path or be followed by a query/fragment.
+    const next = lower[i + ext.length] ?? "";
+    return next === "" || next === "?" || next === "#";
+  });
+}
+
+async function fetchWithTimeout(url: string): Promise<Response | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: {
+        "user-agent":
+          "PraxTalkAtlasBot/1.0 (+https://praxtalk.com — knowledge base ingest)",
+        accept: "text/html,application/xhtml+xml,application/xml,text/plain",
+      },
+    });
+    return res;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Try the site's sitemap.xml first; fall back to a same-origin BFS
+ * from the supplied URL. Returns a unique, deduplicated list of URLs
+ * to fetch (caller still applies MAX_PAGES). The root URL is always
+ * included first.
+ */
+async function discoverUrls(rootUrl: string): Promise<string[]> {
+  const root = new URL(rootUrl);
+  const origin = root.origin;
+  const seen = new Set<string>([rootUrl]);
+  const ordered: string[] = [rootUrl];
+
+  // 1) sitemap.xml — single fetch, parses fast, gives us the
+  // canonical page list when the site exposes one.
+  const sitemapUrls = await fetchSitemap(origin);
+  for (const u of sitemapUrls) {
+    if (seen.size >= MAX_PAGES * 2) break;
+    if (!u.startsWith(origin)) continue;
+    if (shouldSkipUrl(u)) continue;
+    if (seen.has(u)) continue;
+    seen.add(u);
+    ordered.push(u);
+  }
+  if (ordered.length >= MAX_PAGES) return ordered;
+
+  // 2) BFS from the root URL up to MAX_CRAWL_DEPTH.
+  type QueueItem = { url: string; depth: number };
+  const queue: QueueItem[] = [{ url: rootUrl, depth: 0 }];
+  while (queue.length > 0 && ordered.length < MAX_PAGES) {
+    const next = queue.shift();
+    if (!next) break;
+    if (next.depth >= MAX_CRAWL_DEPTH) continue;
+    const links = await extractLinksFrom(next.url, origin);
+    for (const link of links) {
+      if (ordered.length >= MAX_PAGES) break;
+      if (seen.has(link)) continue;
+      if (shouldSkipUrl(link)) continue;
+      seen.add(link);
+      ordered.push(link);
+      queue.push({ url: link, depth: next.depth + 1 });
+    }
+  }
+  return ordered;
+}
+
+async function fetchSitemap(origin: string): Promise<string[]> {
+  const res = await fetchWithTimeout(`${origin}/sitemap.xml`);
+  if (!res || !res.ok) return [];
+  const text = await res.text();
+  const out: string[] = [];
+  // Parse <loc>…</loc> entries — handles both sitemap and sitemap-index
+  // formats since both use <loc>.
+  const matches = text.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi);
+  for (const m of matches) {
+    const url = m[1];
+    if (!url) continue;
+    // Sitemap-index: nested sitemaps end in .xml — fetch one more level.
+    if (url.endsWith(".xml") && url.startsWith(origin)) {
+      const nestedRes = await fetchWithTimeout(url);
+      if (!nestedRes || !nestedRes.ok) continue;
+      const nestedText = await nestedRes.text();
+      const nestedMatches = nestedText.matchAll(
+        /<loc>\s*([^<\s]+)\s*<\/loc>/gi,
+      );
+      for (const nm of nestedMatches) out.push(nm[1]);
+    } else {
+      out.push(url);
+    }
+    if (out.length >= MAX_PAGES * 2) break;
+  }
+  return out;
+}
+
+async function extractLinksFrom(
+  url: string,
+  origin: string,
+): Promise<string[]> {
+  const res = await fetchWithTimeout(url);
+  if (!res || !res.ok) return [];
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.toLowerCase().includes("text/html")) return [];
+  const html = await res.text();
+  const out: string[] = [];
+  const matches = html.matchAll(/href\s*=\s*["']([^"'#]+)["']/gi);
+  for (const m of matches) {
+    try {
+      const resolved = new URL(m[1], url).toString();
+      if (!resolved.startsWith(origin)) continue;
+      // Strip URL fragment and trailing slash for dedupe.
+      const cleaned = resolved.split("#")[0];
+      out.push(cleaned);
+    } catch {
+      // Bad href — skip.
+    }
+  }
+  return out;
+}
+
+async function fetchAndExtract(
+  url: string,
+): Promise<{ url: string; title: string; text: string } | null> {
+  const res = await fetchWithTimeout(url);
+  if (!res || !res.ok) return null;
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.toLowerCase().includes("text/html")) return null;
+  const html = await res.text();
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = titleMatch
+    ? decodeEntities(titleMatch[1].replace(/\s+/g, " ").trim())
+    : "";
+  const text = htmlToText(html);
+  return { url, title, text };
+}
+
+/**
+ * Strip HTML to plain text. Drops <script>, <style>, <noscript>, <nav>,
+ * <header>, <footer>, <aside>, <form>, then collapses whitespace.
+ * Good enough for content extraction; not as smart as Mozilla's
+ * Readability but ships in V8 with no deps.
+ */
+function htmlToText(html: string): string {
+  let s = html;
+  // Strip non-content blocks entirely.
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, " ");
+  s = s.replace(/<style[\s\S]*?<\/style>/gi, " ");
+  s = s.replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
+  s = s.replace(/<nav[\s\S]*?<\/nav>/gi, " ");
+  s = s.replace(/<header[\s\S]*?<\/header>/gi, " ");
+  s = s.replace(/<footer[\s\S]*?<\/footer>/gi, " ");
+  s = s.replace(/<aside[\s\S]*?<\/aside>/gi, " ");
+  s = s.replace(/<form[\s\S]*?<\/form>/gi, " ");
+  s = s.replace(/<svg[\s\S]*?<\/svg>/gi, " ");
+  // Convert block-level closers to newlines so paragraphs survive.
+  s = s.replace(/<\/(p|div|li|h\d|tr|br|section|article)\s*>/gi, "\n");
+  s = s.replace(/<br\s*\/?\s*>/gi, "\n");
+  // Drop everything else.
+  s = s.replace(/<[^>]+>/g, " ");
+  s = decodeEntities(s);
+  // Collapse whitespace, keep paragraph breaks.
+  s = s.replace(/[ \t\r\f\v]+/g, " ");
+  s = s.replace(/\n{3,}/g, "\n\n");
+  s = s
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join("\n");
+  return s.trim();
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+}
+

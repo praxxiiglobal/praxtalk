@@ -768,6 +768,23 @@ export default defineSchema({
     // Bumped each time the KB is re-embedded. Lets us drop stale
     // chunks from prior versions in a single index scan.
     knowledgeBaseVersion: v.optional(v.number()),
+    // ── Website-crawl ingest ─────────────────────────────────────────
+    // When set, the KB was assembled by crawling kbSourceUrl. The
+    // status fields let the dashboard render a progress card and the
+    // "last crawled" timestamp so admins know how stale the KB is.
+    kbSourceUrl: v.optional(v.string()),
+    kbIngestStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("running"),
+        v.literal("completed"),
+        v.literal("failed"),
+      ),
+    ),
+    kbIngestStartedAt: v.optional(v.number()),
+    kbIngestCompletedAt: v.optional(v.number()),
+    kbIngestPagesFetched: v.optional(v.number()),
+    kbIngestError: v.optional(v.string()),
     autoReplyThreshold: v.number(), // 0..1 — below this, draft only
     maxTokens: v.number(),
     createdBy: v.id("operators"),

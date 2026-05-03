@@ -18,6 +18,7 @@ export function AtlasSettings() {
   const { sessionToken, operator } = useDashboardAuth();
   const config = useQuery(api.atlas.getConfig, { sessionToken });
   const upsert = useMutation(api.atlas.upsertConfig);
+  const startIngest = useMutation(api.atlas.startKbWebsiteIngest);
 
   const canManage = operator.role !== "agent";
 
@@ -32,6 +33,22 @@ export function AtlasSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [ingestBusy, setIngestBusy] = useState(false);
+  const [ingestError, setIngestError] = useState<string | null>(null);
+  useEffect(() => {
+    if (config?.kbSourceUrl) setWebsiteUrl(config.kbSourceUrl);
+  }, [config?.kbSourceUrl]);
+  // While an ingest is running the server status will flip; keep the
+  // local "busy" flag in sync so re-clicking is blocked.
+  useEffect(() => {
+    if (config?.kbIngestStatus === "running" || config?.kbIngestStatus === "pending") {
+      setIngestBusy(true);
+    } else {
+      setIngestBusy(false);
+    }
+  }, [config?.kbIngestStatus]);
 
   useEffect(() => {
     if (!config) return;
@@ -213,15 +230,70 @@ export function AtlasSettings() {
               />
             </label>
 
+            <fieldset className="flex flex-col gap-2 rounded-xl border border-rule bg-paper-2 p-4">
+              <legend className="px-2 font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+                Knowledge base from website (optional)
+              </legend>
+              <p className="text-[12px] leading-[1.55] text-muted">
+                Paste your website URL — we&apos;ll crawl public pages
+                (sitemap if available, otherwise links from the homepage),
+                strip HTML to text, and assemble them into the KB below.
+                Up to 60 pages per ingest.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="text"
+                  value={websiteUrl}
+                  onChange={(e) => setWebsiteUrl(e.target.value)}
+                  placeholder="https://your-site.com"
+                  className="h-10 flex-1 rounded-lg border border-rule-2 bg-paper px-3 font-mono text-[13px] outline-none focus:border-ink"
+                />
+                <button
+                  type="button"
+                  disabled={ingestBusy || !websiteUrl.trim()}
+                  onClick={async () => {
+                    setIngestError(null);
+                    setIngestBusy(true);
+                    try {
+                      await startIngest({
+                        sessionToken,
+                        url: websiteUrl.trim(),
+                      });
+                    } catch (err) {
+                      setIngestError(
+                        err instanceof Error
+                          ? err.message
+                          : "Couldn't start ingest.",
+                      );
+                      setIngestBusy(false);
+                    }
+                  }}
+                  className="inline-flex h-10 items-center rounded-full border border-rule-2 px-4 text-sm font-medium text-ink transition hover:bg-paper disabled:opacity-60"
+                >
+                  {ingestBusy ? "Crawling…" : "Crawl & index"}
+                </button>
+              </div>
+              {ingestError ? (
+                <p className="text-[12px] text-warn">{ingestError}</p>
+              ) : null}
+              <IngestStatus
+                status={config?.kbIngestStatus ?? null}
+                pages={config?.kbIngestPagesFetched ?? null}
+                completedAt={config?.kbIngestCompletedAt ?? null}
+                sourceUrl={config?.kbSourceUrl ?? null}
+                error={config?.kbIngestError ?? null}
+              />
+            </fieldset>
+
             <label className="flex flex-col gap-1">
               <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
-                Knowledge base (optional)
+                Knowledge base (manual edits)
               </span>
               <textarea
                 value={knowledgeBase}
                 onChange={(e) => setKnowledgeBase(e.target.value)}
                 rows={6}
-                placeholder="Paste FAQ entries, product details, pricing — anything Atlas should cite."
+                placeholder="Paste FAQ entries, product details, pricing — anything Atlas should cite. (Auto-populated by website crawl.)"
                 className="resize-y rounded-lg border border-rule-2 bg-paper p-3 font-mono text-[12.5px] leading-[1.55] outline-none focus:border-ink"
               />
               <span className="text-[11px] text-muted">
@@ -286,5 +358,45 @@ export function AtlasSettings() {
         </Card>
       )}
     </>
+  );
+}
+
+function IngestStatus({
+  status,
+  pages,
+  completedAt,
+  sourceUrl,
+  error,
+}: {
+  status: "pending" | "running" | "completed" | "failed" | null;
+  pages: number | null;
+  completedAt: number | null;
+  sourceUrl: string | null;
+  error: string | null;
+}) {
+  if (!status) return null;
+  if (status === "pending" || status === "running") {
+    return (
+      <p className="text-[12px] text-muted">
+        Crawling {sourceUrl ? <code>{sourceUrl}</code> : "site"}… this can take
+        up to a minute for large sites.
+      </p>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <p className="text-[12px] text-warn">
+        Crawl failed: {error ?? "unknown error"}.
+      </p>
+    );
+  }
+  return (
+    <p className="text-[12px] text-good">
+      Indexed {pages ?? 0} page{pages === 1 ? "" : "s"}
+      {completedAt
+        ? ` · last crawled ${new Date(completedAt).toLocaleString()}`
+        : ""}
+      . Re-run anytime to refresh.
+    </p>
   );
 }
