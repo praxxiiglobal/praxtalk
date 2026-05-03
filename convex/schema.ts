@@ -245,6 +245,37 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_prefix", ["prefix"]),
 
+  // ── Active voice calls (live UI overlay) ───────────────────────────
+  // One row per call from initiation through completion. Drives the
+  // floating "Call in progress" overlay that shows hangup + status.
+  // Status updates land via the provider's status webhook
+  // (/api/inbound/voice-status) and via the originateCall action.
+  activeCalls: defineTable({
+    workspaceId: v.id("workspaces"),
+    operatorId: v.id("operators"),
+    conversationId: v.id("conversations"),
+    visitorId: v.id("visitors"),
+    fromPhone: v.string(),
+    toPhone: v.string(),
+    provider: v.union(
+      v.literal("callhippo"),
+      v.literal("telecmi"),
+      v.literal("twilio"),
+    ),
+    externalCallId: v.string(),
+    status: v.union(
+      v.literal("initiating"),
+      v.literal("ringing"),
+      v.literal("in_progress"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    startedAt: v.number(),
+    endedAt: v.optional(v.number()),
+  })
+    .index("by_operator_status", ["operatorId", "status"])
+    .index("by_external_id", ["externalCallId"]),
+
   // ── Per-integration grants (sharing) ───────────────────────────────
   // Operator A grants operator B access to their personal voice /
   // email / whatsapp integration. Admins/owners always have implicit

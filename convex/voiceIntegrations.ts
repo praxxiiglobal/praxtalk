@@ -561,22 +561,23 @@ export const originateCall = action({
 
     try {
       const provider = integration.provider as Provider;
+      let externalCallId: string | undefined;
       if (provider === "callhippo") {
-        await originateViaCallHippo({
+        externalCallId = await originateViaCallHippo({
           apiKey: integration.apiKey,
           apiToken: integration.apiToken,
           from: integration.defaultNumber,
           to: args.toPhone,
         });
       } else if (provider === "telecmi") {
-        await originateViaTeleCMI({
+        externalCallId = await originateViaTeleCMI({
           appId: integration.apiKey,
           secret: integration.apiToken,
           from: integration.defaultNumber,
           to: args.toPhone,
         });
       } else if (provider === "twilio") {
-        await originateViaTwilio({
+        externalCallId = await originateViaTwilio({
           accountSid: integration.apiKey,
           authToken: integration.apiToken,
           from: integration.defaultNumber,
@@ -587,7 +588,10 @@ export const originateCall = action({
       // is a fresh number, or appends to the existing one. Provider's
       // post-call webhook (recordInboundCall) will later append the
       // recording / transcript / duration once the call ends.
-      const conversationId: Id<"conversations"> = await ctx.runMutation(
+      const out: {
+        conversationId: Id<"conversations">;
+        visitorId: Id<"visitors">;
+      } = await ctx.runMutation(
         internal.voiceIntegrations.recordOutboundCallInitiated,
         {
           workspaceId: integration.workspaceId,
@@ -595,7 +599,22 @@ export const originateCall = action({
           name: args.name,
         },
       );
-      return { ok: true, conversationId };
+      // Stamp an activeCalls row so the live UI overlay can show
+      // hangup + status. externalCallId lets hangupCall target the
+      // right provider-side leg.
+      if (externalCallId) {
+        await ctx.runMutation(internal.voiceIntegrations._registerActiveCall, {
+          workspaceId: integration.workspaceId,
+          operatorId: data.callerOperatorId,
+          conversationId: out.conversationId,
+          visitorId: out.visitorId,
+          fromPhone: integration.defaultNumber,
+          toPhone: args.toPhone,
+          provider,
+          externalCallId,
+        });
+      }
+      return { ok: true, conversationId: out.conversationId };
     } catch (err) {
       return {
         ok: false,
@@ -616,7 +635,10 @@ export const recordOutboundCallInitiated = internalMutation({
     toPhone: v.string(),
     name: v.optional(v.string()),
   },
-  returns: v.id("conversations"),
+  returns: v.object({
+    conversationId: v.id("conversations"),
+    visitorId: v.id("visitors"),
+  }),
   handler: async (ctx, args) => {
     const toPhone = args.toPhone.startsWith("+")
       ? args.toPhone
@@ -684,7 +706,7 @@ export const recordOutboundCallInitiated = internalMutation({
       createdAt: now,
     });
 
-    return conversationId;
+    return { conversationId, visitorId: visitor._id };
   },
 });
 
@@ -796,7 +818,7 @@ export const loadOriginateContext = internalQuery({
       integration = shared;
     }
     if (!integration || !integration.enabled) return null;
-    return { integration };
+    return { integration, callerOperatorId: operator._id };
   },
 });
 
@@ -807,7 +829,7 @@ async function originateViaCallHippo(args: {
   apiToken: string;
   from: string;
   to: string;
-}) {
+}): Promise<string | undefined> {
   const auth = btoa(`${args.apiKey}:${args.apiToken}`);
   const res = await fetch("https://api.callhippo.com/v1/originate", {
     method: "POST",
@@ -820,6 +842,12 @@ async function originateViaCallHippo(args: {
   if (!res.ok) {
     throw new Error(`CallHippo ${res.status}: ${await res.text()}`);
   }
+  try {
+    const json = (await res.json()) as { callId?: string; data?: { callId?: string } };
+    return json.callId ?? json.data?.callId;
+  } catch {
+    return undefined;
+  }
 }
 
 async function originateViaTeleCMI(args: {
@@ -827,7 +855,7 @@ async function originateViaTeleCMI(args: {
   secret: string;
   from: string;
   to: string;
-}) {
+}): Promise<string | undefined> {
   const res = await fetch("https://rest.telecmi.com/v2/ind_dial_call", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -841,6 +869,12 @@ async function originateViaTeleCMI(args: {
   if (!res.ok) {
     throw new Error(`TeleCMI ${res.status}: ${await res.text()}`);
   }
+  try {
+    const json = (await res.json()) as { call_id?: string; sid?: string };
+    return json.call_id ?? json.sid;
+  } catch {
+    return undefined;
+  }
 }
 
 async function originateViaTwilio(args: {
@@ -848,16 +882,11 @@ async function originateViaTwilio(args: {
   authToken: string;
   from: string;
   to: string;
-}) {
+}): Promise<string | undefined> {
   const auth = btoa(`${args.accountSid}:${args.authToken}`);
-  // Twilio's REST API takes form-encoded bodies, not JSON.
   const body = new URLSearchParams({
     To: args.to,
     From: args.from,
-    // Url is required for Twilio — it's the TwiML that runs when the
-    // call connects. We point at a stock <Say>/<Pause> bin so the call
-    // bridges without TTS surprises. Customers wanting custom IVR can
-    // override per-number in the Twilio console.
     Url: "http://demo.twilio.com/docs/voice.xml",
   });
   const res = await fetch(
@@ -873,6 +902,12 @@ async function originateViaTwilio(args: {
   );
   if (!res.ok) {
     throw new Error(`Twilio ${res.status}: ${await res.text()}`);
+  }
+  try {
+    const json = (await res.json()) as { sid?: string };
+    return json.sid;
+  } catch {
+    return undefined;
   }
 }
 
@@ -1496,6 +1531,220 @@ export const recordInboundSms = internalMutation({
       role: "visitor",
       body: args.body,
       createdAt: now,
+    });
+    return null;
+  },
+});
+
+// ── Active call registry + hangup ─────────────────────────────────────
+
+export const _registerActiveCall = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    operatorId: v.id("operators"),
+    conversationId: v.id("conversations"),
+    visitorId: v.id("visitors"),
+    fromPhone: v.string(),
+    toPhone: v.string(),
+    provider: providerValidator,
+    externalCallId: v.string(),
+  },
+  returns: v.id("activeCalls"),
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("activeCalls", {
+      workspaceId: args.workspaceId,
+      operatorId: args.operatorId,
+      conversationId: args.conversationId,
+      visitorId: args.visitorId,
+      fromPhone: args.fromPhone,
+      toPhone: args.toPhone,
+      provider: args.provider,
+      externalCallId: args.externalCallId,
+      status: "initiating",
+      startedAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Live calls for the calling operator. Drives the floating "Call in
+ * progress" overlay. Returns ringing + in_progress + initiating; hides
+ * completed/failed (those land in the call history page).
+ */
+export const listActive = query({
+  args: { sessionToken: v.string() },
+  returns: v.array(
+    v.object({
+      _id: v.id("activeCalls"),
+      conversationId: v.id("conversations"),
+      visitorName: v.union(v.string(), v.null()),
+      toPhone: v.string(),
+      provider: providerValidator,
+      status: v.union(
+        v.literal("initiating"),
+        v.literal("ringing"),
+        v.literal("in_progress"),
+        v.literal("completed"),
+        v.literal("failed"),
+      ),
+      startedAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const { operator } = await requireOperator(ctx, args.sessionToken);
+    const liveStatuses = ["initiating", "ringing", "in_progress"];
+    // by_operator_status would need a compound where IN; collect-and-filter
+    // is fine at the open-beta scale (one operator rarely has > 3 active calls).
+    const all = await ctx.db
+      .query("activeCalls")
+      .withIndex("by_operator_status", (q) =>
+        q.eq("operatorId", operator._id),
+      )
+      .collect();
+    const live = all.filter((c) => liveStatuses.includes(c.status));
+    return await Promise.all(
+      live.map(async (c) => {
+        const visitor = await ctx.db.get(c.visitorId);
+        return {
+          _id: c._id,
+          conversationId: c.conversationId,
+          visitorName: visitor?.name ?? null,
+          toPhone: c.toPhone,
+          provider: c.provider,
+          status: c.status,
+          startedAt: c.startedAt,
+        };
+      }),
+    );
+  },
+});
+
+/**
+ * Hang up a live call. Calls the provider's hangup endpoint, then
+ * marks the activeCalls row completed. Twilio is fully wired;
+ * CallHippo / TeleCMI use best-effort endpoints documented for their
+ * outbound APIs.
+ */
+export const hangupCall = action({
+  args: { sessionToken: v.string(), activeCallId: v.id("activeCalls") },
+  returns: v.object({ ok: v.boolean(), error: v.optional(v.string()) }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const ctxData: {
+      ownerOperatorId: Id<"operators">;
+      provider: Provider;
+      apiKey: string;
+      apiToken: string;
+      externalCallId: string;
+    } | null = await ctx.runQuery(
+      internal.voiceIntegrations._loadHangupContext,
+      { sessionToken: args.sessionToken, activeCallId: args.activeCallId },
+    );
+    if (!ctxData) return { ok: false, error: "Call not found or not yours." };
+
+    try {
+      if (ctxData.provider === "twilio") {
+        const auth = btoa(`${ctxData.apiKey}:${ctxData.apiToken}`);
+        const res = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${ctxData.apiKey}/Calls/${ctxData.externalCallId}.json`,
+          {
+            method: "POST",
+            headers: {
+              authorization: `Basic ${auth}`,
+              "content-type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({ Status: "completed" }).toString(),
+          },
+        );
+        if (!res.ok) {
+          return { ok: false, error: `Twilio hangup ${res.status}: ${await res.text()}` };
+        }
+      } else if (ctxData.provider === "callhippo") {
+        const auth = btoa(`${ctxData.apiKey}:${ctxData.apiToken}`);
+        const res = await fetch(
+          `https://api.callhippo.com/v1/call/${ctxData.externalCallId}/hangup`,
+          {
+            method: "POST",
+            headers: { authorization: `Basic ${auth}` },
+          },
+        );
+        if (!res.ok) {
+          return { ok: false, error: `CallHippo hangup ${res.status}: ${await res.text()}` };
+        }
+      } else if (ctxData.provider === "telecmi") {
+        const res = await fetch("https://rest.telecmi.com/v2/ind_hangup", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            appid: ctxData.apiKey,
+            secret: ctxData.apiToken,
+            call_id: ctxData.externalCallId,
+          }),
+        });
+        if (!res.ok) {
+          return { ok: false, error: `TeleCMI hangup ${res.status}: ${await res.text()}` };
+        }
+      }
+
+      await ctx.runMutation(internal.voiceIntegrations._markCallEnded, {
+        activeCallId: args.activeCallId,
+        status: "completed",
+      });
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Hangup failed",
+      };
+    }
+  },
+});
+
+export const _loadHangupContext = internalQuery({
+  args: {
+    sessionToken: v.string(),
+    activeCallId: v.id("activeCalls"),
+  },
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const c = await ctx.db.get(args.activeCallId);
+    if (!c) return null;
+    if (c.workspaceId !== workspaceId) return null;
+    // Owner of the call OR admin/owner can hang it up.
+    const isAdmin = operator.role === "owner" || operator.role === "admin";
+    if (c.operatorId !== operator._id && !isAdmin) return null;
+    // Find the integration that originated this call (matches provider).
+    const integration = await ctx.db
+      .query("voiceIntegrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .filter((q) => q.eq(q.field("provider"), c.provider))
+      .first();
+    if (!integration) return null;
+    return {
+      ownerOperatorId: c.operatorId,
+      provider: c.provider,
+      apiKey: integration.apiKey,
+      apiToken: integration.apiToken,
+      externalCallId: c.externalCallId,
+    };
+  },
+});
+
+export const _markCallEnded = internalMutation({
+  args: {
+    activeCallId: v.id("activeCalls"),
+    status: v.union(v.literal("completed"), v.literal("failed")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.activeCallId, {
+      status: args.status,
+      endedAt: Date.now(),
     });
     return null;
   },

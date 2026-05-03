@@ -6,6 +6,7 @@ import {
   clearSessionCookie,
   readSessionToken,
 } from "@/lib/session";
+import { ActiveCallOverlay } from "./ActiveCallOverlay";
 import { DashboardShell } from "./DashboardShell";
 import { DialPadButton } from "./DialPad";
 import { SessionGuard } from "./SessionGuard";
@@ -52,6 +53,7 @@ export default async function AppLayout({
           </div>
         </div>
         <DialPadButton />
+        <ActiveCallOverlay />
       </SessionGuard>
     </DashboardShell>
   );
