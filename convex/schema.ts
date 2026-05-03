@@ -340,6 +340,19 @@ export default defineSchema({
         ),
       }),
     ),
+    // Date-specific overrides — wins over weekly availability for that
+    // single day. `windows: []` blocks the day entirely (vacation /
+    // holiday). YYYY-MM-DD keys in the booking page's tz.
+    dateOverrides: v.optional(
+      v.array(
+        v.object({
+          date: v.string(),
+          windows: v.array(
+            v.object({ startMin: v.number(), endMin: v.number() }),
+          ),
+        }),
+      ),
+    ),
     timezone: v.string(), // IANA, e.g. "Asia/Kolkata"
     // Channels to send the booking confirmation + reminders on.
     confirmChannel: v.union(

@@ -137,6 +137,16 @@ export const update = mutation({
     durationMin: v.optional(v.number()),
     bufferMin: v.optional(v.number()),
     weekly: v.optional(weeklyValidator),
+    dateOverrides: v.optional(
+      v.array(
+        v.object({
+          date: v.string(),
+          windows: v.array(
+            v.object({ startMin: v.number(), endMin: v.number() }),
+          ),
+        }),
+      ),
+    ),
     timezone: v.optional(v.string()),
     confirmChannel: v.optional(channelValidator),
     reminderOffsetMin: v.optional(v.array(v.number())),
@@ -162,6 +172,8 @@ export const update = mutation({
     if (args.durationMin !== undefined) patch.durationMin = args.durationMin;
     if (args.bufferMin !== undefined) patch.bufferMin = args.bufferMin;
     if (args.weekly !== undefined) patch.weekly = args.weekly;
+    if (args.dateOverrides !== undefined)
+      patch.dateOverrides = args.dateOverrides;
     if (args.timezone !== undefined) patch.timezone = args.timezone;
     if (args.confirmChannel !== undefined)
       patch.confirmChannel = args.confirmChannel;
@@ -279,12 +291,28 @@ export const computeSlots = query({
     const stepMs = (p.durationMin + (p.bufferMin ?? 0)) * 60 * 1000;
     const out: number[] = [];
 
+    // Date overrides indexed by YYYY-MM-DD for O(1) lookup.
+    const overrideByDate = new Map<
+      string,
+      { startMin: number; endMin: number }[]
+    >();
+    for (const o of p.dateOverrides ?? []) {
+      overrideByDate.set(o.date, o.windows);
+    }
+
     for (let d = 0; d < days; d++) {
       const dayStart = horizonStart + d * 24 * 60 * 60 * 1000;
-      const dow = new Date(dayStart).getUTCDay(); // approximation; tz handling via parseDateInTz keeps day boundaries aligned
-      const day = p.weekly[dow];
-      if (!day) continue;
-      for (const w of day.windows) {
+      const dayDate = new Date(dayStart);
+      const dateKey = `${dayDate.getUTCFullYear()}-${(dayDate.getUTCMonth() + 1).toString().padStart(2, "0")}-${dayDate.getUTCDate().toString().padStart(2, "0")}`;
+      // Date-specific override wins over weekly. Empty windows array =
+      // explicitly blocked (no slots), distinct from "no override
+      // exists" which falls back to weekly.
+      const override = overrideByDate.get(dateKey);
+      const windows =
+        override !== undefined
+          ? override
+          : (p.weekly[dayDate.getUTCDay()]?.windows ?? []);
+      for (const w of windows) {
         const winStart = dayStart + w.startMin * 60 * 1000;
         const winEnd = dayStart + w.endMin * 60 * 1000;
         for (let t = winStart; t + slotMs <= winEnd; t += stepMs) {
