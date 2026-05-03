@@ -1047,11 +1047,20 @@ export const loadChunksForWorkspace = internalQuery({
 });
 
 /**
- * Embed `query` via Voyage, score every stored chunk with cosine
- * similarity, return the top-K chunk texts. Cheap for the few-hundred-
- * chunk scale we expect; switch to a vector index if you ever store
- * many thousands.
+ * Two-stage retrieval:
+ *   1. Embed the query with voyage-3-lite, cosine-rank the stored
+ *      chunks, take the top RERANK_CANDIDATES (e.g. 20).
+ *   2. Pass those candidates through Voyage's rerank-2 model to
+ *      get a query-conditioned relevance score, then take the
+ *      top K (e.g. 4) for the prompt.
+ *
+ * Rerank materially improves quality — the embedding model is fast
+ * but coarse; rerank reads query+chunk together and orders by
+ * actual semantic relevance. If the rerank call fails we fall
+ * back gracefully to the embedding-only ordering.
  */
+const RERANK_CANDIDATES = 20;
+
 async function retrieveRelevantChunks(args: {
   voyageApiKey: string;
   query: string;
@@ -1080,10 +1089,63 @@ async function retrieveRelevantChunks(args: {
     score: cosineSimilarity(queryVec, c.embedding),
   }));
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, args.k).map((s) => s.text);
+  const candidates = scored.slice(0, RERANK_CANDIDATES);
+  if (candidates.length <= args.k) {
+    // Fewer candidates than the prompt cap — rerank wouldn't change
+    // the result, skip the network call.
+    return candidates.map((c) => c.text);
+  }
+
+  try {
+    const reranked = await voyageRerank({
+      apiKey: args.voyageApiKey,
+      query: args.query,
+      documents: candidates.map((c) => c.text),
+      topK: args.k,
+    });
+    return reranked;
+  } catch (err) {
+    console.warn("[atlas] rerank failed, falling back to embedding-only", err);
+    return candidates.slice(0, args.k).map((c) => c.text);
+  }
 }
 
-void VOYAGE_RERANK_MODEL; // reserved for future re-ranking step
+/**
+ * Voyage rerank-2 — query-conditioned relevance scoring on a list
+ * of candidate documents. Returns the top-K original document
+ * strings in the rerank's preferred order.
+ */
+async function voyageRerank(args: {
+  apiKey: string;
+  query: string;
+  documents: string[];
+  topK: number;
+}): Promise<string[]> {
+  const res = await fetch("https://api.voyageai.com/v1/rerank", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${args.apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: VOYAGE_RERANK_MODEL,
+      query: args.query,
+      documents: args.documents,
+      top_k: args.topK,
+      return_documents: false,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Voyage rerank ${res.status}: ${await res.text()}`);
+  }
+  const data = (await res.json()) as {
+    data: Array<{ index: number; relevance_score: number }>;
+  };
+  return data.data
+    .sort((a, b) => b.relevance_score - a.relevance_score)
+    .map((r) => args.documents[r.index])
+    .filter((s): s is string => typeof s === "string");
+}
 
 // ── Website-crawl knowledge-base ingest ───────────────────────────────
 //
