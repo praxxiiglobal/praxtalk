@@ -23,8 +23,6 @@ type Row = {
   lastActivityAt: number | null;
 };
 
-type SubValue = "none" | "active" | "past_due" | "paused" | "cancelled";
-
 type SortKey =
   | "createdAt"
   | "name"
@@ -126,8 +124,7 @@ function WorkspacesTableInner({
                 sortDir={sortDir}
                 onClick={toggleSort}
               />
-              <th className="px-3 py-2.5">Sub</th>
-              <th className="px-3 py-2.5">Platform</th>
+              <th className="px-3 py-2.5">Status</th>
               <SortableTh
                 label="Ops"
                 k="operatorCount"
@@ -173,7 +170,7 @@ function WorkspacesTableInner({
           <tbody className="divide-y divide-rule">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-3 py-8 text-center text-muted">
+                <td colSpan={10} className="px-3 py-8 text-center text-muted">
                   No workspaces match.
                 </td>
               </tr>
@@ -194,18 +191,10 @@ function WorkspacesTableInner({
                     />
                   </td>
                   <td className="px-3 py-2.5">
-                    <SubSelect
-                      workspaceId={w._id as Id<"workspaces">}
-                      status={w.subscriptionStatus}
+                    <EffectiveStatusBadge
+                      platformStatus={w.platformStatus}
+                      subscriptionStatus={w.subscriptionStatus}
                       provider={w.subscriptionProvider}
-                      sessionToken={sessionToken}
-                    />
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <PlatformSelect
-                      workspaceId={w._id as Id<"workspaces">}
-                      value={w.platformStatus}
-                      sessionToken={sessionToken}
                     />
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
@@ -327,142 +316,67 @@ function PlanSelect({
   );
 }
 
-function PlatformSelect({
-  workspaceId,
-  value,
-  sessionToken,
-}: {
-  workspaceId: Id<"workspaces">;
-  value: Row["platformStatus"];
-  sessionToken: string;
-}) {
-  const setStatus = useMutation(api._admin.setPlatformStatus);
-  const [optimistic, setOptimistic] = useState<Row["platformStatus"]>(value);
-  const [busy, setBusy] = useState(false);
-  if (!busy && optimistic !== value) setOptimistic(value);
-
-  // Subtle background tint by current value so suspended rows pop.
-  const tint =
-    optimistic === "active"
-      ? "bg-good/15 text-good"
-      : optimistic === "suspended"
-        ? "bg-red-100 text-red-700"
-        : optimistic === "pending_review"
-          ? "bg-yellow-100 text-yellow-800"
-          : "bg-warn/20 text-ink";
-
-  return (
-    <select
-      value={optimistic}
-      disabled={busy}
-      onChange={async (e) => {
-        const next = e.target.value as Row["platformStatus"];
-        if (next === value) return;
-        // Hard confirm before suspend — destructive (kills sessions).
-        if (
-          next === "suspended" &&
-          !confirm(
-            `Suspend this workspace?\n\nEvery active session will be wiped immediately and login will refuse with "workspace has been suspended" until you reactivate.`,
-          )
-        ) {
-          return;
-        }
-        setOptimistic(next);
-        setBusy(true);
-        try {
-          await setStatus({ sessionToken, workspaceId, status: next });
-        } catch (err) {
-          alert(err instanceof Error ? err.message : "Couldn't update status.");
-          setOptimistic(value);
-        } finally {
-          setBusy(false);
-        }
-      }}
-      className={`h-7 rounded-full px-2 font-mono text-[10px] uppercase tracking-[0.06em] outline-none focus:ring-1 focus:ring-ink ${tint}`}
-    >
-      <option value="active">active</option>
-      <option value="pending_review">pending_review</option>
-      <option value="flagged">flagged</option>
-      <option value="suspended">suspended</option>
-    </select>
-  );
-}
-
 /**
- * Inline subscription override. "none" maps to clearing
- * subscriptionStatus (workspace falls back to free/spark behavior at
- * the billing layer). The mutation accepts plan optionally — we omit
- * it here so the plan column stays under PlanSelect's control only.
+ * Single computed badge merging platform moderation state +
+ * subscription billing state into one human label. Moderation wins
+ * over billing because a suspended/pending workspace can't transact
+ * regardless of its sub status. Click "Open ↗" on the row to control
+ * the underlying fields individually from the drill-down.
  */
-function SubSelect({
-  workspaceId,
-  status,
+function EffectiveStatusBadge({
+  platformStatus,
+  subscriptionStatus,
   provider,
-  sessionToken,
 }: {
-  workspaceId: Id<"workspaces">;
-  status: Row["subscriptionStatus"];
+  platformStatus: Row["platformStatus"];
+  subscriptionStatus: Row["subscriptionStatus"];
   provider: Row["subscriptionProvider"];
-  sessionToken: string;
 }) {
-  const override = useMutation(api._admin.overrideSubscription);
-  const initial: SubValue = (status ?? "none") as SubValue;
-  const [optimistic, setOptimistic] = useState<SubValue>(initial);
-  const [busy, setBusy] = useState(false);
-  if (!busy && optimistic !== initial) setOptimistic(initial);
+  let label: string;
+  let cls: string;
+  let title: string;
 
-  const tint =
-    optimistic === "active"
-      ? "bg-good/15 text-good"
-      : optimistic === "past_due"
-        ? "bg-red-100 text-red-700"
-        : optimistic === "paused"
-          ? "bg-yellow-100 text-yellow-800"
-          : optimistic === "cancelled"
-            ? "bg-paper-2 text-muted line-through"
-            : "bg-paper-2 text-muted";
+  if (platformStatus === "suspended") {
+    label = "suspended";
+    cls = "bg-red-100 text-red-700";
+    title = "Platform suspended — sessions wiped, login refused.";
+  } else if (platformStatus === "pending_review") {
+    label = "pending review";
+    cls = "bg-yellow-100 text-yellow-800";
+    title = "Awaiting platform admin approval.";
+  } else if (platformStatus === "flagged") {
+    label = "flagged";
+    cls = "bg-warn/20 text-ink";
+    title = "Flagged for review (still operational).";
+  } else if (subscriptionStatus === "past_due") {
+    label = "past due";
+    cls = "bg-red-100 text-red-700";
+    title = `Billing past due${provider ? ` · ${provider}` : ""}.`;
+  } else if (subscriptionStatus === "paused") {
+    label = "paused";
+    cls = "bg-yellow-100 text-yellow-800";
+    title = `Subscription paused${provider ? ` · ${provider}` : ""}.`;
+  } else if (subscriptionStatus === "cancelled") {
+    label = "cancelled";
+    cls = "bg-paper-2 text-muted";
+    title = `Subscription cancelled${provider ? ` · ${provider}` : ""}.`;
+  } else if (subscriptionStatus === "active") {
+    label = `paying${provider ? ` · ${provider}` : ""}`;
+    cls = "bg-good/15 text-good";
+    title = "Active paying subscriber.";
+  } else {
+    label = "free";
+    cls = "bg-paper-2 text-muted";
+    title = "No subscription — free tier.";
+  }
 
   return (
-    <div className="flex items-center gap-1.5">
-      <select
-        value={optimistic}
-        disabled={busy}
-        onChange={async (e) => {
-          const next = e.target.value as SubValue;
-          if (next === initial) return;
-          setOptimistic(next);
-          setBusy(true);
-          try {
-            await override({
-              sessionToken,
-              workspaceId,
-              subscriptionStatus: next === "none" ? null : next,
-            });
-          } catch (err) {
-            alert(
-              err instanceof Error
-                ? err.message
-                : "Couldn't update subscription.",
-            );
-            setOptimistic(initial);
-          } finally {
-            setBusy(false);
-          }
-        }}
-        className={`h-7 rounded-full px-2 font-mono text-[10px] uppercase tracking-[0.06em] outline-none focus:ring-1 focus:ring-ink ${tint}`}
-      >
-        <option value="none">free</option>
-        <option value="active">active</option>
-        <option value="past_due">past_due</option>
-        <option value="paused">paused</option>
-        <option value="cancelled">cancelled</option>
-      </select>
-      {provider && status ? (
-        <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted">
-          {provider}
-        </span>
-      ) : null}
-    </div>
+    <span
+      title={title}
+      className={`rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] ${cls}`}
+    >
+      {label}
+    </span>
   );
 }
 
