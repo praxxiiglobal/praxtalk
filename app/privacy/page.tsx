@@ -3,6 +3,7 @@ import {
   Section,
   Prose,
 } from "@/components/marketing/MarketingShell";
+import { CookiePreferences } from "@/components/marketing/CookieConsent";
 
 export const metadata = {
   title: "Privacy policy · PraxTalk",
@@ -114,6 +115,22 @@ export default function PrivacyPage() {
             the EU-US Data Privacy Framework.
           </p>
         </Prose>
+      </Section>
+
+      <Section title="Cookies">
+        <Prose>
+          <p id="cookies">
+            PraxTalk sets one cookie on the marketing site: an
+            anonymous Google Analytics 4 measurement ID, only after
+            you opt in. Operator dashboards (
+            <a href="/app">/app</a>) use a session cookie required to
+            keep you signed in — that one is essential and not
+            covered by the consent banner.
+          </p>
+        </Prose>
+        <div className="mt-4">
+          <CookiePreferences />
+        </div>
       </Section>
 
       <Section title="Retention">
