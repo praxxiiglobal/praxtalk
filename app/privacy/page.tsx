@@ -18,7 +18,7 @@ export default function PrivacyPage() {
     <MarketingShell
       eyebrow="Legal"
       title="Privacy policy"
-      description={`Last updated ${LAST_UPDATED}. This policy describes how Praxxii Global Pvt. Ltd. ("PraxTalk", "we") collects, uses, and protects personal data for the praxtalk.com service.`}
+      description={`Last updated ${LAST_UPDATED}. This policy describes how Praxxii Global ("PraxTalk", "we") collects, uses, and protects personal data for the praxtalk.com service.`}
     >
       <Section title="Who we are">
         <Prose>

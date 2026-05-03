@@ -23,7 +23,7 @@ export default function TermsPage() {
       <Section title="The service">
         <Prose>
           <p>
-            PraxTalk is operated by Praxxii Global Pvt. Ltd. (Aligarh,
+            PraxTalk is operated by Praxxii Global (Aligarh,
             India). The service is in <strong>open beta</strong>: features,
             pricing, and SLAs may change with reasonable notice.
           </p>

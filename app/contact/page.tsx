@@ -60,7 +60,7 @@ export default function ContactPage() {
       <Section title="Where we are">
         <Prose>
           <p>
-            Praxxii Global Pvt. Ltd.
+            Praxxii Global
             <br />
             HQ: Aligarh, Uttar Pradesh, India.
             <br />

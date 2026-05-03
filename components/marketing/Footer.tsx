@@ -37,7 +37,7 @@ const cols: Array<{ title: string; links: { label: string; href: string }[] }> =
   {
     title: "Company",
     links: [
-      { label: "About Praxxii", href: "/about" },
+      { label: "About PraxTalk", href: "/about" },
       { label: "Customers", href: "/customers" },
       { label: "Careers", href: "/careers" },
       { label: "Press kit", href: "/press" },
@@ -69,7 +69,11 @@ export function Footer() {
   return (
     <footer className="mt-[120px] border-t border-rule pb-10 pt-20">
       <div className="mx-auto max-w-[1320px] px-4 sm:px-8">
-        <div className="grid grid-cols-1 gap-12 md:grid-cols-2 lg:grid-cols-[repeat(5,minmax(0,1fr))]">
+        {/* Brand col + 5 link cols = 6 grid slots on lg. md splits into
+            3 across so the brand sits with two link columns and the
+            rest fall to the next row cleanly (instead of one orphan
+            column wrapping below). */}
+        <div className="grid grid-cols-1 gap-12 md:grid-cols-3 lg:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]">
           <div className="flex h-full flex-col items-start">
             <Link
               href="/"
