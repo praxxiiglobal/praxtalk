@@ -45,9 +45,12 @@ export const listMine = query({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .collect();
     const isAdmin = operator.role === "owner" || operator.role === "admin";
-    const accessible = isAdmin
-      ? all
-      : all.filter((p) => p.ownerOperatorId === operator._id);
+    // Two-stage filter: ownership (admin sees all, non-admin sees own),
+    // then brand access (brand-restricted operators don't see pages
+    // belonging to brands they're locked out of).
+    const accessible = (
+      isAdmin ? all : all.filter((p) => p.ownerOperatorId === operator._id)
+    ).filter((p) => hasBrandAccess(operator, p.brandId));
     return accessible.map((p) => ({
       _id: p._id,
       slug: p.slug,
@@ -72,6 +75,7 @@ export const getById = query({
     if (!p || p.workspaceId !== workspaceId) return null;
     const isAdmin = operator.role === "owner" || operator.role === "admin";
     if (!isAdmin && p.ownerOperatorId !== operator._id) return null;
+    if (!hasBrandAccess(operator, p.brandId)) return null;
     return p;
   },
 });
@@ -167,6 +171,9 @@ export const update = mutation({
     if (!isAdmin && p.ownerOperatorId !== operator._id) {
       throw new ConvexError("Not your booking page.");
     }
+    if (!hasBrandAccess(operator, p.brandId)) {
+      throw new ConvexError("No access to this brand.");
+    }
     const patch: Record<string, unknown> = {};
     if (args.title !== undefined) patch.title = args.title.trim();
     if (args.description !== undefined) patch.description = args.description;
@@ -202,6 +209,9 @@ export const remove = mutation({
     if (!isAdmin && p.ownerOperatorId !== operator._id) {
       throw new ConvexError("Not your booking page.");
     }
+    if (!hasBrandAccess(operator, p.brandId)) {
+      throw new ConvexError("No access to this brand.");
+    }
     await ctx.db.delete(args.id);
     return null;
   },
@@ -229,6 +239,9 @@ export const cancelBooking = mutation({
       operator.role === "owner" || operator.role === "admin";
     if (b.ownerOperatorId !== operator._id && !isAdmin) {
       throw new ConvexError("Not your booking.");
+    }
+    if (b.brandId && !hasBrandAccess(operator, b.brandId)) {
+      throw new ConvexError("No access to this brand.");
     }
     if (b.status === "cancelled") return null; // idempotent
 
