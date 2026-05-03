@@ -1335,11 +1335,50 @@ function normaliseUrl(input: string): string | null {
     const u = new URL(candidate);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
     if (!u.hostname || !u.hostname.includes(".")) return null;
+    if (isPrivateHost(u.hostname)) return null;
     u.hash = "";
     return u.toString();
   } catch {
     return null;
   }
+}
+
+/**
+ * Best-effort SSRF guard. Convex's V8 fetch doesn't expose a
+ * pre-request DNS hook, so we can only reject hostnames that *parse*
+ * as private IP literals or well-known cloud-metadata hostnames. A
+ * malicious DNS record pointing a public name at a private IP would
+ * still get through — for that, the right defence is to deploy
+ * outbound network egress rules at the platform layer. This blocks
+ * the easy attacks (paste-a-private-IP, paste-the-metadata-host) and
+ * is a reasonable default while we don't run our own resolver.
+ */
+function isPrivateHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === "localhost") return true;
+  if (h === "metadata.google.internal") return true;
+  if (h === "metadata.azure.com") return true;
+  // IPv4 literal? Block private ranges + link-local + loopback + null.
+  const ipv4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    if (a === 0) return true; // 0.0.0.0/8
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 127) return true; // loopback
+    if (a === 169 && b === 254) return true; // link-local incl. AWS/GCP metadata
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    return false;
+  }
+  // IPv6: refuse loopback, link-local, ULA. Easy literal forms only.
+  if (h.startsWith("[")) {
+    const inner = h.slice(1, h.lastIndexOf("]"));
+    if (inner === "::1") return true;
+    if (inner.startsWith("fe80:")) return true;
+    if (inner.startsWith("fc") || inner.startsWith("fd")) return true;
+  }
+  return false;
 }
 
 function shouldSkipUrl(url: string): boolean {
@@ -1354,19 +1393,44 @@ function shouldSkipUrl(url: string): boolean {
 }
 
 async function fetchWithTimeout(url: string): Promise<Response | null> {
+  // SSRF guard at fetch time too, not just at URL-parse time. Catches
+  // BFS-discovered links that point at private hosts even if the
+  // operator's seed URL passed the original check.
+  try {
+    const u = new URL(url);
+    if (isPrivateHost(u.hostname)) return null;
+  } catch {
+    return null;
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: {
-        "user-agent":
-          "PraxTalkAtlasBot/1.0 (+https://praxtalk.com — knowledge base ingest)",
-        accept: "text/html,application/xhtml+xml,application/xml,text/plain",
-      },
-    });
-    return res;
+    // redirect: "manual" + manual chase so each hop is re-validated
+    // against isPrivateHost before we follow. fetch's "follow" mode
+    // would silently redirect a public URL to an internal one.
+    let current = url;
+    for (let hop = 0; hop < 5; hop++) {
+      const res = await fetch(current, {
+        signal: controller.signal,
+        redirect: "manual",
+        headers: {
+          "user-agent":
+            "PraxTalkAtlasBot/1.0 (+https://praxtalk.com — knowledge base ingest)",
+          accept: "text/html,application/xhtml+xml,application/xml,text/plain",
+        },
+      });
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get("location");
+        if (!loc) return res;
+        const next = new URL(loc, current).toString();
+        const nextHost = new URL(next).hostname;
+        if (isPrivateHost(nextHost)) return null;
+        current = next;
+        continue;
+      }
+      return res;
+    }
+    return null; // too many redirects
   } catch {
     return null;
   } finally {

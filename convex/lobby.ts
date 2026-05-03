@@ -202,6 +202,9 @@ export const submitIntake = mutation({
     if (!convo || convo.workspaceId !== brand.workspaceId) {
       throw new ConvexError("Conversation not found.");
     }
+    if (convo.brandId && convo.brandId !== brand._id) {
+      throw new ConvexError("Conversation does not belong to this widget.");
+    }
     const visitor = await ctx.db.get(convo.visitorId);
     if (!visitor || visitor.visitorKey !== args.visitorKey) {
       throw new ConvexError("Visitor mismatch.");

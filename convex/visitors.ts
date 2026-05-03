@@ -163,6 +163,13 @@ export const sendVisitorMessage = mutation({
     if (!convo || convo.workspaceId !== brand.workspaceId) {
       throw new Error("Conversation not found.");
     }
+    // Defence against cross-brand IDOR within a multi-brand
+    // workspace: a visitor's widgetId only authorises them for that
+    // brand's conversations. (brandId is optional on legacy convos —
+    // only enforce when set.)
+    if (convo.brandId && convo.brandId !== brand._id) {
+      throw new Error("Conversation does not belong to this widget.");
+    }
 
     const visitor = await ctx.db.get(convo.visitorId);
     if (!visitor || visitor.visitorKey !== args.visitorKey) {
@@ -249,6 +256,9 @@ export const requestHumanAgent = mutation({
     const convo = await ctx.db.get(args.conversationId);
     if (!convo || convo.workspaceId !== brand.workspaceId) {
       throw new ConvexError("Conversation not found.");
+    }
+    if (convo.brandId && convo.brandId !== brand._id) {
+      throw new ConvexError("Conversation does not belong to this widget.");
     }
     const visitor = await ctx.db.get(convo.visitorId);
     if (!visitor || visitor.visitorKey !== args.visitorKey) {
@@ -358,6 +368,7 @@ export const listMessagesForVisitor = query({
 
     const convo = await ctx.db.get(args.conversationId);
     if (!convo || convo.workspaceId !== brand.workspaceId) return [];
+    if (convo.brandId && convo.brandId !== brand._id) return [];
 
     const visitor = await ctx.db.get(convo.visitorId);
     if (!visitor || visitor.visitorKey !== args.visitorKey) return [];

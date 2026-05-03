@@ -1086,12 +1086,39 @@ function extractName(s: string): string | undefined {
 // Twilio POSTs here at each lifecycle transition (initiated / ringing /
 // answered / completed). We map the status to our activeCalls.status
 // so the live UI overlay shows the real state in near-real-time.
+//
+// Auth: Twilio's X-Twilio-Signature header — HMAC-SHA1 of the
+// canonical URL + alphabetically-sorted form params, with the
+// account's auth token as key. Without verification anyone on the
+// internet could forge "completed" updates and wipe in-flight calls.
 http.route({
   path: "/api/inbound/voice-status",
   method: "POST",
   handler: httpAction(async (ctx, req) => {
     const text = await req.text();
     const params = new URLSearchParams(text);
+    const signature = req.headers.get("x-twilio-signature") ?? "";
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    if (!authToken) {
+      // No token configured — refuse outright. Better to fail closed
+      // than silently accept unsigned calls.
+      return new Response(
+        JSON.stringify({ error: "twilio not configured" }),
+        { status: 401, headers: { "content-type": "application/json" } },
+      );
+    }
+    const verified = await verifyTwilioSignature({
+      authToken,
+      url: req.url,
+      params,
+      signature,
+    });
+    if (!verified) {
+      return new Response(
+        JSON.stringify({ error: "invalid signature" }),
+        { status: 401, headers: { "content-type": "application/json" } },
+      );
+    }
     const callSid = params.get("CallSid");
     const callStatus = params.get("CallStatus");
     if (!callSid || !callStatus) {
@@ -1110,6 +1137,41 @@ http.route({
     });
   }),
 });
+
+/**
+ * Verify Twilio's X-Twilio-Signature on inbound webhook callbacks.
+ * Algorithm (per Twilio docs): HMAC-SHA1 over the canonical URL + the
+ * request POST params concatenated as key|value pairs, sorted
+ * alphabetically by key. Result is base64-encoded.
+ */
+async function verifyTwilioSignature(args: {
+  authToken: string;
+  url: string;
+  params: URLSearchParams;
+  signature: string;
+}): Promise<boolean> {
+  if (!args.signature) return false;
+  const sorted = [...args.params.entries()].sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  const data = args.url + sorted.map(([k, v]) => k + v).join("");
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(args.authToken),
+    { name: "HMAC", hash: "SHA-1" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(data));
+  const expected = btoa(String.fromCharCode(...new Uint8Array(sig)));
+  if (expected.length !== args.signature.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < expected.length; i++) {
+    mismatch |= expected.charCodeAt(i) ^ args.signature.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
 
 // ── Calendar OAuth callbacks ──────────────────────────────────────────
 // Provider redirects here with ?code=... after the user grants
