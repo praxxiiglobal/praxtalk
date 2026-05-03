@@ -245,6 +245,57 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_prefix", ["prefix"]),
 
+  // ── Calendar connections (Phase 3 OAuth) ───────────────────────────
+  // Per-operator connection to an external calendar. Used by:
+  //   1. bookingPages.computeSlots — exclude slots that conflict with
+  //      existing events in the operator's calendar
+  //   2. bookingPages.book — write the new booking back to the
+  //      operator's calendar so it shows up everywhere they look
+  //   3. The cron sync — poll the provider every 5 min to keep our
+  //      cached events fresh (Phase 3 slice 2)
+  calendarConnections: defineTable({
+    workspaceId: v.id("workspaces"),
+    operatorId: v.id("operators"),
+    provider: v.union(
+      v.literal("google"),
+      v.literal("microsoft"),
+      v.literal("caldav"),
+    ),
+    accountEmail: v.string(),
+    // OAuth tokens (encrypted-at-rest by Convex). Never round-trip to
+    // the client. The refresh token outlives access tokens; we use it
+    // to mint a new access token when the current one expires.
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    tokenExpiresAt: v.optional(v.number()),
+    // Scopes granted, comma-separated. We don't currently downgrade
+    // gracefully if a customer revokes a scope mid-flight; we just
+    // surface the failure on next sync attempt.
+    scopes: v.optional(v.string()),
+    // Provider-specific calendar ID we read/write. Defaults to the
+    // operator's primary calendar.
+    calendarId: v.optional(v.string()),
+    // For CalDAV: connection URL + username (auth uses an app
+    // password stored in accessToken).
+    caldavUrl: v.optional(v.string()),
+    lastSyncedAt: v.optional(v.number()),
+    lastSyncError: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_operator", ["operatorId"])
+    .index("by_workspace", ["workspaceId"]),
+
+  // OAuth state — short-lived rows used to verify the callback isn't
+  // a CSRF attempt and to remember which operator initiated the flow.
+  // Self-cleaning: the callback deletes its own row on success.
+  calendarOauthStates: defineTable({
+    workspaceId: v.id("workspaces"),
+    operatorId: v.id("operators"),
+    provider: v.union(v.literal("google"), v.literal("microsoft")),
+    state: v.string(), // random nonce
+    createdAt: v.number(),
+  }).index("by_state", ["state"]),
+
   // ── Active voice calls (live UI overlay) ───────────────────────────
   // One row per call from initiation through completion. Drives the
   // floating "Call in progress" overlay that shows hangup + status.

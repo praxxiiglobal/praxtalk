@@ -16,6 +16,7 @@ import type * as billing from "../billing.js";
 import type * as bookingPages from "../bookingPages.js";
 import type * as botimIntegrations from "../botimIntegrations.js";
 import type * as brands from "../brands.js";
+import type * as calendarConnections from "../calendarConnections.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
 import type * as emailIntegrations from "../emailIntegrations.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   bookingPages: typeof bookingPages;
   botimIntegrations: typeof botimIntegrations;
   brands: typeof brands;
+  calendarConnections: typeof calendarConnections;
   conversations: typeof conversations;
   crons: typeof crons;
   emailIntegrations: typeof emailIntegrations;

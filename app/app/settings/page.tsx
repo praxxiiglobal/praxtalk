@@ -1,3 +1,4 @@
+import { CalendarsSection } from "./CalendarsSection";
 import { DashboardThemeSection } from "./DashboardThemeSection";
 import { WorkspaceSettings } from "./WorkspaceSettings";
 import { WidgetSnippet } from "./WidgetSnippet";
@@ -24,6 +25,12 @@ export default function SettingsPage() {
           <DashboardThemeSection />
         </Card>
         <WidgetSnippet />
+        <Card
+          title="Calendars"
+          description="Connect Google or Microsoft calendars so booking pages can avoid scheduling slots that conflict with your existing events."
+        >
+          <CalendarsSection />
+        </Card>
         <Card title="Notifications">
           <PushToggle />
         </Card>

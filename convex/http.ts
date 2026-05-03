@@ -1081,6 +1081,159 @@ function extractName(s: string): string | undefined {
   const m = s.match(/^([^<]+?)\s*<[^>]+>$/);
   return m ? m[1].replace(/^"|"$/g, "").trim() : undefined;
 }
+// ── Calendar OAuth callbacks ──────────────────────────────────────────
+// Provider redirects here with ?code=... after the user grants
+// access. We exchange the code for tokens via the provider's token
+// endpoint, then persist a calendarConnections row.
+//
+// On success: redirect back to /app/settings#calendars with ?ok=...
+// On failure: redirect with ?error=...
+
+http.route({
+  path: "/api/oauth/calendar/google/callback",
+  method: "GET",
+  handler: httpAction(async (ctx, req) => {
+    return handleOauthCallback(ctx, req, "google");
+  }),
+});
+
+http.route({
+  path: "/api/oauth/calendar/microsoft/callback",
+  method: "GET",
+  handler: httpAction(async (ctx, req) => {
+    return handleOauthCallback(ctx, req, "microsoft");
+  }),
+});
+
+async function handleOauthCallback(
+  ctx: Parameters<Parameters<typeof httpAction>[0]>[0],
+  req: Request,
+  provider: "google" | "microsoft",
+): Promise<Response> {
+  const url = new URL(req.url);
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  const errorParam = url.searchParams.get("error");
+  const settingsUrl = `${process.env.PRAXTALK_DASHBOARD_BASE ?? "https://praxtalk.com"}/app/settings`;
+
+  if (errorParam || !code || !state) {
+    return Response.redirect(
+      `${settingsUrl}?calendar_error=${encodeURIComponent(
+        errorParam ?? "missing code or state",
+      )}`,
+      302,
+    );
+  }
+
+  const consumed = await ctx.runMutation(
+    internal.calendarConnections._consumeOauthState,
+    { state },
+  );
+  if (!consumed || consumed.provider !== provider) {
+    return Response.redirect(
+      `${settingsUrl}?calendar_error=${encodeURIComponent("Invalid or expired state")}`,
+      302,
+    );
+  }
+
+  let clientId: string | undefined;
+  let clientSecret: string | undefined;
+  let tokenUrl: string;
+  let userInfoUrl: string;
+  if (provider === "google") {
+    clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+    clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    tokenUrl = "https://oauth2.googleapis.com/token";
+    userInfoUrl = "https://www.googleapis.com/oauth2/v2/userinfo";
+  } else {
+    clientId = process.env.MICROSOFT_OAUTH_CLIENT_ID;
+    clientSecret = process.env.MICROSOFT_OAUTH_CLIENT_SECRET;
+    tokenUrl =
+      "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+    userInfoUrl = "https://graph.microsoft.com/v1.0/me";
+  }
+  if (!clientId || !clientSecret) {
+    return Response.redirect(
+      `${settingsUrl}?calendar_error=${encodeURIComponent("OAuth not configured")}`,
+      302,
+    );
+  }
+
+  const redirectUri = `${
+    process.env.PRAXTALK_OAUTH_REDIRECT_BASE ??
+    "https://industrious-moose-892.convex.site"
+  }/api/oauth/calendar/${provider}/callback`;
+
+  // Exchange code for tokens.
+  const tokenForm = new URLSearchParams({
+    code,
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uri: redirectUri,
+    grant_type: "authorization_code",
+  });
+  const tokenRes = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: tokenForm.toString(),
+  });
+  if (!tokenRes.ok) {
+    return Response.redirect(
+      `${settingsUrl}?calendar_error=${encodeURIComponent(
+        `Token exchange ${tokenRes.status}`,
+      )}`,
+      302,
+    );
+  }
+  const tokens = (await tokenRes.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+    token_type?: string;
+  };
+
+  // Fetch the connected user's email so the dashboard can show
+  // "Connected to sarah@acme.com" instead of an opaque connection id.
+  let accountEmail = "";
+  try {
+    const userRes = await fetch(userInfoUrl, {
+      headers: { authorization: `Bearer ${tokens.access_token}` },
+    });
+    if (userRes.ok) {
+      const u = (await userRes.json()) as {
+        email?: string;
+        mail?: string;
+        userPrincipalName?: string;
+      };
+      accountEmail = u.email ?? u.mail ?? u.userPrincipalName ?? "";
+    }
+  } catch {
+    // Non-fatal — just leave accountEmail blank.
+  }
+
+  await ctx.runMutation(
+    internal.calendarConnections._upsertConnection,
+    {
+      workspaceId: consumed.workspaceId,
+      operatorId: consumed.operatorId,
+      provider,
+      accountEmail,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      tokenExpiresAt: tokens.expires_in
+        ? Date.now() + tokens.expires_in * 1000
+        : undefined,
+      scopes: tokens.scope,
+    },
+  );
+
+  return Response.redirect(
+    `${settingsUrl}?calendar_ok=${provider}`,
+    302,
+  );
+}
+
 function stripHtml(s: string): string {
   return s
     .replace(/<style[\s\S]*?<\/style>/gi, "")
