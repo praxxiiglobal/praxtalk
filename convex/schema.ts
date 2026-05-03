@@ -35,6 +35,10 @@ export default defineSchema({
       ),
     ),
     currentPeriodEnd: v.optional(v.number()),
+    // Operator dashboard accent color — overrides the default
+    // PraxTalk-green when set. Hex string (`#RRGGBB`). Customers match
+    // it to their own brand color.
+    dashboardAccent: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_slug", ["slug"])

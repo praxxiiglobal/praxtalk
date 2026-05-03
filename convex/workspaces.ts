@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireOperator } from "./auth";
 import {
   generateSessionToken,
   generateWidgetId,
@@ -91,6 +92,52 @@ export const create = mutation({
     });
 
     return { workspaceId, operatorId, sessionToken, widgetId };
+  },
+});
+
+/**
+ * The dashboard accent color the current operator's workspace sees.
+ * Hex string or null when unset (UI falls back to default).
+ */
+export const getDashboardAccent = query({
+  args: { sessionToken: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    try {
+      const { workspaceId } = await requireOperator(ctx, args.sessionToken);
+      const ws = await ctx.db.get(workspaceId);
+      return ws?.dashboardAccent ?? null;
+    } catch {
+      return null;
+    }
+  },
+});
+
+/**
+ * Owner / admin sets the workspace's dashboard accent. Pass null to
+ * reset to default.
+ */
+export const setDashboardAccent = mutation({
+  args: {
+    sessionToken: v.string(),
+    accent: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    if (operator.role === "agent") {
+      throw new Error("Only admins and owners can change the dashboard color.");
+    }
+    if (args.accent && !/^#[0-9a-fA-F]{6}$/.test(args.accent)) {
+      throw new Error("Color must be a 6-digit hex like #0F1A12.");
+    }
+    await ctx.db.patch(workspaceId, {
+      dashboardAccent: args.accent ?? undefined,
+    });
+    return null;
   },
 });
 

@@ -1,12 +1,13 @@
 "use client";
 
-import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { ConvexProvider, ConvexReactClient, useQuery } from "convex/react";
 import {
   createContext,
   useContext,
   useMemo,
   type ReactNode,
 } from "react";
+import { api } from "@/convex/_generated/api";
 
 export type DashboardAuth = {
   sessionToken: string;
@@ -48,7 +49,35 @@ export function DashboardShell({
   );
   return (
     <ConvexProvider client={client}>
-      <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>
+      <AuthContext.Provider value={auth}>
+        <AccentInjector>{children}</AccentInjector>
+      </AuthContext.Provider>
     </ConvexProvider>
+  );
+}
+
+/**
+ * Reads the workspace's dashboardAccent and injects CSS variable
+ * overrides into the dashboard subtree. Only swaps the primary-action
+ * ink colour (the `bg-ink` button background + `text-ink-on-bg-ink`
+ * style targets); body text and borders keep PraxTalk defaults so the
+ * dashboard stays readable regardless of the picked colour.
+ *
+ * Marketing pages aren't wrapped in DashboardShell so they keep brand
+ * defaults end-to-end.
+ */
+function AccentInjector({ children }: { children: ReactNode }) {
+  const { sessionToken } = useDashboardAuth();
+  const accent = useQuery(api.workspaces.getDashboardAccent, { sessionToken });
+  if (!accent) return <>{children}</>;
+  return (
+    <div data-themed-accent={accent} className="contents">
+      <style>{`
+        [data-themed-accent] .bg-ink { background-color: ${accent} !important; }
+        [data-themed-accent] .border-ink { border-color: ${accent} !important; }
+        [data-themed-accent] .ring-ink { --tw-ring-color: ${accent} !important; }
+      `}</style>
+      {children}
+    </div>
   );
 }
