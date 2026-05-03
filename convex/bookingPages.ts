@@ -411,6 +411,42 @@ export const book = mutation({
       createdAt: now,
     });
 
+    // Outbound confirmation to the visitor on the chosen channel —
+    // reuses the existing email/SMS/WhatsApp dispatchers. Inserts an
+    // atlas-role message and schedules the right outbound action.
+    const confirmationBody = renderConfirmation({
+      title: p.title,
+      ownerName: (await ctx.db.get(p.ownerOperatorId))?.name ?? "the team",
+      startsAt,
+      timezone: p.timezone,
+      visitorName: args.name,
+    });
+    const confirmMsgId = await ctx.db.insert("messages", {
+      conversationId,
+      workspaceId: p.workspaceId,
+      brandId: p.brandId,
+      channel: p.confirmChannel === "email" ? "email" : p.confirmChannel === "sms" ? "sms" : "whatsapp",
+      role: "atlas",
+      body: confirmationBody,
+      createdAt: now,
+    });
+    if (p.confirmChannel === "email") {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.emailIntegrations.sendOperatorReply,
+        { messageId: confirmMsgId },
+      );
+    } else if (p.confirmChannel === "sms") {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.voiceIntegrations.sendSmsForMessage,
+        { messageId: confirmMsgId },
+      );
+    }
+    // WhatsApp confirmation needs a pre-approved template — skipped at
+    // booking time. Visitor still sees the message in their conversation
+    // when they next chat. Operator can manually send the template.
+
     const bookingId = await ctx.db.insert("bookings", {
       workspaceId: p.workspaceId,
       brandId: p.brandId,
@@ -457,6 +493,30 @@ export const book = mutation({
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────
+
+function renderConfirmation(args: {
+  title: string;
+  ownerName: string;
+  startsAt: number;
+  timezone: string;
+  visitorName: string;
+}): string {
+  const when = new Date(args.startsAt).toLocaleString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  return `Hi ${args.visitorName},
+
+You're booked in for "${args.title}" with ${args.ownerName} on ${when}.
+
+We'll send a reminder closer to the time. To reschedule or cancel, just reply to this message and we'll sort it out.
+
+Looking forward to chatting!`;
+}
 
 function parseDateInTz(yyyymmdd: string, _tz: string): number {
   // For MVP we treat the date as midnight UTC. Proper tz handling
