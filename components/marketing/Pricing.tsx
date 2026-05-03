@@ -24,7 +24,7 @@ const plans: Plan[] = [
       "Atlas Resolver agent",
       "Community support",
     ],
-    cta: { label: "Start free", style: "ghost", href: "/setup" },
+    cta: { label: "Start free", style: "ghost", href: "/sign-up" },
   },
   {
     name: "Team",
@@ -38,7 +38,7 @@ const plans: Plan[] = [
       "WhatsApp, SMS & voice",
       "Copilot for humans",
     ],
-    cta: { label: "Start 14-day trial", style: "dark", href: "/setup" },
+    cta: { label: "Start 14-day trial", style: "dark", href: "/sign-up" },
   },
   {
     name: "Scale",
