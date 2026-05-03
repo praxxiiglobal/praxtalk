@@ -12,9 +12,9 @@ export const navItems: { href: string; label: string; icon: NavIconName }[] = [
   { href: "/app/notifications", label: "Notifications", icon: "bell" },
   { href: "/app/leads", label: "Leads", icon: "lead" },
   { href: "/app/calls", label: "Calls", icon: "phone" },
-  { href: "/app/emails", label: "Emails", icon: "reply" },
+  { href: "/app/emails", label: "Emails", icon: "envelope" },
   // Reminders + Booking pages now live together under Schedules.
-  { href: "/app/schedules", label: "Schedules", icon: "lobby" },
+  { href: "/app/schedules", label: "Schedules", icon: "calendar" },
   { href: "/app/atlas", label: "Atlas AI", icon: "atlas" },
   { href: "/app/lobby", label: "Lobby intake", icon: "lobby" },
   { href: "/app/analytics", label: "Analytics", icon: "chart" },
@@ -118,6 +118,8 @@ type NavIconName =
   | "bell"
   | "lead"
   | "phone"
+  | "envelope"
+  | "calendar"
   | "atlas"
   | "lobby"
   | "chart"
@@ -200,6 +202,20 @@ function NavIcon({ name, active }: { name: NavIconName; active?: boolean }) {
           <path d="M10 12.5c0-1.5 1.4-2.5 3-2.5" />
         </svg>
       );
+    case "envelope":
+      return (
+        <svg {...common} aria-hidden>
+          <rect x="1.5" y="3.5" width="13" height="9" rx="1" />
+          <path d="M2 4l6 5 6-5" />
+        </svg>
+      );
+    case "calendar":
+      return (
+        <svg {...common} aria-hidden>
+          <rect x="2" y="3" width="12" height="11" rx="1" />
+          <path d="M2 7h12M5 1.5v3M11 1.5v3" />
+        </svg>
+      );
     case "reply":
       return (
         <svg {...common} aria-hidden>
@@ -215,8 +231,11 @@ function NavIcon({ name, active }: { name: NavIconName; active?: boolean }) {
     case "settings":
       return (
         <svg {...common} aria-hidden>
-          <circle cx="8" cy="8" r="2" />
-          <path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8L3.4 3.4" />
+          {/* Cog with 8 teeth + inner circle. Teeth as short
+              radial nubs around an inner ring; reads as a gear at
+              16px better than the prior sunburst-circle pattern. */}
+          <circle cx="8" cy="8" r="2.2" />
+          <path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4" />
         </svg>
       );
     case "card":
