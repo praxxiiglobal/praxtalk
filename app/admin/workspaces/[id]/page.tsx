@@ -15,10 +15,40 @@ export default async function WorkspaceDetailPage({
 }) {
   const { id } = await params;
   const sessionToken = (await readSessionToken()) ?? "";
-  const data = await convexServer.query(api._admin.getWorkspace, {
-    sessionToken,
-    workspaceId: id as Id<"workspaces">,
-  });
+  let data: Awaited<
+    ReturnType<typeof convexServer.query<typeof api._admin.getWorkspace>>
+  > | null = null;
+  let queryError: string | null = null;
+  try {
+    data = await convexServer.query(api._admin.getWorkspace, {
+      sessionToken,
+      workspaceId: id as Id<"workspaces">,
+    });
+  } catch (e) {
+    queryError = e instanceof Error ? e.message : String(e);
+  }
+  if (queryError) {
+    return (
+      <div className="rounded-2xl border border-red-300/40 bg-red-50/30 p-5">
+        <div className="font-mono text-[11px] uppercase tracking-[0.06em] text-red-700">
+          Convex error
+        </div>
+        <pre className="mt-2 whitespace-pre-wrap break-all text-[12.5px] text-red-900">
+          {queryError}
+        </pre>
+        <p className="mt-3 text-[12px] text-muted">
+          Run <code>npx convex deploy --yes</code> from a local
+          checkout, then reload.
+        </p>
+        <Link
+          href="/admin/workspaces"
+          className="mt-3 inline-block font-mono text-[11px] text-muted hover:text-ink"
+        >
+          ← Back to list
+        </Link>
+      </div>
+    );
+  }
   if (!data) notFound();
   const { workspace, operators, brands, recentConvos } = data;
 

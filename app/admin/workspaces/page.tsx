@@ -7,10 +7,57 @@ export const dynamic = "force-dynamic"; // always live (admin view)
 
 export default async function WorkspacesAdminPage() {
   const sessionToken = (await readSessionToken()) ?? "";
-  const workspaces = await convexServer.query(
-    api._admin.listWorkspaces,
-    { sessionToken },
-  );
+
+  // Wrap the SSR query in try/catch — if Convex throws (commonly:
+  // a new schema index hasn't been deployed yet, or auth gate
+  // refused), surface a useful error instead of crashing into
+  // Vercel's generic 500 / Chrome's "This page couldn't load".
+  let workspaces: Awaited<
+    ReturnType<typeof convexServer.query<typeof api._admin.listWorkspaces>>
+  > | null = null;
+  let queryError: string | null = null;
+  try {
+    workspaces = await convexServer.query(api._admin.listWorkspaces, {
+      sessionToken,
+    });
+  } catch (e) {
+    queryError = e instanceof Error ? e.message : String(e);
+  }
+
+  if (queryError || !workspaces) {
+    return (
+      <>
+        <header className="mb-8">
+          <h1 className="text-3xl font-semibold tracking-[-0.025em]">
+            Workspaces
+          </h1>
+          <p className="mt-2 max-w-[60ch] text-sm text-muted">
+            Couldn&apos;t load workspaces. The Convex backend rejected
+            the call — most likely the latest schema / index hasn&apos;t
+            been deployed to production yet.
+          </p>
+        </header>
+        <div className="rounded-2xl border border-red-300/40 bg-red-50/30 p-5">
+          <div className="font-mono text-[11px] uppercase tracking-[0.06em] text-red-700">
+            Convex error
+          </div>
+          <pre className="mt-2 whitespace-pre-wrap break-all text-[12.5px] text-red-900">
+            {queryError ?? "Unknown error."}
+          </pre>
+          <div className="mt-4 text-[13px] text-ink">
+            <strong>Fix:</strong> from a local checkout of the repo, run:
+          </div>
+          <pre className="mt-2 rounded-lg bg-paper-2 p-3 font-mono text-[12.5px] text-ink">
+            npx convex deploy --yes
+          </pre>
+          <p className="mt-3 text-[12px] text-muted">
+            That force-pushes the current <code>convex/</code> schema
+            + every function to prod. Then reload this page.
+          </p>
+        </div>
+      </>
+    );
+  }
 
   const totals = workspaces.reduce(
     (acc, w) => {
