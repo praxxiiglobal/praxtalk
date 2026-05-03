@@ -920,54 +920,143 @@ export const _sendReminderVoice = internalAction({
     const { provider, apiKey, apiToken, defaultNumber, visitorPhone } =
       ctxData;
 
-    if (provider !== "twilio") {
-      return {
-        ok: false,
-        error: `Voice TTS reminders not yet implemented for ${provider}. Use Twilio or pick a different channel.`,
-      };
-    }
-
-    // Twilio accepts inline TwiML via the `Twiml` form param — saves
-    // us standing up a TwiML server. <Say> is text-to-speech.
-    const escaped = args.body
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-    const twiml = `<Response><Say voice="alice">${escaped}</Say></Response>`;
-    const auth = btoa(`${apiKey}:${apiToken}`);
-    const form = new URLSearchParams({
-      To: visitorPhone,
-      From: defaultNumber,
-      Twiml: twiml,
-    });
     try {
-      const res = await fetch(
-        `https://api.twilio.com/2010-04-01/Accounts/${apiKey}/Calls.json`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Basic ${auth}`,
-            "content-type": "application/x-www-form-urlencoded",
-          },
-          body: form.toString(),
-        },
-      );
-      if (!res.ok) {
-        return {
-          ok: false,
-          error: `Twilio ${res.status}: ${await res.text()}`,
-        };
+      if (provider === "twilio") {
+        await sendTtsViaTwilio({
+          accountSid: apiKey,
+          authToken: apiToken,
+          from: defaultNumber,
+          to: visitorPhone,
+          body: args.body,
+        });
+      } else if (provider === "callhippo") {
+        await sendTtsViaCallHippo({
+          apiKey, // account email
+          apiToken,
+          from: defaultNumber,
+          to: visitorPhone,
+          body: args.body,
+        });
+      } else if (provider === "telecmi") {
+        await sendTtsViaTeleCMI({
+          appId: apiKey,
+          secret: apiToken,
+          from: defaultNumber,
+          to: visitorPhone,
+          body: args.body,
+        });
       }
       return { ok: true };
     } catch (err) {
       return {
         ok: false,
-        error: err instanceof Error ? err.message : "Twilio call failed",
+        error: err instanceof Error ? err.message : "TTS call failed",
       };
     }
   },
 });
+
+// ── Voice TTS adapters ────────────────────────────────────────────────
+
+async function sendTtsViaTwilio(args: {
+  accountSid: string;
+  authToken: string;
+  from: string;
+  to: string;
+  body: string;
+}) {
+  // Twilio accepts inline TwiML via the `Twiml` form param — saves us
+  // from standing up a TwiML server. <Say> is text-to-speech.
+  const escaped = args.body
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  const twiml = `<Response><Say voice="alice">${escaped}</Say></Response>`;
+  const auth = btoa(`${args.accountSid}:${args.authToken}`);
+  const form = new URLSearchParams({
+    To: args.to,
+    From: args.from,
+    Twiml: twiml,
+  });
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${args.accountSid}/Calls.json`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${auth}`,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Twilio ${res.status}: ${await res.text()}`);
+  }
+}
+
+/**
+ * CallHippo Voice Broadcast — accepts text and synthesizes speech
+ * server-side. Endpoint per CallHippo's outbound TTS docs; verify the
+ * exact path against your account's API console before going live (it
+ * has changed twice in the last year).
+ */
+async function sendTtsViaCallHippo(args: {
+  apiKey: string;
+  apiToken: string;
+  from: string;
+  to: string;
+  body: string;
+}) {
+  const res = await fetch("https://api.callhippo.com/v1/voice-broadcast", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      apiToken: args.apiToken,
+      email: args.apiKey,
+    },
+    body: JSON.stringify({
+      from: args.from,
+      to: args.to,
+      message: args.body,
+      voice_type: "female",
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`CallHippo TTS ${res.status}: ${await res.text()}`);
+  }
+}
+
+/**
+ * TeleCMI text-to-speech outbound call. The `text_to_speech_call`
+ * endpoint accepts the message text directly and synthesizes inline.
+ */
+async function sendTtsViaTeleCMI(args: {
+  appId: string;
+  secret: string;
+  from: string;
+  to: string;
+  body: string;
+}) {
+  const res = await fetch(
+    "https://rest.telecmi.com/v2/text_to_speech_call",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        appid: args.appId,
+        secret: args.secret,
+        from: args.from,
+        to: args.to,
+        text: args.body,
+        lang: "en-US",
+      }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`TeleCMI TTS ${res.status}: ${await res.text()}`);
+  }
+}
 
 export const _loadReminderVoiceContext = internalQuery({
   args: {
