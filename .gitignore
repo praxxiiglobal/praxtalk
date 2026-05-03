@@ -43,3 +43,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# capacitor — native projects are regenerated locally via
+# `npx cap add ios` / `npx cap add android`; see mobile/README.md.
+# Each developer's machine has its own ios/ + android/ alongside
+# their own signing certificates, which must never enter git.
+/ios/
+/android/
