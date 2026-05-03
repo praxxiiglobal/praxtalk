@@ -201,7 +201,7 @@ export const deliverResetEmail = internalAction({
       return null;
     }
 
-    const resetLink = `https://praxtalk.com/reset-password/${args.token}`;
+    const resetLink = `https://www.praxtalk.com/reset-password/${args.token}`;
     const subject = `Reset your PraxTalk password`;
     const body =
       `Someone requested a password reset for your PraxTalk account on ${workspace.name}.\n\n` +

@@ -25,7 +25,7 @@ export default function DocsPage() {
             the snippet into the page, just before <code>&lt;/body&gt;</code>:
           </p>
           <pre>{`<script
-  src="https://praxtalk.com/widget.js"
+  src="https://www.praxtalk.com/widget.js"
   data-widget-id="ws_…"
   defer
 ></script>`}</pre>

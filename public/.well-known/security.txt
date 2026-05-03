@@ -1,6 +1,6 @@
 Contact: mailto:security@praxtalk.com
-Contact: https://praxtalk.com/security
+Contact: https://www.praxtalk.com/security
 Expires: 2027-05-03T00:00:00.000Z
 Preferred-Languages: en
-Policy: https://praxtalk.com/security
-Acknowledgments: https://praxtalk.com/security
+Policy: https://www.praxtalk.com/security
+Acknowledgments: https://www.praxtalk.com/security

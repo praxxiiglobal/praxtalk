@@ -1243,7 +1243,7 @@ async function handleOauthCallback(
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const errorParam = url.searchParams.get("error");
-  const settingsUrl = `${process.env.PRAXTALK_DASHBOARD_BASE ?? "https://praxtalk.com"}/app/settings`;
+  const settingsUrl = `${process.env.PRAXTALK_DASHBOARD_BASE ?? "https://www.praxtalk.com"}/app/settings`;
 
   if (errorParam || !code || !state) {
     return Response.redirect(

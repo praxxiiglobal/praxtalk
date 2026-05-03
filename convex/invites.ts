@@ -135,7 +135,7 @@ export const send = mutation({
     return {
       inviteId,
       inviteToken: token,
-      inviteLink: `https://praxtalk.com/invite/${token}`,
+      inviteLink: `https://www.praxtalk.com/invite/${token}`,
     };
   },
 });
@@ -377,7 +377,7 @@ export const deliverInviteEmail = internalAction({
       return null;
     }
 
-    const inviteLink = `https://praxtalk.com/invite/${args.token}`;
+    const inviteLink = `https://www.praxtalk.com/invite/${args.token}`;
     const inviterName = inviter?.name ?? "Your teammate";
     const subject = `${inviterName} invited you to PraxTalk`;
     const body =

@@ -142,7 +142,7 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
   const origin =
     typeof window !== "undefined"
       ? window.location.origin
-      : "https://praxtalk.com";
+      : "https://www.praxtalk.com";
   const snippet = `<script src="${origin}/widget.js" data-widget-id="${brand.widgetId}" defer></script>`;
 
   const onCopy = async () => {

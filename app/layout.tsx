@@ -28,13 +28,13 @@ export const metadata: Metadata = {
   title: "PraxTalk — Conversations that close themselves",
   description:
     "PraxTalk is the AI-native customer messaging platform. One inbox for live chat, email, WhatsApp, voice and in-app — with Atlas, an autonomous agent that resolves conversations end to end.",
-  metadataBase: new URL("https://praxtalk.com"),
+  metadataBase: new URL("https://www.praxtalk.com"),
   alternates: { canonical: "/" },
   openGraph: {
     title: "PraxTalk — Conversations that close themselves",
     description:
       "AI-native customer messaging. Six agents. One inbox. Zero hand-offs.",
-    url: "https://praxtalk.com",
+    url: "https://www.praxtalk.com",
     siteName: "PraxTalk",
     type: "website",
   },
@@ -70,8 +70,8 @@ const structuredData = [
     "@context": "https://schema.org",
     "@type": "Organization",
     name: "PraxTalk",
-    url: "https://praxtalk.com",
-    logo: "https://praxtalk.com/praxtalk-logo.png",
+    url: "https://www.praxtalk.com",
+    logo: "https://www.praxtalk.com/praxtalk-logo.png",
     sameAs: ["https://github.com/praxxiiglobal/praxtalk"],
     contactPoint: [
       {
@@ -86,10 +86,10 @@ const structuredData = [
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: "PraxTalk",
-    url: "https://praxtalk.com",
+    url: "https://www.praxtalk.com",
     potentialAction: {
       "@type": "SearchAction",
-      target: "https://praxtalk.com/docs?q={search_term_string}",
+      target: "https://www.praxtalk.com/docs?q={search_term_string}",
       "query-input": "required name=search_term_string",
     },
   },

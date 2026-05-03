@@ -211,7 +211,7 @@ const WIDGET_SHELL = `
         <button class="send" aria-label="Send">↑</button>
       </div>
     </div>
-    <div class="footer">Powered by <a href="https://praxtalk.com" target="_blank" rel="noopener">PraxTalk</a></div>
+    <div class="footer">Powered by <a href="https://www.praxtalk.com" target="_blank" rel="noopener">PraxTalk</a></div>
   </div>
 </div>
 `;

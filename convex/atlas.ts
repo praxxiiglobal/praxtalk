@@ -1486,7 +1486,7 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
         redirect: "manual",
         headers: {
           "user-agent":
-            "PraxTalkAtlasBot/1.0 (+https://praxtalk.com — knowledge base ingest)",
+            "PraxTalkAtlasBot/1.0 (+https://www.praxtalk.com — knowledge base ingest)",
           accept: "text/html,application/xhtml+xml,application/xml,text/plain",
         },
       });

@@ -458,7 +458,7 @@ export const createRazorpayCheckoutLink = action({
     }
     const callbackUrl =
       process.env.RAZORPAY_RETURN_URL ??
-      "https://praxtalk.com/app/billing?razorpay=approved";
+      "https://www.praxtalk.com/app/billing?razorpay=approved";
 
     const sub = await razorpay.createSubscription({
       planId,
