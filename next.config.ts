@@ -2,10 +2,10 @@ import type { NextConfig } from "next";
 import path from "node:path";
 
 /**
- * Strict security headers applied to every HTML response. CSP is in
- * report-only mode for the first 2-week soak; flip to enforce by
- * renaming Content-Security-Policy-Report-Only → Content-Security-Policy
- * once the report endpoint shows zero violations.
+ * Strict security headers applied to every HTML response. CSP is now
+ * enforced (no longer report-only). Violations still hit /api/csp-report
+ * via report-uri so we get visibility into anything that breaks; if
+ * something legitimate gets blocked, broaden the directive and ship.
  *
  * Audit refs: S-04, S-10, S-13 (2026-05-03 audit). Strips the
  * Access-Control-Allow-Origin: * default from HTML and removes the
@@ -27,7 +27,7 @@ const SECURITY_HEADERS = [
   // For now the existing 2-year max-age stays as the platform default.
 ];
 
-const CSP_REPORT_ONLY = [
+const CSP = [
   "default-src 'self'",
   // Next.js inlines a small bootstrap script per page; 'unsafe-inline'
   // covers it. Vercel scripts include analytics + insights.
@@ -38,11 +38,12 @@ const CSP_REPORT_ONLY = [
   // Convex subdomains for the live socket + REST. ipinfo/ipapi for the
   // widget's geo lookup. Razorpay/PayPal callbacks land at our own
   // backend so don't need outbound entries.
-  "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://ipinfo.io https://ipapi.co",
+  "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://ipinfo.io https://ipapi.co https://*.vercel-insights.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   "upgrade-insecure-requests",
+  "report-uri /api/csp-report",
 ].join("; ");
 
 const nextConfig: NextConfig = {
@@ -65,10 +66,7 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: [
           ...SECURITY_HEADERS,
-          {
-            key: "Content-Security-Policy-Report-Only",
-            value: CSP_REPORT_ONLY,
-          },
+          { key: "Content-Security-Policy", value: CSP },
         ],
       },
       {
