@@ -285,6 +285,23 @@ export default defineSchema({
     .index("by_operator", ["operatorId"])
     .index("by_workspace", ["workspaceId"]),
 
+  // Cached events from the operator's connected calendar. Refreshed
+  // every 5 min by the cron in convex/calendarSync.ts. We only cache
+  // the fields slot-exclusion needs (startsAt + endsAt + busy state)
+  // — no event titles or attendees, so an operator's private calendar
+  // contents never leak into PraxTalk's storage.
+  calendarEvents: defineTable({
+    connectionId: v.id("calendarConnections"),
+    operatorId: v.id("operators"),
+    externalId: v.string(),
+    startsAt: v.number(),
+    endsAt: v.number(),
+    busy: v.boolean(), // false = "free" / transparent events; ignored when computing conflicts
+  })
+    .index("by_operator_starts_at", ["operatorId", "startsAt"])
+    .index("by_connection", ["connectionId"])
+    .index("by_external", ["connectionId", "externalId"]),
+
   // OAuth state — short-lived rows used to verify the callback isn't
   // a CSRF attempt and to remember which operator initiated the flow.
   // Self-cleaning: the callback deletes its own row on success.

@@ -22,4 +22,13 @@ crons.interval(
   {},
 );
 
+// Sync cached events from each connected calendar (Google + Microsoft)
+// every 5 min. No-op when no connections exist.
+crons.interval(
+  "sync calendar events",
+  { minutes: 5 },
+  internal.calendarSync.pollAllConnections,
+  {},
+);
+
 export default crons;

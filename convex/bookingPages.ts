@@ -282,7 +282,7 @@ export const computeSlots = query({
     // still leave the slot open (a different owner takes it).
     const horizonStart = parseDateInTz(args.fromDate, p.timezone);
     const horizonEnd = horizonStart + days * 24 * 60 * 60 * 1000;
-    const occupiedByOwner = new Map<string, typeof p extends never ? never : Doc<"bookings">[]>();
+    const occupiedByOwner = new Map<string, { startsAt: number; endsAt: number }[]>();
     for (const ownerId of owners) {
       const taken = await ctx.db
         .query("bookings")
@@ -292,16 +292,34 @@ export const computeSlots = query({
             .gte("startsAt", horizonStart - 12 * 60 * 60 * 1000),
         )
         .take(500);
-      occupiedByOwner.set(
-        ownerId,
-        taken.filter(
+      const occupied: { startsAt: number; endsAt: number }[] = taken
+        .filter(
           (b) =>
             b.status !== "cancelled" &&
             b.status !== "no_show" &&
             b.endsAt > horizonStart &&
             b.startsAt < horizonEnd,
-        ),
-      );
+        )
+        .map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt }));
+
+      // Phase 3: also exclude events from the operator's connected
+      // external calendar (Google / Microsoft). Cached by the
+      // calendarSync cron — falls back to "no calendar = no extra
+      // exclusions" when the operator hasn't connected one.
+      const calEvents = await ctx.db
+        .query("calendarEvents")
+        .withIndex("by_operator_starts_at", (q) =>
+          q
+            .eq("operatorId", ownerId)
+            .gte("startsAt", horizonStart - 12 * 60 * 60 * 1000),
+        )
+        .take(500);
+      for (const e of calEvents) {
+        if (!e.busy) continue; // free / transparent events don't block
+        if (e.endsAt <= horizonStart || e.startsAt >= horizonEnd) continue;
+        occupied.push({ startsAt: e.startsAt, endsAt: e.endsAt });
+      }
+      occupiedByOwner.set(ownerId, occupied);
     }
 
     const slotMs = p.durationMin * 60 * 1000;
