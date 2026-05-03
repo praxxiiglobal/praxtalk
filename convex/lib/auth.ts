@@ -1,9 +1,18 @@
 /**
  * Auth primitives — runs inside Convex V8 isolate, so we use
  * Web Crypto (PBKDF2) and crypto.getRandomValues, not Node bcrypt.
+ *
+ * Audit S-08 (2026-05-03): bumped ITERATIONS from 100k → 600k to
+ * meet OWASP 2023 guidance for PBKDF2-SHA256. Older 100k hashes
+ * still verify (the iteration count is in the stored string), and
+ * we re-hash silently on next successful login — see needsRehash.
+ *
+ * Argon2id (the audit's preferred algorithm) needs a Node-runtime
+ * library; deferred until login can move to a Node action without
+ * breaking the mutation-transactional flow.
  */
 
-const ITERATIONS = 100_000;
+const ITERATIONS = 600_000;
 const KEY_LEN_BYTES = 32;
 const SALT_LEN_BYTES = 16;
 const HASH_NAME = "SHA-256";
@@ -78,6 +87,20 @@ export async function verifyPassword(
   let diff = 0;
   for (let i = 0; i < got.length; i++) diff |= got[i] ^ expected[i];
   return diff === 0;
+}
+
+/**
+ * True if the stored hash is using a weaker iteration count than
+ * the current default (or an entirely different algorithm). Login
+ * mutations check this after a successful verifyPassword and
+ * silently re-hash — gradual migration to the stronger params
+ * without forcing a global password reset.
+ */
+export function needsRehash(stored: string): boolean {
+  const parts = stored.split("$");
+  if (parts.length !== 4 || parts[0] !== "pbkdf2-sha256") return true;
+  const iterations = Number(parts[1]);
+  return !Number.isFinite(iterations) || iterations < ITERATIONS;
 }
 
 /**

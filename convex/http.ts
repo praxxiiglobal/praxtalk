@@ -87,6 +87,7 @@ async function authenticate(
       workspaceId: Id<"workspaces">;
       scope: "read" | "write";
       brandId: Id<"brands"> | null;
+      rateLimit: { limit: number; remaining: number };
     }
   | { error: Response }
 > {
@@ -111,10 +112,38 @@ async function authenticate(
   if (!result) {
     return { error: errorResponse(401, "Invalid or revoked API key.") };
   }
+  // Per-API-key rate limit on top of per-IP. Audit S-12: a single
+  // leaked key shouldn't be able to drain the workspace's quota
+  // through a botnet of rotating IPs.
+  const keyLimit = await ctx.runMutation(
+    internal.rateLimits._checkAndRecordKey,
+    { apiKeyId: result._id, scope: result.scope },
+  );
+  if (!keyLimit.allowed) {
+    return {
+      error: new Response(
+        JSON.stringify({
+          error: "API-key rate limit exceeded.",
+          retryAfterSeconds: keyLimit.retryAfterSeconds,
+        }),
+        {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": String(keyLimit.retryAfterSeconds ?? 60),
+            "x-ratelimit-limit": String(keyLimit.limit),
+            "x-ratelimit-remaining": "0",
+            ...CORS_HEADERS,
+          },
+        },
+      ),
+    };
+  }
   return {
     workspaceId: result.workspaceId,
     scope: result.scope,
     brandId: result.brandId,
+    rateLimit: { limit: keyLimit.limit, remaining: keyLimit.remaining },
   };
 }
 

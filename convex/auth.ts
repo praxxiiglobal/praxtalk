@@ -3,7 +3,9 @@ import { mutation, query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   generateSessionToken,
+  hashPassword,
   hashToken,
+  needsRehash,
   verifyPassword,
 } from "./lib/auth";
 
@@ -29,6 +31,15 @@ export const login = mutation({
       operator !== null &&
       (await verifyPassword(args.password, operator.passwordHash));
     if (!ok || !operator) throw new ConvexError("Invalid email or password.");
+
+    // Silent migration to stronger PBKDF2 params (S-08). On every
+    // successful login, if the stored hash uses an iteration count
+    // below the current default, re-hash + patch. No forced reset
+    // for legacy users; just upgrades them next time they sign in.
+    if (needsRehash(operator.passwordHash)) {
+      const upgraded = await hashPassword(args.password);
+      await ctx.db.patch(operator._id, { passwordHash: upgraded });
+    }
 
     const sessionToken = generateSessionToken();
     await ctx.db.insert("sessions", {
