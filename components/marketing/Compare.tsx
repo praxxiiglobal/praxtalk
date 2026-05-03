@@ -139,6 +139,30 @@ export function Compare() {
         <p className="mt-6 text-center text-[12px] text-muted">
           PraxTalk is in open beta — this table reflects the v1.0 release scope.
         </p>
+        <div className="mx-auto mt-3 max-w-[920px] space-y-1 text-left font-mono text-[10.5px] leading-[1.5] text-muted">
+          <p>
+            Comparison verified against each vendor&apos;s public pricing
+            and product pages on May 3, 2026. Vendor names, logos, and
+            trademarks are property of their respective owners — used
+            here for comparative reference only under fair use.
+            Sources: intercom.com/pricing, hubspot.com/products/service,
+            livechat.com/pricing, drift.com/pricing, crisp.chat/pricing,
+            tawk.to.
+          </p>
+          <p>
+            Cells marked &quot;basic&quot;, &quot;limited&quot;, or &quot;draft only&quot; reflect
+            the specific feature scope documented by the vendor as of
+            the date above; competitors ship updates frequently — if a
+            cell is out of date, email{" "}
+            <a
+              href="mailto:hello@praxtalk.com"
+              className="underline-offset-2 hover:underline"
+            >
+              hello@praxtalk.com
+            </a>{" "}
+            and we&apos;ll re-verify within 24 hours.
+          </p>
+        </div>
       </div>
     </section>
   );

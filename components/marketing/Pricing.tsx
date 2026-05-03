@@ -51,7 +51,7 @@ const plans: Plan[] = [
       "Self-writing KB",
       "Salesforce, HubSpot, Linear sync",
       "Sentiment + routing engine",
-      "SOC 2 Type II (when available)",
+      "SOC 2 Type II — committed at v1.0 GA",
     ],
     cta: {
       label: "Talk to sales",
@@ -68,7 +68,7 @@ const plans: Plan[] = [
     lede: "For regulated industries — HIPAA, finance, healthcare, gov.",
     features: [
       "Everything in Scale",
-      "HIPAA / BAA available",
+      "HIPAA / BAA — on the v1.0 roadmap",
       "Single-tenant AI runtime",
       "Field-level PII redaction",
       "SAML SSO + SCIM",

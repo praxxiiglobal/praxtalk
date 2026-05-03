@@ -1,7 +1,7 @@
 import { SectionHead } from "./SectionHead";
 
 const inboxItems = [
-  { initials: "JR", name: "Jordan R.", preview: "Refund issue · Visa 4412", badge: "2m", color: "bg-accent" },
+  { initials: "JR", name: "Jordan R.", preview: "Refund issue · card ending 4412", badge: "2m", color: "bg-accent" },
   { initials: "MA", name: "Maya A.", preview: "Promo not applying at chec…", badge: "live", active: true },
   { initials: "EL", name: "Elif L.", preview: "How do I export my data?", badge: "14m", color: "bg-[#4A6B3F]" },
   { initials: "DK", name: "Daniel K.", preview: "Switching from Crisp — m…", badge: "1h", color: "bg-[#8A7A3F]" },
@@ -113,11 +113,11 @@ export function ProductMockup() {
                   <div>
                     <b className="tracking-[-0.01em]">Maya Aronsson</b>
                     <div className="text-[11px] text-muted">
-                      maya@nordbright.io · Pro plan · Stockholm
+                      maya@example.com · Pro plan · Stockholm
                     </div>
                   </div>
-                  <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-rule-2 px-2 py-1 font-mono text-[10px] text-muted">
-                    <span className="size-1.5 rounded-full bg-good" /> LIVE
+                  <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-warn/40 bg-warn/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.06em] text-warn">
+                    sample
                   </span>
                   <span className="rounded-full border border-rule-2 px-2 py-1 font-mono text-[10px] text-muted">
                     CSAT 4.9
