@@ -521,6 +521,19 @@ export default defineSchema({
     ),
     reminderOffsetMin: v.array(v.number()), // negative offsets, e.g. [-1440, -60]
     enabled: v.boolean(),
+    // ── Approval gating (optional) ──────────────────────────────────
+    // When requiresApproval is on, visitor bookings land in
+    // status="pending_approval" and the listed approvers must
+    // accept/decline before the visitor gets a confirmation +
+    // calendar invite + reminders. approvalMode picks first-to-
+    // approve vs unanimous; approvalTimeoutHours auto-declines
+    // anything still pending after the deadline.
+    requiresApproval: v.optional(v.boolean()),
+    approvalMode: v.optional(
+      v.union(v.literal("any"), v.literal("all")),
+    ),
+    approvalOperatorIds: v.optional(v.array(v.id("operators"))),
+    approvalTimeoutHours: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_slug", ["slug"])
@@ -532,14 +545,20 @@ export default defineSchema({
     brandId: v.id("brands"),
     bookingPageId: v.id("bookingPages"),
     ownerOperatorId: v.id("operators"),
+    // For multi-attendee booking pages: the other operators who were
+    // free at this slot and should also receive the calendar invite
+    // + see the booking on their calendar. Set at create time.
+    additionalAttendeeOperatorIds: v.optional(v.array(v.id("operators"))),
     visitorId: v.id("visitors"),
     conversationId: v.id("conversations"),
     startsAt: v.number(),
     endsAt: v.number(),
     status: v.union(
       v.literal("pending"),
+      v.literal("pending_approval"), // approval-gated, awaiting approver decision
       v.literal("confirmed"),
       v.literal("cancelled"),
+      v.literal("declined"), // approvers refused, or auto-declined on timeout
       v.literal("no_show"),
     ),
     visitorEmail: v.optional(v.string()),
@@ -551,14 +570,44 @@ export default defineSchema({
     remarks: v.optional(v.string()),
     // Set after a successful write-back to the owner's connected
     // calendar — used by the cancel flow to delete the event from
-    // their calendar too.
+    // their calendar too. (Primary owner only — additional attendees
+    // each get their own event row written separately and aren't
+    // tracked individually since cancel cascades via bookingId.)
     calendarConnectionId: v.optional(v.id("calendarConnections")),
     calendarEventExternalId: v.optional(v.string()),
+    // Approval-gating bookkeeping. Mode/timeout are snapshotted from
+    // the bookingPage at create-time so editing the page later
+    // doesn't change in-flight bookings.
+    approvalMode: v.optional(v.union(v.literal("any"), v.literal("all"))),
+    approvalDeadlineAt: v.optional(v.number()),
+    finalizedAt: v.optional(v.number()), // when status flipped from pending_approval
+    declineReason: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_owner_starts_at", ["ownerOperatorId", "startsAt"])
     .index("by_booking_page_starts_at", ["bookingPageId", "startsAt"])
-    .index("by_workspace_starts_at", ["workspaceId", "startsAt"]),
+    .index("by_workspace_starts_at", ["workspaceId", "startsAt"])
+    .index("by_workspace_status", ["workspaceId", "status"]),
+
+  // One row per (booking, approver). Created when an approval-gated
+  // booking is placed; updated when each approver responds.
+  // approvalMode on the booking decides whether one "approved" is
+  // enough or whether every row must be approved.
+  bookingApprovals: defineTable({
+    bookingId: v.id("bookings"),
+    workspaceId: v.id("workspaces"),
+    approverOperatorId: v.id("operators"),
+    decision: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("declined"),
+    ),
+    note: v.optional(v.string()),
+    respondedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_booking", ["bookingId"])
+    .index("by_approver_pending", ["approverOperatorId", "decision"]),
 
   // ── REST API rate limiting ─────────────────────────────────────────
   // One row per IP. Tracks the current 60-second window's request

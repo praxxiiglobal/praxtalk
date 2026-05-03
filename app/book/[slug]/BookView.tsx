@@ -72,17 +72,32 @@ function BookInner({ slug }: { slug: string }) {
             className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full text-paper"
             style={{ backgroundColor: page.brandColor }}
           >
-            ✓
+            {page.requiresApproval ? "⏳" : "✓"}
           </div>
           <h1 className="text-2xl font-semibold tracking-[-0.02em]">
-            You're booked
+            {page.requiresApproval ? "Request received" : "You're booked"}
           </h1>
           <p className="mt-2 text-sm text-muted">
-            Your {page.title} with {page.ownerName} is confirmed for{" "}
-            {new Date(confirmed).toLocaleString()}.
+            {page.requiresApproval ? (
+              <>
+                Your {page.title} request for{" "}
+                {new Date(confirmed).toLocaleString()} is awaiting approval.
+                You&apos;ll get an email once {page.ownerName}&apos;s team
+                confirms.
+              </>
+            ) : (
+              <>
+                Your {page.title} with {page.ownerName} is confirmed for{" "}
+                {new Date(confirmed).toLocaleString()}.
+              </>
+            )}
           </p>
           <p className="mt-2 text-xs text-muted">
-            We'll send a reminder closer to the time.
+            {page.requiresApproval
+              ? `If we can't confirm within ${
+                  page.approvalTimeoutHours ?? 24
+                } hours, we'll let you know so you can pick another slot.`
+              : "We'll send a reminder closer to the time."}
           </p>
         </div>
       </main>
@@ -137,6 +152,14 @@ function BookInner({ slug }: { slug: string }) {
           </p>
           {page.description && (
             <p className="mt-3 text-sm text-ink">{page.description}</p>
+          )}
+          {page.requiresApproval && (
+            <div className="mt-4 rounded-xl border border-rule-2 bg-paper-2/60 px-3 py-2 text-[12px] text-ink">
+              <span aria-hidden>⏳</span> Bookings on this page require
+              approval — you&apos;ll receive an email once a team member
+              confirms (usually within{" "}
+              {page.approvalTimeoutHours ?? 24} hours).
+            </div>
           )}
         </header>
 

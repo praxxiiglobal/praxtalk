@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireOperator } from "./auth";
@@ -156,6 +161,10 @@ export const update = mutation({
     confirmChannel: v.optional(channelValidator),
     reminderOffsetMin: v.optional(v.array(v.number())),
     enabled: v.optional(v.boolean()),
+    requiresApproval: v.optional(v.boolean()),
+    approvalMode: v.optional(v.union(v.literal("any"), v.literal("all"))),
+    approvalOperatorIds: v.optional(v.array(v.id("operators"))),
+    approvalTimeoutHours: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -190,6 +199,28 @@ export const update = mutation({
     if (args.reminderOffsetMin !== undefined)
       patch.reminderOffsetMin = args.reminderOffsetMin;
     if (args.enabled !== undefined) patch.enabled = args.enabled;
+    if (args.requiresApproval !== undefined)
+      patch.requiresApproval = args.requiresApproval;
+    if (args.approvalMode !== undefined) patch.approvalMode = args.approvalMode;
+    if (args.approvalOperatorIds !== undefined) {
+      // Validate every approver belongs to this workspace.
+      for (const opId of args.approvalOperatorIds) {
+        const op = await ctx.db.get(opId);
+        if (!op || op.workspaceId !== workspaceId) {
+          throw new ConvexError("Approver doesn't belong to this workspace.");
+        }
+      }
+      patch.approvalOperatorIds = args.approvalOperatorIds;
+    }
+    if (args.approvalTimeoutHours !== undefined) {
+      const h = args.approvalTimeoutHours;
+      if (h < 1 || h > 168) {
+        throw new ConvexError(
+          "Approval timeout must be 1–168 hours (1 hr to 7 days).",
+        );
+      }
+      patch.approvalTimeoutHours = h;
+    }
     await ctx.db.patch(args.id, patch);
     return null;
   },
@@ -302,6 +333,8 @@ export const getPublicBySlug = query({
       ownerName: v.string(),
       brandName: v.string(),
       brandColor: v.string(),
+      requiresApproval: v.boolean(),
+      approvalTimeoutHours: v.union(v.number(), v.null()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -322,6 +355,8 @@ export const getPublicBySlug = query({
       ownerName: owner?.name ?? "Team",
       brandName: brand?.name ?? "PraxTalk",
       brandColor: brand?.primaryColor ?? "#0F1A12",
+      requiresApproval: p.requiresApproval === true,
+      approvalTimeoutHours: p.approvalTimeoutHours ?? null,
     };
   },
 });
@@ -477,14 +512,14 @@ export const book = mutation({
     const endsAt = startsAt + p.durationMin * 60 * 1000;
     if (startsAt < Date.now()) throw new ConvexError("Slot is in the past.");
 
-    // Round-robin assignment. Pick the first owner who's free at this
-    // slot. Race-safe inside the mutation transaction (owner list is
-    // re-read; conflicts checked per-owner before we commit).
+    // Round-robin assignment. Pick the first owner free at this slot
+    // as the primary host; collect every other owner who's also free
+    // for multi-attendee calendar fan-out.
     const owners = [
       p.ownerOperatorId,
       ...(p.additionalOwnerOperatorIds ?? []),
     ];
-    let assignedOwnerId: typeof p.ownerOperatorId | null = null;
+    const freeOwners: Id<"operators">[] = [];
     for (const ownerId of owners) {
       const taken = await ctx.db
         .query("bookings")
@@ -498,19 +533,19 @@ export const book = mutation({
         (b) =>
           b.status !== "cancelled" &&
           b.status !== "no_show" &&
+          b.status !== "declined" &&
           b.startsAt < endsAt &&
           b.endsAt > startsAt,
       );
-      if (!conflict) {
-        assignedOwnerId = ownerId;
-        break;
-      }
+      if (!conflict) freeOwners.push(ownerId);
     }
-    if (!assignedOwnerId) {
+    if (freeOwners.length === 0) {
       throw new ConvexError(
         "That slot was just taken — please pick another.",
       );
     }
+    const assignedOwnerId = freeOwners[0];
+    const additionalAttendees = freeOwners.slice(1);
 
     // Find or create visitor by email.
     const email = args.email.trim().toLowerCase();
@@ -555,158 +590,628 @@ export const book = mutation({
       createdAt: now,
     });
 
-    // Drop a system message so the operator immediately sees what was
-    // booked when they open the conversation.
+    // Drop an internal system message so the operator(s) immediately
+    // see what was booked when they open the conversation.
+    const requiresApproval = p.requiresApproval === true;
+    const attendeeNote =
+      additionalAttendees.length > 0
+        ? ` · ${additionalAttendees.length + 1} attendees`
+        : "";
     await ctx.db.insert("messages", {
       conversationId,
       workspaceId: p.workspaceId,
       brandId: p.brandId,
       channel: p.confirmChannel === "email" ? "email" : "sms",
       role: "system",
-      body: `📅 New booking — ${p.title} on ${new Date(
-        startsAt,
-      ).toUTCString()}. Visitor: ${args.name} <${email}>${
-        args.notes ? ` · Notes: ${args.notes}` : ""
-      }`,
+      body: `📅 ${requiresApproval ? "Pending approval" : "New booking"} — ${
+        p.title
+      } on ${new Date(startsAt).toUTCString()}. Visitor: ${
+        args.name
+      } <${email}>${args.notes ? ` · Notes: ${args.notes}` : ""}${attendeeNote}`,
       createdAt: now,
     });
 
-    // Outbound confirmation to the visitor on the chosen channel —
-    // reuses the existing email/SMS/WhatsApp dispatchers. Inserts an
-    // atlas-role message and schedules the right outbound action.
-    const confirmationBody = renderConfirmation({
-      title: p.title,
-      ownerName: (await ctx.db.get(assignedOwnerId))?.name ?? "the team",
-      startsAt,
-      endsAt,
-      timezone: p.timezone,
-      visitorName: args.name,
-    });
-    // For email: attach an ICS calendar invite. Gmail / Outlook /
-    // Apple Mail auto-detect this and offer one-click "Add to
-    // calendar" — much smoother than the deep-link fallback in the
-    // body. SMS/WhatsApp ignore attachments.
-    const icsAttachment =
-      p.confirmChannel === "email"
-        ? [
-            {
-              filename: "booking.ics",
-              contentBase64: btoa(
-                buildICS({
-                  uid: `${conversationId}@praxtalk`,
-                  title: p.title,
-                  description: `${p.title} with ${
-                    (await ctx.db.get(assignedOwnerId))?.name ?? "the team"
-                  }.`,
-                  startsAt,
-                  endsAt,
-                  organizerEmail:
-                    (await ctx.db.get(assignedOwnerId))?.email ??
-                    "noreply@praxtalk.com",
-                  attendeeEmail: email,
-                }),
-              ),
-              mimeType: "text/calendar; method=REQUEST; charset=utf-8",
-            },
-          ]
-        : undefined;
-
-    const confirmMsgId = await ctx.db.insert("messages", {
-      conversationId,
-      workspaceId: p.workspaceId,
-      brandId: p.brandId,
-      channel: p.confirmChannel === "email" ? "email" : p.confirmChannel === "sms" ? "sms" : "whatsapp",
-      role: "atlas",
-      body: confirmationBody,
-      attachments: icsAttachment,
-      emailSubject:
-        p.confirmChannel === "email"
-          ? `Booking confirmed — ${p.title}`
-          : undefined,
-      createdAt: now,
-    });
-    if (p.confirmChannel === "email") {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.emailIntegrations.sendOperatorReply,
-        { messageId: confirmMsgId },
-      );
-    } else if (p.confirmChannel === "sms") {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.voiceIntegrations.sendSmsForMessage,
-        { messageId: confirmMsgId },
-      );
-    }
-    // WhatsApp confirmation needs a pre-approved template — skipped at
-    // booking time. Visitor still sees the message in their conversation
-    // when they next chat. Operator can manually send the template.
+    const approvalMode: "any" | "all" = p.approvalMode ?? "any";
+    const approvalDeadlineAt = requiresApproval
+      ? now + (p.approvalTimeoutHours ?? 24) * 60 * 60 * 1000
+      : undefined;
 
     const bookingId = await ctx.db.insert("bookings", {
       workspaceId: p.workspaceId,
       brandId: p.brandId,
       bookingPageId: p._id,
       ownerOperatorId: assignedOwnerId,
+      additionalAttendeeOperatorIds:
+        additionalAttendees.length > 0 ? additionalAttendees : undefined,
       visitorId: visitor._id,
       conversationId,
       startsAt,
       endsAt,
-      status: "confirmed",
+      status: requiresApproval ? "pending_approval" : "confirmed",
       visitorEmail: email,
       visitorPhone: args.phone,
       notes: args.notes,
+      approvalMode: requiresApproval ? approvalMode : undefined,
+      approvalDeadlineAt,
       createdAt: now,
     });
 
-    // Phase 3 slice 4: write the booking back to the assigned owner's
-    // connected calendar (Google / Microsoft) so it appears in their
-    // own UI immediately. No-op when they haven't connected one.
-    await ctx.scheduler.runAfter(
-      0,
-      internal.calendarSync.writeBookingToCalendar,
-      {
-        operatorId: assignedOwnerId,
-        bookingId,
-        title: `${p.title} — ${args.name}`,
-        description: `Booked via PraxTalk.\n\nVisitor: ${args.name} <${email}>${
-          args.notes ? `\n\nNotes:\n${args.notes}` : ""
-        }`,
-        startsAt,
-        endsAt,
-        attendeeEmail: email,
-      },
-    );
+    if (requiresApproval) {
+      // Approval-gated path: insert one approval row per approver,
+      // notify them, send the visitor an "awaiting approval" message,
+      // and schedule the auto-decline at the deadline.
+      const approverIds =
+        p.approvalOperatorIds && p.approvalOperatorIds.length > 0
+          ? p.approvalOperatorIds
+          : owners; // fall back to every owner
+      const dedup = Array.from(new Set(approverIds.map(String))).map(
+        (s) => s as unknown as Id<"operators">,
+      );
+      for (const approverId of dedup) {
+        await ctx.db.insert("bookingApprovals", {
+          bookingId,
+          workspaceId: p.workspaceId,
+          approverOperatorId: approverId,
+          decision: "pending",
+          createdAt: now,
+        });
+        // Activity-feed notification per approver.
+        await ctx.db.insert("notifications", {
+          workspaceId: p.workspaceId,
+          operatorId: approverId,
+          kind: "human_requested",
+          severity: "warn",
+          title: `Booking awaiting approval — ${p.title}`,
+          body: `${args.name} <${email}> requested ${new Date(
+            startsAt,
+          ).toLocaleString()}.`,
+          link: `/app/schedules?approval=${bookingId}`,
+          createdAt: now,
+        });
+      }
 
-    // Auto-schedule reminders at each configured offset. Skip ones
-    // whose computed sendAt is already in the past.
-    for (const offsetMin of p.reminderOffsetMin) {
-      const sendAt = startsAt + offsetMin * 60 * 1000;
-      if (sendAt < now + 30_000) continue;
-      const offsetLabel =
-        offsetMin <= -1440
-          ? `${Math.round(-offsetMin / 1440)} day${offsetMin <= -2880 ? "s" : ""}`
-          : offsetMin <= -60
-            ? `${Math.round(-offsetMin / 60)} hour${offsetMin <= -120 ? "s" : ""}`
-            : `${-offsetMin} min`;
-      await ctx.db.insert("reminders", {
+      // Visitor-facing "pending" message — same channel as confirmChannel.
+      const pendingBody = renderPending({
+        title: p.title,
+        startsAt,
+        timezone: p.timezone,
+        visitorName: args.name,
+      });
+      const pendingMsgId = await ctx.db.insert("messages", {
+        conversationId,
         workspaceId: p.workspaceId,
         brandId: p.brandId,
-        conversationId,
-        visitorId: visitor._id,
-        channel: p.confirmChannel,
-        sendAt,
-        body: `Reminder: your ${p.title} is in ${offsetLabel}. See you soon!`,
-        status: "pending",
-        scheduledByOperatorId: assignedOwnerId,
-        scheduledAt: now,
+        channel:
+          p.confirmChannel === "email"
+            ? "email"
+            : p.confirmChannel === "sms"
+              ? "sms"
+              : "whatsapp",
+        role: "atlas",
+        body: pendingBody,
+        emailSubject:
+          p.confirmChannel === "email"
+            ? `Booking received — ${p.title} (pending approval)`
+            : undefined,
+        createdAt: now,
       });
+      if (p.confirmChannel === "email") {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.emailIntegrations.sendOperatorReply,
+          { messageId: pendingMsgId },
+        );
+      } else if (p.confirmChannel === "sms") {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.voiceIntegrations.sendSmsForMessage,
+          { messageId: pendingMsgId },
+        );
+      }
+
+      // Auto-decline at the approval deadline. The action checks
+      // status before patching, so a timely approval makes this a no-op.
+      if (approvalDeadlineAt) {
+        await ctx.scheduler.runAt(
+          approvalDeadlineAt,
+          internal.bookingPages._autoDeclineBooking,
+          { bookingId },
+        );
+      }
+    } else {
+      // Immediate-confirm path: do all the visitor confirmation +
+      // calendar fan-out + reminder work right now (same transaction
+      // — finalizeBookingHelper is a plain TS function, not a
+      // mutation, so we don't run into the no-mutation-from-mutation
+      // restriction).
+      await finalizeBookingHelper(ctx, bookingId);
     }
 
     return { bookingId, conversationId };
   },
 });
 
+// ── Approval flow ─────────────────────────────────────────────────────
+
+/**
+ * Approver responds to a pending booking. The decision rules:
+ *   - mode="any": one approval confirms; all-must-decline declines.
+ *   - mode="all": all approvals confirm; any single decline declines.
+ * On confirm we run finalizeBookingHelper (visitor confirmation +
+ * calendar fan-out + reminders); on decline we send a "sorry, can't
+ * make it" message to the visitor and mark the booking declined.
+ */
+export const respondToBookingApproval = mutation({
+  args: {
+    sessionToken: v.string(),
+    bookingId: v.id("bookings"),
+    decision: v.union(v.literal("approved"), v.literal("declined")),
+    note: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking || booking.workspaceId !== workspaceId) {
+      throw new ConvexError("Booking not found.");
+    }
+    if (booking.status !== "pending_approval") {
+      throw new ConvexError(
+        `This booking is already ${booking.status} — nothing to approve.`,
+      );
+    }
+    if (!hasBrandAccess(operator, booking.brandId)) {
+      throw new ConvexError("No access to this brand.");
+    }
+
+    // Find this approver's row.
+    const approvals = await ctx.db
+      .query("bookingApprovals")
+      .withIndex("by_booking", (q) => q.eq("bookingId", args.bookingId))
+      .collect();
+    const mine = approvals.find(
+      (a) => a.approverOperatorId === operator._id,
+    );
+    if (!mine) {
+      throw new ConvexError("You're not listed as an approver on this booking.");
+    }
+    if (mine.decision !== "pending") {
+      throw new ConvexError(
+        `You already ${mine.decision} this booking.`,
+      );
+    }
+    await ctx.db.patch(mine._id, {
+      decision: args.decision,
+      note: args.note?.trim() || undefined,
+      respondedAt: Date.now(),
+    });
+
+    // Re-evaluate. Reload approvals so we see our own update.
+    const updated = await ctx.db
+      .query("bookingApprovals")
+      .withIndex("by_booking", (q) => q.eq("bookingId", args.bookingId))
+      .collect();
+    const mode: "any" | "all" = booking.approvalMode ?? "any";
+    const anyDeclined = updated.some((a) => a.decision === "declined");
+    const allApproved = updated.every((a) => a.decision === "approved");
+    const anyApproved = updated.some((a) => a.decision === "approved");
+
+    if (mode === "any") {
+      if (anyApproved) {
+        await ctx.db.patch(args.bookingId, {
+          status: "confirmed",
+          finalizedAt: Date.now(),
+        });
+        await finalizeBookingHelper(ctx, args.bookingId);
+      } else if (
+        updated.length > 0 &&
+        updated.every((a) => a.decision === "declined")
+      ) {
+        await declineBookingHelper(
+          ctx,
+          args.bookingId,
+          args.note ?? "All approvers declined.",
+        );
+      }
+    } else {
+      // mode === "all"
+      if (anyDeclined) {
+        await declineBookingHelper(
+          ctx,
+          args.bookingId,
+          args.note ?? "An approver declined.",
+        );
+      } else if (allApproved) {
+        await ctx.db.patch(args.bookingId, {
+          status: "confirmed",
+          finalizedAt: Date.now(),
+        });
+        await finalizeBookingHelper(ctx, args.bookingId);
+      }
+    }
+    return null;
+  },
+});
+
+/**
+ * Scheduled at booking-time when requiresApproval is on. Fires at
+ * approvalDeadlineAt; if the booking is still pending, decline it.
+ * No-op if approvers already responded.
+ */
+export const _autoDeclineBooking = internalMutation({
+  args: { bookingId: v.id("bookings") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const b = await ctx.db.get(args.bookingId);
+    if (!b) return null;
+    if (b.status !== "pending_approval") return null;
+    await declineBookingHelper(
+      ctx,
+      args.bookingId,
+      "Approval window expired — no approver responded in time.",
+    );
+    return null;
+  },
+});
+
+/**
+ * Pending approvals that this operator can act on. Powers the
+ * dashboard inbox row + the per-row approve/decline buttons.
+ */
+export const listPendingApprovals = query({
+  args: { sessionToken: v.string() },
+  returns: v.array(
+    v.object({
+      bookingId: v.id("bookings"),
+      bookingPageTitle: v.string(),
+      visitorName: v.string(),
+      visitorEmail: v.string(),
+      startsAt: v.number(),
+      endsAt: v.number(),
+      notes: v.union(v.string(), v.null()),
+      approvalMode: v.union(v.literal("any"), v.literal("all")),
+      approvalDeadlineAt: v.union(v.number(), v.null()),
+      approvalsTotal: v.number(),
+      approvalsApproved: v.number(),
+      approvalsDeclined: v.number(),
+      approvalsPending: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const myPending = await ctx.db
+      .query("bookingApprovals")
+      .withIndex("by_approver_pending", (q) =>
+        q.eq("approverOperatorId", operator._id).eq("decision", "pending"),
+      )
+      .collect();
+    const out: Array<{
+      bookingId: Id<"bookings">;
+      bookingPageTitle: string;
+      visitorName: string;
+      visitorEmail: string;
+      startsAt: number;
+      endsAt: number;
+      notes: string | null;
+      approvalMode: "any" | "all";
+      approvalDeadlineAt: number | null;
+      approvalsTotal: number;
+      approvalsApproved: number;
+      approvalsDeclined: number;
+      approvalsPending: number;
+    }> = [];
+    for (const a of myPending) {
+      if (a.workspaceId !== workspaceId) continue;
+      const b = await ctx.db.get(a.bookingId);
+      if (!b || b.status !== "pending_approval") continue;
+      if (!hasBrandAccess(operator, b.brandId)) continue;
+      const page = await ctx.db.get(b.bookingPageId);
+      const visitor = await ctx.db.get(b.visitorId);
+      const visitorName =
+        (visitor && "visitorKey" in visitor ? visitor.name : null) ??
+        b.visitorEmail ??
+        "Anonymous";
+      const all = await ctx.db
+        .query("bookingApprovals")
+        .withIndex("by_booking", (q) => q.eq("bookingId", b._id))
+        .collect();
+      out.push({
+        bookingId: b._id,
+        bookingPageTitle: page?.title ?? "Untitled",
+        visitorName,
+        visitorEmail: b.visitorEmail ?? "",
+        startsAt: b.startsAt,
+        endsAt: b.endsAt,
+        notes: b.notes ?? null,
+        approvalMode: b.approvalMode ?? "any",
+        approvalDeadlineAt: b.approvalDeadlineAt ?? null,
+        approvalsTotal: all.length,
+        approvalsApproved: all.filter((x) => x.decision === "approved").length,
+        approvalsDeclined: all.filter((x) => x.decision === "declined").length,
+        approvalsPending: all.filter((x) => x.decision === "pending").length,
+      });
+    }
+    return out.sort((a, b) => a.startsAt - b.startsAt);
+  },
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Plain TS helper (not a mutation) so `book` and
+ * `respondToBookingApproval` can both invoke it from inside their own
+ * mutation transactions. Does the post-confirmation work: visitor
+ * confirmation message, multi-attendee calendar fan-out, reminders.
+ *
+ * Idempotent enough — re-calling drops a second confirmation message,
+ * which is undesirable but not destructive. Callers should only invoke
+ * once per booking lifecycle (book-with-no-approval; or first-confirm
+ * after approvals).
+ */
+async function finalizeBookingHelper(
+  ctx: MutationCtx,
+  bookingId: Id<"bookings">,
+): Promise<void> {
+  const booking = await ctx.db.get(bookingId);
+  if (!booking) return;
+  const page = await ctx.db.get(booking.bookingPageId);
+  if (!page) return;
+  const visitor = await ctx.db.get(booking.visitorId);
+  if (!visitor || !("visitorKey" in visitor)) return;
+
+  const ownerOp = await ctx.db.get(booking.ownerOperatorId);
+  const ownerName = ownerOp?.name ?? "the team";
+  const ownerEmail = ownerOp?.email ?? "noreply@praxtalk.com";
+  const visitorName = visitor.name ?? "there";
+  const email = booking.visitorEmail ?? visitor.email ?? "";
+
+  // Outbound confirmation to the visitor.
+  const confirmationBody = renderConfirmation({
+    title: page.title,
+    ownerName,
+    startsAt: booking.startsAt,
+    endsAt: booking.endsAt,
+    timezone: page.timezone,
+    visitorName,
+  });
+  const icsAttachment =
+    page.confirmChannel === "email" && email
+      ? [
+          {
+            filename: "booking.ics",
+            contentBase64: btoa(
+              buildICS({
+                uid: `${booking.conversationId}@praxtalk`,
+                title: page.title,
+                description: `${page.title} with ${ownerName}.`,
+                startsAt: booking.startsAt,
+                endsAt: booking.endsAt,
+                organizerEmail: ownerEmail,
+                attendeeEmail: email,
+              }),
+            ),
+            mimeType: "text/calendar; method=REQUEST; charset=utf-8",
+          },
+        ]
+      : undefined;
+
+  const confirmMsgId = await ctx.db.insert("messages", {
+    conversationId: booking.conversationId,
+    workspaceId: booking.workspaceId,
+    brandId: booking.brandId,
+    channel:
+      page.confirmChannel === "email"
+        ? "email"
+        : page.confirmChannel === "sms"
+          ? "sms"
+          : "whatsapp",
+    role: "atlas",
+    body: confirmationBody,
+    attachments: icsAttachment,
+    emailSubject:
+      page.confirmChannel === "email"
+        ? `Booking confirmed — ${page.title}`
+        : undefined,
+    createdAt: Date.now(),
+  });
+  if (page.confirmChannel === "email") {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.emailIntegrations.sendOperatorReply,
+      { messageId: confirmMsgId },
+    );
+  } else if (page.confirmChannel === "sms") {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.voiceIntegrations.sendSmsForMessage,
+      { messageId: confirmMsgId },
+    );
+  }
+
+  // Calendar write-back to the primary owner + every additional attendee.
+  // Each call is idempotent on the operator+booking pair so no
+  // accidental duplicate events.
+  const allAttendees: Id<"operators">[] = [
+    booking.ownerOperatorId,
+    ...(booking.additionalAttendeeOperatorIds ?? []),
+  ];
+  for (const attendeeId of allAttendees) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.calendarSync.writeBookingToCalendar,
+      {
+        operatorId: attendeeId,
+        bookingId,
+        title: `${page.title} — ${visitorName}`,
+        description: `Booked via PraxTalk.\n\nVisitor: ${visitorName} <${email}>${
+          booking.notes ? `\n\nNotes:\n${booking.notes}` : ""
+        }`,
+        startsAt: booking.startsAt,
+        endsAt: booking.endsAt,
+        attendeeEmail: email,
+      },
+    );
+  }
+
+  // Auto-schedule reminders. Skip ones whose computed sendAt is past.
+  const now = Date.now();
+  for (const offsetMin of page.reminderOffsetMin) {
+    const sendAt = booking.startsAt + offsetMin * 60 * 1000;
+    if (sendAt < now + 30_000) continue;
+    const offsetLabel =
+      offsetMin <= -1440
+        ? `${Math.round(-offsetMin / 1440)} day${offsetMin <= -2880 ? "s" : ""}`
+        : offsetMin <= -60
+          ? `${Math.round(-offsetMin / 60)} hour${offsetMin <= -120 ? "s" : ""}`
+          : `${-offsetMin} min`;
+    await ctx.db.insert("reminders", {
+      workspaceId: booking.workspaceId,
+      brandId: booking.brandId,
+      conversationId: booking.conversationId,
+      visitorId: booking.visitorId,
+      channel: page.confirmChannel,
+      sendAt,
+      body: `Reminder: your ${page.title} is in ${offsetLabel}. See you soon!`,
+      status: "pending",
+      scheduledByOperatorId: booking.ownerOperatorId,
+      scheduledAt: now,
+    });
+  }
+}
+
+/**
+ * Mark a booking declined + notify the visitor on the page's confirm
+ * channel. Used by both auto-decline (timeout) and approver-initiated
+ * decline.
+ */
+async function declineBookingHelper(
+  ctx: MutationCtx,
+  bookingId: Id<"bookings">,
+  reason: string,
+): Promise<void> {
+  const booking = await ctx.db.get(bookingId);
+  if (!booking) return;
+  const page = await ctx.db.get(booking.bookingPageId);
+  if (!page) return;
+
+  await ctx.db.patch(bookingId, {
+    status: "declined",
+    declineReason: reason,
+    finalizedAt: Date.now(),
+  });
+
+  // Cancel any pending approval rows so the dashboard stops showing
+  // them as pending action items.
+  const pendingApprovals = await ctx.db
+    .query("bookingApprovals")
+    .withIndex("by_booking", (q) => q.eq("bookingId", bookingId))
+    .collect();
+  for (const a of pendingApprovals) {
+    if (a.decision === "pending") {
+      await ctx.db.patch(a._id, {
+        decision: "declined",
+        respondedAt: Date.now(),
+      });
+    }
+  }
+
+  // Visitor-facing decline message.
+  const visitor = await ctx.db.get(booking.visitorId);
+  const visitorName =
+    visitor && "visitorKey" in visitor ? (visitor.name ?? "there") : "there";
+  const declineBody = renderDecline({
+    title: page.title,
+    visitorName,
+    startsAt: booking.startsAt,
+    timezone: page.timezone,
+    reason,
+  });
+  const channel =
+    page.confirmChannel === "email"
+      ? "email"
+      : page.confirmChannel === "sms"
+        ? "sms"
+        : "whatsapp";
+  const declineMsgId = await ctx.db.insert("messages", {
+    conversationId: booking.conversationId,
+    workspaceId: booking.workspaceId,
+    brandId: booking.brandId,
+    channel,
+    role: "atlas",
+    body: declineBody,
+    emailSubject:
+      page.confirmChannel === "email"
+        ? `Booking declined — ${page.title}`
+        : undefined,
+    createdAt: Date.now(),
+  });
+  if (page.confirmChannel === "email") {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.emailIntegrations.sendOperatorReply,
+      { messageId: declineMsgId },
+    );
+  } else if (page.confirmChannel === "sms") {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.voiceIntegrations.sendSmsForMessage,
+      { messageId: declineMsgId },
+    );
+  }
+}
+
+function renderPending(args: {
+  title: string;
+  startsAt: number;
+  timezone: string;
+  visitorName: string;
+}): string {
+  const when = new Date(args.startsAt).toLocaleString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  return `Hi ${args.visitorName},
+
+We've received your request for "${args.title}" on ${when}.
+
+A team member will review your request and get back to you shortly to confirm. You'll get another email once it's approved.
+
+Thanks for your patience!`;
+}
+
+function renderDecline(args: {
+  title: string;
+  visitorName: string;
+  startsAt: number;
+  timezone: string;
+  reason: string;
+}): string {
+  const when = new Date(args.startsAt).toLocaleString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  return `Hi ${args.visitorName},
+
+Unfortunately we're unable to confirm your "${args.title}" booking for ${when}.
+
+${args.reason}
+
+You're welcome to pick a different slot — just reply or revisit the booking page. Sorry for the inconvenience!`;
+}
 
 function renderConfirmation(args: {
   title: string;

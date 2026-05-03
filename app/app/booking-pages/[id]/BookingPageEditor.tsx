@@ -33,6 +33,10 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
     Id<"operators">[]
   >([]);
   const [enabled, setEnabled] = useState(true);
+  const [requiresApproval, setRequiresApproval] = useState(false);
+  const [approvalMode, setApprovalMode] = useState<"any" | "all">("any");
+  const [approvalTimeoutHours, setApprovalTimeoutHours] = useState(24);
+  const [approvers, setApprovers] = useState<Id<"operators">[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(
     null,
@@ -52,6 +56,10 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
     setOverrides(page.dateOverrides ?? []);
     setAdditionalOwners(page.additionalOwnerOperatorIds ?? []);
     setEnabled(page.enabled);
+    setRequiresApproval(page.requiresApproval ?? false);
+    setApprovalMode((page.approvalMode as "any" | "all") ?? "any");
+    setApprovalTimeoutHours(page.approvalTimeoutHours ?? 24);
+    setApprovers(page.approvalOperatorIds ?? []);
   }, [page?._id]);
 
   if (page === undefined) {
@@ -92,6 +100,10 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
         dateOverrides: overrides,
         additionalOwnerOperatorIds: additionalOwners,
         enabled,
+        requiresApproval,
+        approvalMode,
+        approvalOperatorIds: approvers,
+        approvalTimeoutHours,
       });
       setMsg({ kind: "ok", text: "Saved." });
     } catch (e) {
@@ -254,6 +266,120 @@ export function BookingPageEditor({ id }: { id: Id<"bookingPages"> }) {
                   </option>
                 ))}
             </select>
+          )}
+        </div>
+      </Card>
+
+      <Card
+        title="Approval gating"
+        description="When on, visitor bookings land as 'pending approval' until approvers accept. Visitor sees a 'received — awaiting approval' message instead of an instant confirmation."
+      >
+        <div className="flex flex-col gap-4">
+          <label className="flex items-center gap-2.5">
+            <input
+              type="checkbox"
+              checked={requiresApproval}
+              onChange={(e) => setRequiresApproval(e.target.checked)}
+              className="size-4 accent-ink"
+            />
+            <span className="text-[13px] text-ink">
+              Require approval before confirming bookings
+            </span>
+          </label>
+
+          {requiresApproval && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Mode">
+                  <select
+                    value={approvalMode}
+                    onChange={(e) =>
+                      setApprovalMode(e.target.value as "any" | "all")
+                    }
+                    className="h-10 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"
+                  >
+                    <option value="any">
+                      First approver to respond decides
+                    </option>
+                    <option value="all">All approvers must accept</option>
+                  </select>
+                </Field>
+                <Field label="Auto-decline after (hours)">
+                  <input
+                    type="number"
+                    min={1}
+                    max={168}
+                    value={approvalTimeoutHours}
+                    onChange={(e) =>
+                      setApprovalTimeoutHours(
+                        Math.max(1, Math.min(168, Number(e.target.value))),
+                      )
+                    }
+                    className="h-10 rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"
+                  />
+                </Field>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+                  Approvers ({approvers.length === 0 ? "defaults to all hosts" : `${approvers.length} explicit`})
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {approvers.map((opId) => {
+                    const op = teamOps?.find((o) => o._id === opId);
+                    return (
+                      <span
+                        key={opId}
+                        className="inline-flex items-center gap-1 rounded-full bg-paper-2 px-2.5 py-1 text-[12px] text-ink"
+                      >
+                        {op?.name ?? "Unknown"}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setApprovers((cur) =>
+                              cur.filter((x) => x !== opId),
+                            )
+                          }
+                          className="ml-0.5 rounded-full px-1 text-muted hover:text-ink"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+                {teamOps && (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const v = e.target.value as Id<"operators">;
+                      if (!v) return;
+                      if (approvers.includes(v)) return;
+                      setApprovers((cur) => [...cur, v]);
+                    }}
+                    className="h-9 max-w-xs rounded-xl border border-rule-2 bg-paper px-3 text-[13px] outline-none focus:border-ink"
+                  >
+                    <option value="">+ Add an approver…</option>
+                    {teamOps
+                      .filter(
+                        (op) =>
+                          !approvers.includes(op._id as Id<"operators">),
+                      )
+                      .map((op) => (
+                        <option key={op._id} value={op._id}>
+                          {op.name} · {op.role}
+                        </option>
+                      ))}
+                  </select>
+                )}
+                <p className="text-[11px] leading-[1.4] text-muted">
+                  Leave empty to default to the page&apos;s primary owner +
+                  every additional host. Both modes notify all listed
+                  approvers; the first responder decides in &quot;any&quot;
+                  mode, all must accept in &quot;all&quot; mode. A single
+                  decline drops the whole booking.
+                </p>
+              </div>
+            </>
           )}
         </div>
       </Card>
