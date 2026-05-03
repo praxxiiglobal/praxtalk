@@ -440,6 +440,22 @@ export const deliverInviteEmail = internalAction({
           }),
         });
         if (!res.ok) throw new Error(`Resend ${res.status}`);
+      } else if (integration.provider === "smtp_imap") {
+        // nodemailer can't run in V8 — hop into the Node-runtime
+        // sender. Returns { ok, error? } so we surface SMTP failures
+        // through the same recordInviteDeliveryFailure path.
+        const result = await ctx.runAction(
+          internal.emailSmtpImap.sendOneOff,
+          {
+            integrationId: integration._id,
+            to: invite.email,
+            subject,
+            textBody: body,
+          },
+        );
+        if (!result.ok) {
+          throw new Error(result.error ?? "smtp send failed");
+        }
       }
     } catch (err) {
       await ctx.runMutation(

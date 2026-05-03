@@ -107,6 +107,61 @@ export const sendOutboundForMessage = internalAction({
 });
 
 /**
+ * One-off SMTP send not tied to a `messages` row. Used by the invite
+ * delivery flow + future password-reset / receipt flows. Keeps the
+ * Node-only nodemailer dependency confined to this file.
+ */
+export const sendOneOff = internalAction({
+  args: {
+    integrationId: v.id("emailIntegrations"),
+    to: v.string(),
+    subject: v.string(),
+    textBody: v.string(),
+  },
+  returns: v.object({ ok: v.boolean(), error: v.optional(v.string()) }),
+  handler: async (ctx, args) => {
+    const integration = await ctx.runQuery(
+      internal.emailIntegrations._loadIntegrationForOneOff,
+      { integrationId: args.integrationId },
+    );
+    if (!integration) return { ok: false, error: "integration not found" };
+    if (integration.provider !== "smtp_imap") {
+      return { ok: false, error: "not an smtp_imap integration" };
+    }
+    if (!integration.smtpHost || !integration.smtpPort || !integration.smtpUser) {
+      return { ok: false, error: "smtp connection not fully configured" };
+    }
+    const transport = nodemailer.createTransport({
+      host: integration.smtpHost,
+      port: integration.smtpPort,
+      secure: integration.smtpPort === 465,
+      auth: {
+        user: integration.smtpUser,
+        pass: integration.apiKey,
+      },
+    });
+    try {
+      await transport.sendMail({
+        from: integration.fromName
+          ? `"${integration.fromName}" <${integration.fromAddress}>`
+          : integration.fromAddress,
+        to: args.to,
+        subject: args.subject,
+        text: args.textBody,
+      });
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "smtp send failed",
+      };
+    } finally {
+      transport.close();
+    }
+  },
+});
+
+/**
  * Cron entry — polls every smtp_imap mailbox in the system. Cheap
  * because most workspaces won't have one configured and the inner
  * fetch only pulls messages with UID > lastSeenUid (so steady-state

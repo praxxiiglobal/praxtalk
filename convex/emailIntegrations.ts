@@ -1030,5 +1030,19 @@ async function resendSend(args: {
   }
 }
 
+/**
+ * Load just the SMTP fields needed for a one-off send (invites,
+ * password resets). Lighter than loadOutboundContext + skips the
+ * conversation/visitor joins.
+ */
+export const _loadIntegrationForOneOff = internalQuery({
+  args: { integrationId: v.id("emailIntegrations") },
+  handler: async (ctx, { integrationId }) => {
+    const integration = await ctx.db.get(integrationId);
+    if (!integration || !integration.enabled) return null;
+    return integration;
+  },
+});
+
 // Quiet unused-imports in case Id<> isn't referenced after edits.
 void (null as unknown as Id<"emailIntegrations">);
