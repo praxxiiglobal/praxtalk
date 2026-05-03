@@ -853,6 +853,127 @@ async function originateViaTwilio(args: {
   }
 }
 
+/**
+ * Internal-only TTS reminder call. Today: Twilio only — they accept
+ * inline TwiML in the POST body via the `Twiml` parameter, so we can
+ * trigger a reminder call without standing up a TwiML-serving URL.
+ *
+ * CallHippo + TeleCMI need adapter work — neither exposes a clean
+ * "make a call that says X" endpoint without a hosted IVR flow. Their
+ * branches return failure with a clear error so the reminders
+ * dashboard shows what's missing.
+ */
+export const _sendReminderVoice = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    body: v.string(),
+  },
+  returns: v.object({ ok: v.boolean(), error: v.optional(v.string()) }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const ctxData: {
+      provider: Provider;
+      apiKey: string;
+      apiToken: string;
+      defaultNumber: string;
+      visitorPhone: string;
+    } | null = await ctx.runQuery(
+      internal.voiceIntegrations._loadReminderVoiceContext,
+      {
+        workspaceId: args.workspaceId,
+        conversationId: args.conversationId,
+      },
+    );
+    if (!ctxData) {
+      return {
+        ok: false,
+        error:
+          "Voice not configured, no defaultNumber set, or visitor has no phone.",
+      };
+    }
+    const { provider, apiKey, apiToken, defaultNumber, visitorPhone } =
+      ctxData;
+
+    if (provider !== "twilio") {
+      return {
+        ok: false,
+        error: `Voice TTS reminders not yet implemented for ${provider}. Use Twilio or pick a different channel.`,
+      };
+    }
+
+    // Twilio accepts inline TwiML via the `Twiml` form param — saves
+    // us standing up a TwiML server. <Say> is text-to-speech.
+    const escaped = args.body
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+    const twiml = `<Response><Say voice="alice">${escaped}</Say></Response>`;
+    const auth = btoa(`${apiKey}:${apiToken}`);
+    const form = new URLSearchParams({
+      To: visitorPhone,
+      From: defaultNumber,
+      Twiml: twiml,
+    });
+    try {
+      const res = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${apiKey}/Calls.json`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Basic ${auth}`,
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: form.toString(),
+        },
+      );
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: `Twilio ${res.status}: ${await res.text()}`,
+        };
+      }
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Twilio call failed",
+      };
+    }
+  },
+});
+
+export const _loadReminderVoiceContext = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+  },
+  handler: async (ctx, args) => {
+    const integration = await ctx.db
+      .query("voiceIntegrations")
+      .withIndex("by_workspace", (q) =>
+        q.eq("workspaceId", args.workspaceId),
+      )
+      .first();
+    if (!integration || !integration.enabled || !integration.defaultNumber)
+      return null;
+    const convo = await ctx.db.get(args.conversationId);
+    if (!convo) return null;
+    const visitor = await ctx.db.get(convo.visitorId);
+    if (!visitor?.phone) return null;
+    return {
+      provider: integration.provider,
+      apiKey: integration.apiKey,
+      apiToken: integration.apiToken,
+      defaultNumber: integration.defaultNumber,
+      visitorPhone: visitor.phone,
+    };
+  },
+});
+
 // ── SMS adapters (same providers, different endpoints) ────────────────
 
 async function sendSmsViaTwilio(args: {

@@ -215,19 +215,80 @@ export const dispatchDue = internalAction({
   handler: async (ctx): Promise<null> => {
     const due: Array<{
       _id: Id<"reminders">;
+      workspaceId: Id<"workspaces">;
+      conversationId: Id<"conversations">;
       channel:
         | "chat"
         | "email"
         | "sms"
         | "whatsapp"
         | "voice";
+      body: string;
+      whatsappTemplateName: string | null;
     }> = await ctx.runQuery(internal.reminders._claimDue);
 
     for (const r of due) {
       try {
-        await ctx.runMutation(internal.reminders._dispatchOne, {
-          reminderId: r._id,
-        });
+        if (r.channel === "chat" || r.channel === "email" || r.channel === "sms") {
+          // DB-only dispatch (chat=system msg; email/sms=insert msg +
+          // schedule existing outbound action). Mutation transaction.
+          await ctx.runMutation(internal.reminders._dispatchOne, {
+            reminderId: r._id,
+          });
+          continue;
+        }
+
+        if (r.channel === "whatsapp") {
+          if (!r.whatsappTemplateName) {
+            await ctx.runMutation(internal.reminders._markFailed, {
+              reminderId: r._id,
+              error: "WhatsApp reminder missing template name.",
+            });
+            continue;
+          }
+          const result: { ok: boolean; error?: string } = await ctx.runAction(
+            internal.whatsappIntegrations._sendReminderTemplate,
+            {
+              workspaceId: r.workspaceId,
+              conversationId: r.conversationId,
+              templateName: r.whatsappTemplateName,
+              body: r.body,
+            },
+          );
+          if (result.ok) {
+            await ctx.runMutation(internal.reminders._markSent, {
+              reminderId: r._id,
+            });
+          } else {
+            await ctx.runMutation(internal.reminders._markFailed, {
+              reminderId: r._id,
+              error: result.error ?? "WhatsApp send failed.",
+            });
+          }
+          continue;
+        }
+
+        if (r.channel === "voice") {
+          const result: { ok: boolean; error?: string } = await ctx.runAction(
+            internal.voiceIntegrations._sendReminderVoice,
+            {
+              workspaceId: r.workspaceId,
+              conversationId: r.conversationId,
+              body: r.body,
+            },
+          );
+          if (result.ok) {
+            await ctx.runMutation(internal.reminders._markSent, {
+              reminderId: r._id,
+            });
+          } else {
+            await ctx.runMutation(internal.reminders._markFailed, {
+              reminderId: r._id,
+              error: result.error ?? "Voice call failed.",
+            });
+          }
+          continue;
+        }
       } catch (err) {
         await ctx.runMutation(internal.reminders._markFailed, {
           reminderId: r._id,
@@ -244,7 +305,11 @@ export const _claimDue = internalQuery({
   returns: v.array(
     v.object({
       _id: v.id("reminders"),
+      workspaceId: v.id("workspaces"),
+      conversationId: v.id("conversations"),
       channel: channelValidator,
+      body: v.string(),
+      whatsappTemplateName: v.union(v.string(), v.null()),
     }),
   ),
   handler: async (ctx) => {
@@ -256,7 +321,26 @@ export const _claimDue = internalQuery({
         q.eq("status", "pending").lte("sendAt", now),
       )
       .take(50);
-    return rows.map((r) => ({ _id: r._id, channel: r.channel }));
+    return rows.map((r) => ({
+      _id: r._id,
+      workspaceId: r.workspaceId,
+      conversationId: r.conversationId,
+      channel: r.channel,
+      body: r.body,
+      whatsappTemplateName: r.whatsappTemplateName ?? null,
+    }));
+  },
+});
+
+export const _markSent = internalMutation({
+  args: { reminderId: v.id("reminders") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.reminderId, {
+      status: "sent",
+      sentAt: Date.now(),
+    });
+    return null;
   },
 });
 
@@ -335,13 +419,12 @@ export const _dispatchOne = internalMutation({
       return null;
     }
 
-    // WhatsApp template send + voice TTS — provider-specific work
-    // beyond the MVP slice. Mark failed with a clear error so the
-    // dashboard's reminder list surfaces it; user can re-schedule on
-    // a different channel.
+    // WhatsApp + voice channels are routed by the parent dispatchDue
+    // action (they need network calls only allowed in actions). This
+    // mutation should never see them — fail loud if it does.
     await ctx.db.patch(r._id, {
       status: "failed",
-      error: `Reminder dispatch via ${r.channel} not yet implemented.`,
+      error: `Internal: ${r.channel} should be routed via the dispatch action, not the mutation.`,
     });
     return null;
   },

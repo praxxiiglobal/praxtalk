@@ -727,6 +727,140 @@ export const recordOperatorTemplateMessage = internalMutation({
  *
  * Why an action and not a mutation: needs `fetch` to hit Meta.
  */
+/**
+ * Internal-only template send for the reminders dispatcher. Looks up
+ * the workspace's WhatsApp integration + a template by name, sends
+ * via Meta Graph API. Body is passed as the single {{1}} variable —
+ * templates intended for reminders should be authored with one body
+ * variable that interpolates the reminder text.
+ *
+ * Returns success/failure so the reminders dispatcher can stamp the
+ * right status on the row.
+ */
+export const _sendReminderTemplate = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    templateName: v.string(),
+    body: v.string(),
+  },
+  returns: v.object({ ok: v.boolean(), error: v.optional(v.string()) }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const ctxData: {
+      integration: { phoneNumberId: string; accessToken: string };
+      template: { name: string; language: string; variableCount: number };
+      visitorPhone: string;
+    } | null = await ctx.runQuery(
+      internal.whatsappIntegrations._loadReminderTemplateContext,
+      {
+        workspaceId: args.workspaceId,
+        conversationId: args.conversationId,
+        templateName: args.templateName,
+      },
+    );
+    if (!ctxData) {
+      return {
+        ok: false,
+        error:
+          "WhatsApp not configured, template not registered, or visitor has no phone.",
+      };
+    }
+    const { integration, template, visitorPhone } = ctxData;
+    const phone = visitorPhone.replace(/^\+/, "");
+
+    // Reminder templates are expected to take exactly one body variable
+    // (the reminder text). If the registered template has no variables
+    // we send it as-is and ignore the body — the reminder copy lives in
+    // the approved template content.
+    const components =
+      template.variableCount > 0
+        ? [
+            {
+              type: "body",
+              parameters: [{ type: "text", text: args.body }],
+            },
+          ]
+        : undefined;
+
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/v20.0/${integration.phoneNumberId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${integration.accessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: phone,
+            type: "template",
+            template: {
+              name: template.name,
+              language: { code: template.language },
+              ...(components ? { components } : {}),
+            },
+          }),
+        },
+      );
+      if (!res.ok) {
+        return { ok: false, error: `Meta ${res.status}: ${await res.text()}` };
+      }
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "WhatsApp send failed",
+      };
+    }
+  },
+});
+
+export const _loadReminderTemplateContext = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    templateName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const integration = await ctx.db
+      .query("whatsappIntegrations")
+      .withIndex("by_workspace", (q) =>
+        q.eq("workspaceId", args.workspaceId),
+      )
+      .first();
+    if (!integration || !integration.enabled) return null;
+    const convo = await ctx.db.get(args.conversationId);
+    if (!convo) return null;
+    const visitor = await ctx.db.get(convo.visitorId);
+    if (!visitor?.phone) return null;
+    const template = (
+      await ctx.db
+        .query("whatsappTemplates")
+        .withIndex("by_workspace", (q) =>
+          q.eq("workspaceId", args.workspaceId),
+        )
+        .collect()
+    ).find((t) => t.name === args.templateName);
+    if (!template) return null;
+    return {
+      integration: {
+        phoneNumberId: integration.phoneNumberId,
+        accessToken: integration.accessToken,
+      },
+      template: {
+        name: template.name,
+        language: template.language,
+        variableCount: template.variableCount,
+      },
+      visitorPhone: visitor.phone,
+    };
+  },
+});
+
 export const sendTemplate = action({
   args: {
     sessionToken: v.string(),
