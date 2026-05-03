@@ -5,10 +5,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 const links = [
-  { href: "/#product", label: "Product", caret: true },
-  { href: "/#ai", label: "AI Suite", caret: true },
-  { href: "/#compare", label: "Why Prax" },
-  { href: "/#integrations", label: "Integrations" },
+  { href: "/product", label: "Product", caret: true },
+  { href: "/ai", label: "AI Suite", caret: true },
+  { href: "/compare", label: "Why Prax" },
+  { href: "/integrations", label: "Integrations" },
   { href: "/pricing", label: "Pricing" },
   { href: "/docs", label: "Docs" },
 ];

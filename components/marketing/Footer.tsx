@@ -4,23 +4,23 @@ const cols: Array<{ title: string; links: { label: string; href: string }[] }> =
   {
     title: "Product",
     links: [
-      { label: "Live chat", href: "/#product" },
-      { label: "Atlas AI", href: "/#ai" },
+      { label: "Live chat", href: "/product" },
+      { label: "Atlas AI", href: "/ai" },
+      { label: "Integrations", href: "/integrations" },
       { label: "Help center", href: "/docs" },
-      { label: "Voice & phone", href: "/#product" },
-      { label: "WhatsApp", href: "/#integrations" },
       { label: "What's new", href: "/changelog" },
     ],
   },
   {
     title: "Compare",
     links: [
-      { label: "vs. Intercom", href: "/#compare" },
-      { label: "vs. Crisp", href: "/#compare" },
-      { label: "vs. LiveChat", href: "/#compare" },
-      { label: "vs. Drift", href: "/#compare" },
-      { label: "vs. HubSpot Chat", href: "/#compare" },
-      { label: "vs. Tawk.to", href: "/#compare" },
+      { label: "All comparisons", href: "/compare" },
+      { label: "vs. Intercom", href: "/compare" },
+      { label: "vs. Crisp", href: "/compare" },
+      { label: "vs. LiveChat", href: "/compare" },
+      { label: "vs. Drift", href: "/compare" },
+      { label: "vs. HubSpot Chat", href: "/compare" },
+      { label: "vs. Tawk.to", href: "/compare" },
     ],
   },
   {

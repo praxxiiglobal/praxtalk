@@ -4,6 +4,11 @@ const BASE = "https://www.praxtalk.com";
 
 const PAGES: { path: string; priority: number; changefreq: MetadataRoute.Sitemap[number]["changeFrequency"] }[] = [
   { path: "/", priority: 1.0, changefreq: "weekly" },
+  // Top-level marketing routes (extracted from homepage anchors).
+  { path: "/product", priority: 0.9, changefreq: "weekly" },
+  { path: "/ai", priority: 0.9, changefreq: "weekly" },
+  { path: "/integrations", priority: 0.9, changefreq: "weekly" },
+  { path: "/compare", priority: 0.9, changefreq: "weekly" },
   { path: "/pricing", priority: 0.9, changefreq: "weekly" },
   { path: "/security", priority: 0.8, changefreq: "monthly" },
   { path: "/about", priority: 0.7, changefreq: "monthly" },
