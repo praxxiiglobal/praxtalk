@@ -312,10 +312,56 @@ function ConversationPane({
   });
   const sendTemplate = useAction(api.whatsappIntegrations.sendTemplate);
 
+  const draft = useQuery(api.messageDrafts.get, {
+    sessionToken,
+    conversationId,
+  });
+  const upsertDraft = useMutation(api.messageDrafts.upsert);
+  const removeDraft = useMutation(api.messageDrafts.remove);
+
   const [body, setBody] = useState("");
   const [internal, setInternal] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
   const [showReminder, setShowReminder] = useState(false);
+  // Track which conversation we've already restored a draft for, so
+  // we don't clobber the user's typing when the query result arrives
+  // asynchronously.
+  const [restoredFor, setRestoredFor] = useState<string | null>(null);
+
+  // Restore the operator's saved draft (if any) when the conversation
+  // first opens. Only runs once per conversationId.
+  useEffect(() => {
+    if (restoredFor === conversationId) return;
+    if (draft === undefined) return;
+    if (draft) {
+      setBody(draft.body);
+      setInternal(draft.isInternal);
+    }
+    setRestoredFor(conversationId);
+  }, [conversationId, draft, restoredFor]);
+
+  // Reset restoration state whenever conversation changes so the next
+  // restore can fire.
+  useEffect(() => {
+    setRestoredFor(null);
+    setBody("");
+    setInternal(false);
+  }, [conversationId]);
+
+  // Debounced autosave — saves the draft 600ms after the operator
+  // stops typing. Empty body deletes any existing draft.
+  useEffect(() => {
+    if (restoredFor !== conversationId) return; // wait for restore
+    const handle = setTimeout(() => {
+      void upsertDraft({
+        sessionToken,
+        conversationId,
+        body,
+        isInternal: internal,
+      });
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [body, internal, conversationId, restoredFor, sessionToken, upsertDraft]);
 
   if (convo === undefined || messages === undefined) {
     return (
@@ -351,6 +397,8 @@ function ConversationPane({
       body: trimmed,
       internal: wasInternal,
     });
+    // Clear the saved draft now that the message is sent.
+    void removeDraft({ sessionToken, conversationId });
   };
 
   const insertReply = (text: string) => {

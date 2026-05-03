@@ -26,6 +26,7 @@ import type * as leads from "../leads.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_paypal from "../lib/paypal.js";
 import type * as lobby from "../lobby.js";
+import type * as messageDrafts from "../messageDrafts.js";
 import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
@@ -70,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   "lib/auth": typeof lib_auth;
   "lib/paypal": typeof lib_paypal;
   lobby: typeof lobby;
+  messageDrafts: typeof messageDrafts;
   messages: typeof messages;
   migrations: typeof migrations;
   notifications: typeof notifications;

@@ -36,6 +36,12 @@ export const listInbox = query({
     ),
     brandId: v.optional(v.id("brands")),
     assignee: v.optional(v.union(v.literal("me"), v.literal("unassigned"))),
+    // For the dedicated emails view: filter by who-spoke-last instead of
+    // status alone. "inbox" = customer's last message; "sent" = our
+    // last message. Independent of the status tabs.
+    folder: v.optional(
+      v.union(v.literal("inbox"), v.literal("sent"), v.literal("all")),
+    ),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -47,6 +53,7 @@ export const listInbox = query({
     const limit = Math.min(args.limit ?? 50, 200);
     const channelFilter = args.channel;
     const assigneeFilter = args.assignee;
+    const folderFilter = args.folder;
 
     // Resolve which brands this operator can see.
     const allBrands = await ctx.db
@@ -97,6 +104,31 @@ export const listInbox = query({
       );
     } else if (assigneeFilter === "unassigned") {
       conversations = conversations.filter((c) => !c.assignedOperatorId);
+    }
+
+    // Folder filter — only meaningful when channel is set. Look up the
+    // most recent message per conversation to decide who spoke last.
+    if (folderFilter && folderFilter !== "all") {
+      const filtered: Doc<"conversations">[] = [];
+      for (const c of conversations) {
+        const lastMsg = await ctx.db
+          .query("messages")
+          .withIndex("by_conversation_created", (q) =>
+            q.eq("conversationId", c._id),
+          )
+          .order("desc")
+          .first();
+        if (!lastMsg) continue;
+        if (folderFilter === "inbox" && lastMsg.role === "visitor") {
+          filtered.push(c);
+        } else if (
+          folderFilter === "sent" &&
+          (lastMsg.role === "operator" || lastMsg.role === "atlas")
+        ) {
+          filtered.push(c);
+        }
+      }
+      conversations = filtered;
     }
 
     // Hydrate with visitor + brand for the inbox row preview.

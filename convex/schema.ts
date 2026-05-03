@@ -300,6 +300,21 @@ export default defineSchema({
     .index("by_workspace_send_at", ["workspaceId", "sendAt"])
     .index("by_conversation", ["conversationId"]),
 
+  // ── Message drafts ─────────────────────────────────────────────────
+  // Operator-scoped — each operator has their own draft per
+  // conversation. Autosaved as they type in the composer; deleted on
+  // send. Surfaces in the Drafts folder of the dedicated emails view.
+  messageDrafts: defineTable({
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    operatorId: v.id("operators"),
+    body: v.string(),
+    isInternal: v.boolean(), // internal note vs. customer-visible reply
+    updatedAt: v.number(),
+  })
+    .index("by_operator_updated", ["operatorId", "updatedAt"])
+    .index("by_conversation_operator", ["conversationId", "operatorId"]),
+
   // ── Booking pages (Calendly-clone) ─────────────────────────────────
   // Public scheduling page at /book/<slug>. Visitor picks a slot, we
   // create a booking + a conversation + auto-schedule reminders via
