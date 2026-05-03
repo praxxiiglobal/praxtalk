@@ -11,6 +11,6 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ["/app/", "/setup", "/login", "/forgot-password", "/reset-password/"],
       },
     ],
-    sitemap: "https://www.praxtalk.com/sitemap.xml",
+    sitemap: "https://praxtalk.com/sitemap.xml",
   };
 }
