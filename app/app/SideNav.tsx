@@ -13,6 +13,7 @@ export const navItems: { href: string; label: string; icon: NavIconName }[] = [
   { href: "/app/leads", label: "Leads", icon: "lead" },
   { href: "/app/calls", label: "Calls", icon: "phone" },
   { href: "/app/reminders", label: "Reminders", icon: "bell" },
+  { href: "/app/booking-pages", label: "Booking pages", icon: "lobby" },
   { href: "/app/atlas", label: "Atlas AI", icon: "atlas" },
   { href: "/app/lobby", label: "Lobby intake", icon: "lobby" },
   { href: "/app/analytics", label: "Analytics", icon: "chart" },

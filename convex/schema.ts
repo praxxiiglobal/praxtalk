@@ -300,6 +300,70 @@ export default defineSchema({
     .index("by_workspace_send_at", ["workspaceId", "sendAt"])
     .index("by_conversation", ["conversationId"]),
 
+  // ── Booking pages (Calendly-clone) ─────────────────────────────────
+  // Public scheduling page at /book/<slug>. Visitor picks a slot, we
+  // create a booking + a conversation + auto-schedule reminders via
+  // the Phase 1 reminders table.
+  bookingPages: defineTable({
+    workspaceId: v.id("workspaces"),
+    brandId: v.id("brands"),
+    // The operator the booking belongs to. Slot availability is computed
+    // against this operator's calendar (Phase 3) and existing bookings.
+    ownerOperatorId: v.id("operators"),
+    slug: v.string(), // public — appears in /book/<slug>
+    title: v.string(), // "30-min intro call"
+    description: v.optional(v.string()),
+    durationMin: v.number(), // 15 / 30 / 60 etc.
+    bufferMin: v.optional(v.number()), // gap between back-to-back slots
+    // Weekly availability — array of 7 (Sunday..Saturday). Each day
+    // has zero or more open windows in operator-local minutes-since-
+    // midnight (e.g. {start:540, end:1020} = 9am-5pm).
+    weekly: v.array(
+      v.object({
+        windows: v.array(
+          v.object({ startMin: v.number(), endMin: v.number() }),
+        ),
+      }),
+    ),
+    timezone: v.string(), // IANA, e.g. "Asia/Kolkata"
+    // Channels to send the booking confirmation + reminders on.
+    confirmChannel: v.union(
+      v.literal("email"),
+      v.literal("sms"),
+      v.literal("whatsapp"),
+    ),
+    reminderOffsetMin: v.array(v.number()), // negative offsets, e.g. [-1440, -60]
+    enabled: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_owner_operator", ["ownerOperatorId"]),
+
+  bookings: defineTable({
+    workspaceId: v.id("workspaces"),
+    brandId: v.id("brands"),
+    bookingPageId: v.id("bookingPages"),
+    ownerOperatorId: v.id("operators"),
+    visitorId: v.id("visitors"),
+    conversationId: v.id("conversations"),
+    startsAt: v.number(),
+    endsAt: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("confirmed"),
+      v.literal("cancelled"),
+      v.literal("no_show"),
+    ),
+    visitorEmail: v.optional(v.string()),
+    visitorPhone: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_owner_starts_at", ["ownerOperatorId", "startsAt"])
+    .index("by_booking_page_starts_at", ["bookingPageId", "startsAt"])
+    .index("by_workspace_starts_at", ["workspaceId", "startsAt"]),
+
   // ── REST API rate limiting ─────────────────────────────────────────
   // One row per IP. Tracks the current 60-second window's request
   // count. When the window rolls over the existing row is patched

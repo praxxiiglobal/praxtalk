@@ -13,6 +13,7 @@ import type * as apiKeys from "../apiKeys.js";
 import type * as atlas from "../atlas.js";
 import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
+import type * as bookingPages from "../bookingPages.js";
 import type * as botimIntegrations from "../botimIntegrations.js";
 import type * as brands from "../brands.js";
 import type * as conversations from "../conversations.js";
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   atlas: typeof atlas;
   auth: typeof auth;
   billing: typeof billing;
+  bookingPages: typeof bookingPages;
   botimIntegrations: typeof botimIntegrations;
   brands: typeof brands;
   conversations: typeof conversations;
