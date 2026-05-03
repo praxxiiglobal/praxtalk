@@ -9,6 +9,7 @@ import {
 import { ActiveCallOverlay } from "./ActiveCallOverlay";
 import { DashboardShell } from "./DashboardShell";
 import { DialPadButton } from "./DialPad";
+import { PendingReviewScreen } from "./PendingReviewScreen";
 import { SessionGuard } from "./SessionGuard";
 import { SideNav } from "./SideNav";
 import { Topbar } from "./Topbar";
@@ -32,6 +33,19 @@ export default async function AppLayout({
     // clear it and bounce to /login (the workspace likely still exists).
     await clearSessionCookie();
     redirect("/login?expired=1");
+  }
+
+  // New signups land in pending_review. Replace the dashboard with a
+  // friendly waiting screen until a platform admin approves them via
+  // /admin/workspaces. Logout button still works; nothing else.
+  if (me.workspace.platformStatus === "pending_review") {
+    return (
+      <PendingReviewScreen
+        workspaceName={me.workspace.name}
+        ownerName={me.operator.name}
+        reason={me.workspace.platformStatusReason}
+      />
+    );
   }
 
   return (

@@ -57,6 +57,13 @@ export const create = mutation({
       slug,
       name: workspaceName,
       plan: "spark",
+      // New workspaces land in "pending_review" until a platform
+      // admin approves them via /admin/workspaces. The customer
+      // sees the PendingReviewScreen at /app instead of the
+      // dashboard. Approval flips this to "active".
+      platformStatus: "pending_review",
+      platformStatusReason: "New signup — awaiting platform review.",
+      platformStatusAt: now,
       createdAt: now,
     });
 
@@ -89,6 +96,20 @@ export const create = mutation({
       workspaceId,
       tokenHash: await hashToken(sessionToken),
       expiresAt: now + SESSION_TTL_MS,
+    });
+
+    // System notification on the new workspace itself — surfaces in
+    // /admin/workspaces/[id] under "Recent platform-admin actions"
+    // so staff see exactly when each signup landed and which review
+    // queue item to act on.
+    await ctx.db.insert("notifications", {
+      workspaceId,
+      kind: "system",
+      severity: "info",
+      title: `New signup — ${workspaceName}`,
+      body: `${args.ownerName.trim()} <${email}> created the workspace. Pending platform review.`,
+      link: `/admin/workspaces`,
+      createdAt: now,
     });
 
     return { workspaceId, operatorId, sessionToken, widgetId };

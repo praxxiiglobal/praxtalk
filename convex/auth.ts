@@ -110,6 +110,13 @@ export const me = query({
           v.literal("scale"),
           v.literal("enterprise"),
         ),
+        platformStatus: v.union(
+          v.literal("active"),
+          v.literal("suspended"),
+          v.literal("pending_review"),
+          v.literal("flagged"),
+        ),
+        platformStatusReason: v.union(v.string(), v.null()),
       }),
     }),
   ),
@@ -134,6 +141,8 @@ export const me = query({
         slug: workspace.slug,
         name: workspace.name,
         plan: workspace.plan,
+        platformStatus: workspace.platformStatus ?? "active",
+        platformStatusReason: workspace.platformStatusReason ?? null,
       },
     };
   },
