@@ -27,7 +27,23 @@ export default async function AppLayout({
   const sessionToken = await readSessionToken();
   if (!sessionToken) redirect("/login");
 
-  const me = await convexServer.query(api.auth.me, { sessionToken });
+  // api.auth.me returns null on missing/expired session — but it can
+  // also THROW if the Convex deployment is unreachable, the schema /
+  // function code is out of step (e.g. just-rotated CONVEX_DEPLOY_KEY
+  // pointing at a deployment without the latest push), or the session
+  // cookie is from a different deployment than the one this build
+  // talks to. Catching here turns a generic 500 into a friendly
+  // re-login instead of stranding the operator.
+  let me: Awaited<
+    ReturnType<typeof convexServer.query<typeof api.auth.me>>
+  > = null;
+  try {
+    me = await convexServer.query(api.auth.me, { sessionToken });
+  } catch (e) {
+    console.error("[/app] auth.me failed:", e);
+    await clearSessionCookie();
+    redirect("/login?reauth=1");
+  }
   if (!me) {
     // Cookie present but server-side session missing/expired —
     // clear it and bounce to /login (the workspace likely still exists).
