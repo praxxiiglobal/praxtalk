@@ -1,5 +1,6 @@
 import { Nav } from "@/components/marketing/Nav";
 import { Pricing } from "@/components/marketing/Pricing";
+import { PricingCalculator } from "@/components/marketing/PricingCalculator";
 import { CtaBlock } from "@/components/marketing/CtaBlock";
 import { Footer } from "@/components/marketing/Footer";
 
@@ -16,6 +17,7 @@ export default function PricingPage() {
       <Nav />
       <main id="main">
         <Pricing />
+        <PricingCalculator />
         <CtaBlock />
       </main>
       <Footer />

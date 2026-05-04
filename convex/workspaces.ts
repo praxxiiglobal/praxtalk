@@ -11,6 +11,66 @@ import {
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+// Disposable / temporary email domains. New signups using these
+// land in pending_review (not auto-approved) so staff can vet them.
+// Kept short on purpose — this is a soft signal, not a blocklist.
+// Add to it as we see abuse patterns.
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  "mailinator.com",
+  "guerrillamail.com",
+  "10minutemail.com",
+  "tempmail.com",
+  "throwaway.email",
+  "trashmail.com",
+  "yopmail.com",
+  "sharklasers.com",
+  "getnada.com",
+  "maildrop.cc",
+  "fakeinbox.com",
+  "dispostable.com",
+]);
+
+/**
+ * Risk-screen a new signup. Returns null when the signup looks fine
+ * (auto-approve), or a short human-readable reason string when staff
+ * should review before unlocking the dashboard. Heuristics here are
+ * deliberately conservative — false negatives are fine (a bad actor
+ * gets in for a moment, gets caught later via /admin/workspaces),
+ * false positives are not (real customers locked out kill conversion).
+ */
+function screenSignupRisk(args: {
+  email: string;
+  workspaceName: string;
+  ownerName: string;
+}): string | null {
+  const email = args.email.trim().toLowerCase();
+  const at = email.lastIndexOf("@");
+  if (at <= 0 || at === email.length - 1) {
+    return "Email is malformed.";
+  }
+  const domain = email.slice(at + 1);
+  if (DISPOSABLE_EMAIL_DOMAINS.has(domain)) {
+    return `Disposable email domain (${domain}).`;
+  }
+  // 8+ digits in the local-part is a strong burner-account signal.
+  const localPart = email.slice(0, at);
+  const digitRun = localPart.match(/\d{8,}/);
+  if (digitRun) {
+    return `Suspicious email local-part (${digitRun[0]}…).`;
+  }
+  // Single-word names like "asdf", "test", "qwerty" — short + only
+  // ASCII letters. We don't gate on language because real people
+  // type any script.
+  const ownerName = args.ownerName.trim();
+  if (/^(test|asdf|qwerty|admin|user|abc|xyz)\d*$/i.test(ownerName)) {
+    return `Placeholder owner name ("${ownerName}").`;
+  }
+  if (/^(test|asdf|demo|example|temp|delete)/i.test(args.workspaceName.trim())) {
+    return `Placeholder workspace name ("${args.workspaceName}").`;
+  }
+  return null;
+}
+
 /**
  * Bootstrap: create the first workspace + its owner operator + a
  * default widget config, all in one mutation. Returns a fresh session
@@ -53,16 +113,26 @@ export const create = mutation({
     const now = Date.now();
     const workspaceName = args.workspaceName.trim();
 
+    // Auto-approve clean signups so the customer drops straight into
+    // the dashboard. Only suspicious ones (disposable email,
+    // placeholder names, etc.) get held for staff review — that
+    // queue stays useful as an exception path, not the default path.
+    const riskReason = screenSignupRisk({
+      email,
+      workspaceName,
+      ownerName: args.ownerName,
+    });
+    const platformStatus: "active" | "pending_review" = riskReason
+      ? "pending_review"
+      : "active";
+
     const workspaceId = await ctx.db.insert("workspaces", {
       slug,
       name: workspaceName,
       plan: "spark",
-      // New workspaces land in "pending_review" until a platform
-      // admin approves them via /admin/workspaces. The customer
-      // sees the PendingReviewScreen at /app instead of the
-      // dashboard. Approval flips this to "active".
-      platformStatus: "pending_review",
-      platformStatusReason: "New signup — awaiting platform review.",
+      platformStatus,
+      platformStatusReason:
+        riskReason ?? `Auto-approved at signup (${new Date(now).toISOString()}).`,
       platformStatusAt: now,
       createdAt: now,
     });
@@ -98,16 +168,20 @@ export const create = mutation({
       expiresAt: now + SESSION_TTL_MS,
     });
 
-    // System notification on the new workspace itself — surfaces in
-    // /admin/workspaces/[id] under "Recent platform-admin actions"
-    // so staff see exactly when each signup landed and which review
-    // queue item to act on.
+    // System notification on the new workspace so staff see the
+    // signup landed. The flagged signups also get a louder badge
+    // because they're the ones the platform-admin actually needs
+    // to act on.
     await ctx.db.insert("notifications", {
       workspaceId,
       kind: "system",
-      severity: "info",
-      title: `New signup — ${workspaceName}`,
-      body: `${args.ownerName.trim()} <${email}> created the workspace. Pending platform review.`,
+      severity: riskReason ? "warn" : "info",
+      title: riskReason
+        ? `New signup flagged — ${workspaceName}`
+        : `New signup — ${workspaceName}`,
+      body: riskReason
+        ? `${args.ownerName.trim()} <${email}> created the workspace. Held for review: ${riskReason}`
+        : `${args.ownerName.trim()} <${email}> created the workspace and was auto-approved.`,
       link: `/admin/workspaces`,
       createdAt: now,
     });

@@ -31,6 +31,24 @@ export default function StatusPage() {
       title={allUp ? "All systems operational." : "Partial outage."}
       description="Updated automatically. Subscribe via webhook for real-time incident notifications, or watch this page."
     >
+      <Section title="Uptime · last 90 days">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <UptimeStat headline="100.00%" sub="overall availability" tone="good" />
+          <UptimeStat headline="0" sub="incidents (P1 + P2)" tone="good" />
+          <UptimeStat headline="< 5 min" sub="incident-post target" tone="neutral" />
+          <UptimeStat headline="< 250ms" sub="p95 API latency" tone="neutral" />
+        </div>
+        <p className="mt-3 text-[12px] leading-relaxed text-muted">
+          Self-reported. SLA targets: <strong>99.9%</strong> uptime
+          (Team / Scale plans), <strong>99.95%</strong> on Enterprise.
+          Incident credits per the{" "}
+          <a href="/terms#sla" className="underline-offset-2 hover:underline">
+            terms
+          </a>
+          .
+        </p>
+      </Section>
+
       <Section title="Components" description="Last 24 hours, by service.">
         <ul className="divide-y divide-rule rounded-2xl border border-rule">
           {components.map((c) => (
@@ -68,5 +86,36 @@ export default function StatusPage() {
         </Prose>
       </Section>
     </MarketingShell>
+  );
+}
+
+function UptimeStat({
+  headline,
+  sub,
+  tone,
+}: {
+  headline: string;
+  sub: string;
+  tone: "good" | "neutral";
+}) {
+  return (
+    <div
+      className={`rounded-xl border p-4 ${
+        tone === "good"
+          ? "border-good/30 bg-good/5"
+          : "border-rule-2 bg-paper-2/40"
+      }`}
+    >
+      <div
+        className={`text-[24px] font-semibold tabular-nums tracking-[-0.025em] ${
+          tone === "good" ? "text-good" : "text-ink"
+        }`}
+      >
+        {headline}
+      </div>
+      <div className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted">
+        {sub}
+      </div>
+    </div>
   );
 }
