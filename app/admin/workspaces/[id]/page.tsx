@@ -54,10 +54,18 @@ export default async function WorkspaceDetailPage({
 
   return (
     <>
-      <div className="mb-3 font-mono text-[11px] text-muted">
+      <div className="mb-3 flex items-center justify-between gap-3 font-mono text-[11px] text-muted">
         <Link href="/admin/workspaces" className="hover:underline">
           ← All workspaces
         </Link>
+        <a
+          href={`/admin/workspaces/${id}/export.json`}
+          download
+          className="inline-flex h-7 items-center rounded-full border border-rule-2 px-3 text-[10.5px] uppercase tracking-[0.06em] text-ink transition hover:border-ink hover:bg-paper-2"
+          title="Download a complete JSON dump of every record for this workspace (secrets redacted)."
+        >
+          Download full export (JSON) ↓
+        </a>
       </div>
       <header className="mb-8">
         <h1 className="text-3xl font-semibold tracking-[-0.025em]">

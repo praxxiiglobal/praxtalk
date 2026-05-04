@@ -7,7 +7,7 @@ import {
   query,
 } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { loadSession } from "./auth";
 import { isPlatformAdmin } from "./lib/platformAdmin";
@@ -681,3 +681,367 @@ async function writePlatformAuditLog(
   });
   void args.performedByEmail; // already in summary
 }
+
+// ── Workspace export ────────────────────────────────────────────────────
+//
+// One-shot dump of every per-workspace record. Used by the staff-only
+// "Download workspace export" button on /admin/workspaces/[id]. Secrets
+// (password hashes, API tokens, webhook signing keys, session tokens)
+// are stripped before leaving the backend so the file is safe to attach
+// to a support ticket or hand to a customer's compliance team.
+//
+// Messages are NOT included here — they can run into the millions per
+// workspace and would blow the 8MB query response cap. The route
+// handler at /admin/workspaces/[id]/export.json paginates messages
+// separately via `_exportWorkspaceMessagesPage` and stitches them in.
+
+const REDACTED = "***REDACTED***" as const;
+
+function redactOperator(op: Doc<"operators">) {
+  const { passwordHash, ...rest } = op;
+  void passwordHash;
+  return { ...rest, passwordHash: REDACTED };
+}
+
+function redactInvite(inv: Doc<"operatorInvites">) {
+  const { tokenHash, ...rest } = inv;
+  void tokenHash;
+  return { ...rest, tokenHash: REDACTED };
+}
+
+function redactApiKey(k: Doc<"apiKeys">) {
+  const { keyHash, ...rest } = k;
+  void keyHash;
+  return { ...rest, keyHash: REDACTED };
+}
+
+function redactWebhookSub(w: Doc<"webhookSubscriptions">) {
+  const { secret, ...rest } = w;
+  void secret;
+  return { ...rest, secret: REDACTED };
+}
+
+function redactCalendarConn(c: Doc<"calendarConnections">) {
+  const { accessToken, refreshToken, ...rest } = c;
+  void accessToken;
+  void refreshToken;
+  return { ...rest, accessToken: REDACTED, refreshToken: REDACTED };
+}
+
+function redactAtlasConfig(a: Doc<"atlasConfigs">) {
+  const { apiKey, ...rest } = a;
+  void apiKey;
+  return { ...rest, apiKey: REDACTED };
+}
+
+function redactWhatsapp(w: Doc<"whatsappIntegrations">) {
+  const { accessToken, ...rest } = w;
+  void accessToken;
+  return { ...rest, accessToken: REDACTED };
+}
+
+function redactVoice(v: Doc<"voiceIntegrations">) {
+  const { apiKey, apiToken, webhookSecret, ...rest } = v;
+  void apiKey;
+  void apiToken;
+  void webhookSecret;
+  return {
+    ...rest,
+    apiKey: REDACTED,
+    apiToken: REDACTED,
+    webhookSecret: REDACTED,
+  };
+}
+
+function redactBotim(b: Doc<"botimIntegrations">) {
+  const { apiKey, ...rest } = b;
+  void apiKey;
+  return { ...rest, apiKey: apiKey ? REDACTED : undefined };
+}
+
+function redactEmail(e: Doc<"emailIntegrations">) {
+  const { apiKey, ...rest } = e;
+  void apiKey;
+  return { ...rest, apiKey: REDACTED };
+}
+
+async function collectByWorkspace<T extends "brands" | "operators" | "operatorInvites" | "visitors" | "conversations" | "apiKeys" | "calendarConnections" | "calendarEvents" | "activeCalls" | "integrationGrants" | "pushSubscriptions" | "reminders" | "messageDrafts" | "bookingPages" | "bookings" | "bookingApprovals" | "webhookSubscriptions" | "notifications" | "leads" | "atlasConfigs" | "atlasKnowledgeChunks" | "atlasRuns" | "lobbyConfigs" | "intakeResponses" | "savedReplies" | "whatsappIntegrations" | "whatsappTemplates" | "voiceIntegrations" | "botimIntegrations" | "emailIntegrations" | "auditLogs">(
+  ctx: QueryCtx,
+  table: T,
+  workspaceId: Id<"workspaces">,
+): Promise<Doc<T>[]> {
+  // Most workspace-scoped tables have a `by_workspace*` index. We use
+  // a `filter` instead of `withIndex` so we don't have to pick the
+  // exact index name per table — the export is admin-only, runs
+  // rarely, and most workspaces are small enough that the table scan
+  // is fine. Switch to per-table indexed queries if any workspace
+  // breaches the 16k-row read limit on a single export call.
+  const rows = await ctx.db
+    .query(table)
+    // Cast bypasses TS narrowing — the union of listed tables would
+    // make `q.eq(q.field("workspaceId"), ...)` unhappy because the
+    // field-type union doesn't unify, but every listed table really
+    // does have a workspaceId of Id<"workspaces"> at runtime.
+    .filter((q) =>
+      q.eq(q.field("workspaceId"), workspaceId as unknown as never),
+    )
+    .collect();
+  return rows;
+}
+
+export const exportWorkspaceCore = query({
+  args: {
+    sessionToken: v.string(),
+    workspaceId: v.id("workspaces"),
+  },
+  // Returns plain JSON — no v.object validator because the shape is
+  // huge + evolves with the schema. The route handler is the only
+  // consumer and treats it as opaque bytes.
+  handler: async (ctx, args) => {
+    await requirePlatformAdmin(ctx, args.sessionToken);
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) throw new ConvexError("Workspace not found.");
+
+    const [
+      brands,
+      operators,
+      operatorInvites,
+      visitors,
+      conversations,
+      apiKeys,
+      calendarConnections,
+      calendarEvents,
+      activeCalls,
+      integrationGrants,
+      pushSubscriptions,
+      reminders,
+      messageDrafts,
+      bookingPages,
+      bookings,
+      bookingApprovals,
+      webhookSubscriptions,
+      notifications,
+      leads,
+      atlasConfigs,
+      atlasKnowledgeChunks,
+      atlasRuns,
+      lobbyConfigs,
+      intakeResponses,
+      savedReplies,
+      whatsappIntegrations,
+      whatsappTemplates,
+      voiceIntegrations,
+      botimIntegrations,
+      emailIntegrations,
+      auditLogs,
+    ] = await Promise.all([
+      collectByWorkspace(ctx, "brands", args.workspaceId),
+      collectByWorkspace(ctx, "operators", args.workspaceId),
+      collectByWorkspace(ctx, "operatorInvites", args.workspaceId),
+      collectByWorkspace(ctx, "visitors", args.workspaceId),
+      collectByWorkspace(ctx, "conversations", args.workspaceId),
+      collectByWorkspace(ctx, "apiKeys", args.workspaceId),
+      collectByWorkspace(ctx, "calendarConnections", args.workspaceId),
+      collectByWorkspace(ctx, "calendarEvents", args.workspaceId),
+      collectByWorkspace(ctx, "activeCalls", args.workspaceId),
+      collectByWorkspace(ctx, "integrationGrants", args.workspaceId),
+      collectByWorkspace(ctx, "pushSubscriptions", args.workspaceId),
+      collectByWorkspace(ctx, "reminders", args.workspaceId),
+      collectByWorkspace(ctx, "messageDrafts", args.workspaceId),
+      collectByWorkspace(ctx, "bookingPages", args.workspaceId),
+      collectByWorkspace(ctx, "bookings", args.workspaceId),
+      collectByWorkspace(ctx, "bookingApprovals", args.workspaceId),
+      collectByWorkspace(ctx, "webhookSubscriptions", args.workspaceId),
+      collectByWorkspace(ctx, "notifications", args.workspaceId),
+      collectByWorkspace(ctx, "leads", args.workspaceId),
+      collectByWorkspace(ctx, "atlasConfigs", args.workspaceId),
+      collectByWorkspace(ctx, "atlasKnowledgeChunks", args.workspaceId),
+      collectByWorkspace(ctx, "atlasRuns", args.workspaceId),
+      collectByWorkspace(ctx, "lobbyConfigs", args.workspaceId),
+      collectByWorkspace(ctx, "intakeResponses", args.workspaceId),
+      collectByWorkspace(ctx, "savedReplies", args.workspaceId),
+      collectByWorkspace(ctx, "whatsappIntegrations", args.workspaceId),
+      collectByWorkspace(ctx, "whatsappTemplates", args.workspaceId),
+      collectByWorkspace(ctx, "voiceIntegrations", args.workspaceId),
+      collectByWorkspace(ctx, "botimIntegrations", args.workspaceId),
+      collectByWorkspace(ctx, "emailIntegrations", args.workspaceId),
+      collectByWorkspace(ctx, "auditLogs", args.workspaceId),
+    ]);
+
+    return {
+      meta: {
+        exportedAt: new Date().toISOString(),
+        workspaceId: args.workspaceId,
+        workspaceSlug: workspace.slug,
+        workspaceName: workspace.name,
+        format: "praxtalk-workspace-export@v1",
+        notes:
+          "Sensitive fields (password hashes, OAuth tokens, API keys, " +
+          "webhook secrets, session tokens) are redacted as ***REDACTED***. " +
+          "Sessions + password reset tokens are excluded entirely. " +
+          "Messages are streamed separately by the route handler.",
+      },
+      workspace,
+      brands,
+      operators: operators.map(redactOperator),
+      operatorInvites: operatorInvites.map(redactInvite),
+      visitors,
+      conversations,
+      apiKeys: apiKeys.map(redactApiKey),
+      calendarConnections: calendarConnections.map(redactCalendarConn),
+      calendarEvents,
+      activeCalls,
+      integrationGrants,
+      pushSubscriptions,
+      reminders,
+      messageDrafts,
+      bookingPages,
+      bookings,
+      bookingApprovals,
+      webhookSubscriptions: webhookSubscriptions.map(redactWebhookSub),
+      notifications,
+      leads,
+      atlasConfigs: atlasConfigs.map(redactAtlasConfig),
+      atlasKnowledgeChunks,
+      atlasRuns,
+      lobbyConfigs,
+      intakeResponses,
+      savedReplies,
+      whatsappIntegrations: whatsappIntegrations.map(redactWhatsapp),
+      whatsappTemplates,
+      voiceIntegrations: voiceIntegrations.map(redactVoice),
+      botimIntegrations: botimIntegrations.map(redactBotim),
+      emailIntegrations: emailIntegrations.map(redactEmail),
+      auditLogs,
+    };
+  },
+});
+
+/**
+ * Paginated message dump. The route handler loops, advancing `cursor`
+ * by the last message's _creationTime until `done: true`. Page size
+ * is generous (5k) since messages are small docs but caps below the
+ * Convex single-response cap.
+ */
+export const exportWorkspaceMessagesPage = query({
+  args: {
+    sessionToken: v.string(),
+    workspaceId: v.id("workspaces"),
+    // Last _creationTime from the previous page; the next page returns
+    // messages strictly older than this. Pass null on the first call.
+    cursor: v.union(v.number(), v.null()),
+    pageSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requirePlatformAdmin(ctx, args.sessionToken);
+    const ws = await ctx.db.get(args.workspaceId);
+    if (!ws) throw new ConvexError("Workspace not found.");
+    const limit = Math.min(Math.max(args.pageSize ?? 5000, 1), 5000);
+
+    let q = ctx.db
+      .query("messages")
+      .filter((q) => q.eq(q.field("workspaceId"), args.workspaceId));
+    if (args.cursor !== null) {
+      q = q.filter((q) =>
+        q.lt(q.field("_creationTime"), args.cursor as number),
+      );
+    }
+    const messages = await q.order("desc").take(limit);
+    const nextCursor =
+      messages.length === limit ? messages[messages.length - 1]._creationTime : null;
+    return { messages, nextCursor, done: nextCursor === null };
+  },
+});
+
+/**
+ * Cross-workspace summary roll-up. One JSON-serialisable row per
+ * workspace, same schema for every row — perfect for piping into a
+ * single CSV. Used by the route handler at
+ * /admin/workspaces/export.csv.
+ *
+ * Reuses the listWorkspaces logic but returns extra fields the
+ * dashboard table doesn't surface (createdAt formatted, status
+ * timestamps, billing IDs etc) so the CSV is a complete picture.
+ */
+export const exportAllWorkspacesSummary = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    await requirePlatformAdmin(ctx, args.sessionToken);
+    const workspaces = await ctx.db.query("workspaces").collect();
+
+    return await Promise.all(
+      workspaces.map(async (ws) => {
+        const operators = await ctx.db
+          .query("operators")
+          .withIndex("by_workspace_email", (q) =>
+            q.eq("workspaceId", ws._id),
+          )
+          .collect();
+        const brands = await ctx.db
+          .query("brands")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", ws._id))
+          .collect();
+        const convoCount = (
+          await ctx.db
+            .query("conversations")
+            .withIndex("by_workspace_lastmsg", (q) =>
+              q.eq("workspaceId", ws._id),
+            )
+            .order("desc")
+            .take(5_000)
+        ).length;
+        const lastConvo = (
+          await ctx.db
+            .query("conversations")
+            .withIndex("by_workspace_lastmsg", (q) =>
+              q.eq("workspaceId", ws._id),
+            )
+            .order("desc")
+            .take(1)
+        )[0];
+        const atlasRuns = await ctx.db
+          .query("atlasRuns")
+          .withIndex("by_workspace_created", (q) =>
+            q.eq("workspaceId", ws._id),
+          )
+          .collect();
+        const monthStart = startOfMonth(Date.now());
+        const atlasThisMonth = atlasRuns.filter(
+          (r) => r.createdAt >= monthStart,
+        ).length;
+        const owner =
+          operators.find((o) => o.role === "owner") ??
+          operators.sort((a, b) => a.createdAt - b.createdAt)[0] ??
+          null;
+
+        return {
+          workspaceId: ws._id,
+          workspaceSlug: ws.slug,
+          workspaceName: ws.name,
+          plan: ws.plan,
+          platformStatus: ws.platformStatus ?? "active",
+          platformStatusReason: ws.platformStatusReason ?? "",
+          subscriptionStatus: ws.subscriptionStatus ?? "",
+          subscriptionProvider: ws.subscriptionProvider ?? "",
+          paypalSubscriptionId: ws.paypalSubscriptionId ?? "",
+          razorpaySubscriptionId: ws.razorpaySubscriptionId ?? "",
+          currentPeriodEnd: ws.currentPeriodEnd
+            ? new Date(ws.currentPeriodEnd).toISOString()
+            : "",
+          createdAt: new Date(ws.createdAt).toISOString(),
+          ownerName: owner?.name ?? "",
+          ownerEmail: owner?.email ?? "",
+          ownerCreatedAt: owner ? new Date(owner.createdAt).toISOString() : "",
+          operatorCount: operators.length,
+          brandCount: brands.length,
+          conversationCount: convoCount,
+          atlasRunsTotal: atlasRuns.length,
+          atlasRunsThisMonth: atlasThisMonth,
+          lastActivityAt: lastConvo
+            ? new Date(lastConvo.lastMessageAt).toISOString()
+            : "",
+        };
+      }),
+    );
+  },
+});
