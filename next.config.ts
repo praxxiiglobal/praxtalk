@@ -33,9 +33,13 @@ const CSP = [
   // covers it. Vercel scripts include analytics + insights. Google
   // Analytics gtag.js loads from googletagmanager.com.
   "script-src 'self' 'unsafe-inline' https://*.vercel-scripts.com https://www.googletagmanager.com",
-  "style-src 'self' 'unsafe-inline'",
+  // Google Fonts (Roboto) loads CSS from fonts.googleapis.com and the
+  // actual woff2 files from fonts.gstatic.com. Both must be allowed
+  // explicitly or the dashboard renders in fallback fonts and the
+  // console fills with 50+ CSP errors per page load.
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: https:",
-  "font-src 'self' data:",
+  "font-src 'self' data: https://fonts.gstatic.com",
   // Convex subdomains for the live socket + REST. ipinfo/ipapi for the
   // widget's geo lookup. GA beacon endpoints (google-analytics.com +
   // analytics.google.com + googletagmanager.com) for outbound events.
