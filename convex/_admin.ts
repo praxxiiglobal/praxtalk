@@ -903,6 +903,7 @@ export const listAllLeads = query({
           status: lead.status,
           country: lead.location?.country ?? null,
           city: lead.location?.city ?? null,
+          ip: lead.ip ?? null,
           notes: lead.notes ?? null,
           createdByName: operator?.name ?? "",
           createdByEmail: operator?.email ?? "",

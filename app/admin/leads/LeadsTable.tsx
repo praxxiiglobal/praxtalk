@@ -19,6 +19,7 @@ type Row = {
   status: Status;
   country: string | null;
   city: string | null;
+  ip: string | null;
   notes: string | null;
   createdByName: string;
   createdByEmail: string;
@@ -121,6 +122,8 @@ export function LeadsTable({
                 <th className="px-3 py-2.5">Brand</th>
                 <th className="px-3 py-2.5">Status</th>
                 <th className="px-3 py-2.5">Where</th>
+                <th className="px-3 py-2.5">IP</th>
+                <th className="px-3 py-2.5">Remarks</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-rule">
@@ -172,6 +175,21 @@ export function LeadsTable({
                   </td>
                   <td className="px-3 py-2.5 font-mono text-[10.5px] text-muted">
                     {[l.city, l.country].filter(Boolean).join(", ") || "—"}
+                  </td>
+                  <td className="px-3 py-2.5 font-mono text-[10.5px] text-muted">
+                    {l.ip ?? "—"}
+                  </td>
+                  <td className="px-3 py-2.5 max-w-[260px]">
+                    {l.notes ? (
+                      <span
+                        className="block truncate text-[12px] text-ink"
+                        title={l.notes}
+                      >
+                        {l.notes}
+                      </span>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -51,6 +51,7 @@ export async function GET(req: Request) {
     "status",
     "country",
     "city",
+    "ip",
     "notes",
     "createdByName",
     "createdByEmail",
