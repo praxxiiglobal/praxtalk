@@ -29,6 +29,7 @@ const PAGES: { path: string; priority: number; changefreq: MetadataRoute.Sitemap
   // /status excluded — operational page, noindex.
   { path: "/privacy", priority: 0.6, changefreq: "monthly" },
   { path: "/terms", priority: 0.6, changefreq: "monthly" },
+  { path: "/dpa", priority: 0.5, changefreq: "monthly" },
   { path: "/contact", priority: 0.6, changefreq: "monthly" },
   { path: "/book-demo", priority: 0.8, changefreq: "monthly" },
   { path: "/sign-up", priority: 0.9, changefreq: "monthly" },
