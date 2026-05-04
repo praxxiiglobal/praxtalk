@@ -21,6 +21,8 @@ type Row = {
   city: string | null;
   ip: string | null;
   notes: string | null;
+  remarksCount?: number;
+  remarks?: string | null;
   assignedToName: string | null;
   assignedToEmail: string | null;
   assignedAt: number | null;
@@ -202,14 +204,21 @@ export function LeadsTable({
                   <td className="px-3 py-2.5 font-mono text-[10.5px] text-muted">
                     {l.ip ?? "—"}
                   </td>
-                  <td className="px-3 py-2.5 max-w-[260px]">
+                  <td className="px-3 py-2.5 max-w-[280px]">
                     {l.notes ? (
-                      <span
-                        className="block truncate text-[12px] text-ink"
-                        title={l.notes}
-                      >
-                        {l.notes}
-                      </span>
+                      <>
+                        <span
+                          className="line-clamp-2 text-[12px] text-ink"
+                          title={l.remarks ?? l.notes}
+                        >
+                          {l.notes}
+                        </span>
+                        {l.remarksCount && l.remarksCount > 1 ? (
+                          <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+                            {l.remarksCount} remarks
+                          </span>
+                        ) : null}
+                      </>
                     ) : (
                       <span className="text-muted">—</span>
                     )}

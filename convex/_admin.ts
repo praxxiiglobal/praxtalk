@@ -896,6 +896,28 @@ export const listAllLeads = query({
         const assignee = lead.assignedToOperatorId
           ? await getOp(lead.assignedToOperatorId)
           : null;
+
+        // Remarks thread for this lead — collated into one human-
+        // readable block in the CSV. Legacy `lead.notes` (the old
+        // single-string field) is included as the first line so we
+        // don't drop pre-thread data.
+        const remarks = await ctx.db
+          .query("leadRemarks")
+          .withIndex("by_lead_created", (q) => q.eq("leadId", lead._id))
+          .order("asc")
+          .collect();
+        const remarkLines: string[] = [];
+        if (lead.notes && lead.notes.trim()) {
+          remarkLines.push(`[legacy note] ${lead.notes.trim()}`);
+        }
+        for (const r of remarks) {
+          const author = await getOp(r.operatorId);
+          const when = new Date(r.createdAt).toISOString();
+          const who = author?.name ?? "(deleted)";
+          remarkLines.push(`[${when} · ${who}] ${r.body}`);
+        }
+        const remarksCollated = remarkLines.join("\n\n");
+
         return {
           _id: lead._id,
           workspaceId: lead.workspaceId,
@@ -910,7 +932,12 @@ export const listAllLeads = query({
           country: lead.location?.country ?? null,
           city: lead.location?.city ?? null,
           ip: lead.ip ?? null,
-          notes: lead.notes ?? null,
+          // Newest remark only for the on-screen table (keeps the row
+          // height sane); the full thread lives in `remarks` below
+          // for the CSV.
+          notes: remarks.length > 0 ? remarks[remarks.length - 1].body : (lead.notes ?? null),
+          remarksCount: remarks.length + (lead.notes && lead.notes.trim() ? 1 : 0),
+          remarks: remarksCollated || null,
           assignedToName: assignee?.name ?? null,
           assignedToEmail: assignee?.email ?? null,
           assignedAt: lead.assignedAt ?? null,

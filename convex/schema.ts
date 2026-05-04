@@ -787,6 +787,24 @@ export default defineSchema({
       "updatedAt",
     ]),
 
+  // ── Lead remarks (thread of notes per lead) ─────────────────────────
+  // Each agent who works a lead can add their own remark. Older flat
+  // `leads.notes` stays around as a legacy single-string fallback for
+  // pre-thread leads; new entries always go here.
+  leadRemarks: defineTable({
+    workspaceId: v.id("workspaces"),
+    leadId: v.id("leads"),
+    operatorId: v.id("operators"),
+    body: v.string(),
+    createdAt: v.number(),
+    // Set when the original author edits their own remark; staff
+    // (owner/admin) edits also stamp `editedByOperatorId`.
+    updatedAt: v.optional(v.number()),
+    editedByOperatorId: v.optional(v.id("operators")),
+  })
+    .index("by_lead_created", ["leadId", "createdAt"])
+    .index("by_workspace_created", ["workspaceId", "createdAt"]),
+
   messages: defineTable({
     conversationId: v.id("conversations"),
     workspaceId: v.id("workspaces"), // denormalized for tenant scoping

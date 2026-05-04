@@ -193,6 +193,13 @@ function LeadRow({
     ip?: string;
     brand: { _id: Id<"brands">; name: string; primaryColor: string } | null;
     assignedTo: { _id: Id<"operators">; name: string; email: string } | null;
+    remarksCount?: number;
+    latestRemark?: {
+      _id: Id<"leadRemarks">;
+      body: string;
+      createdAt: number;
+      authorName: string;
+    } | null;
   };
   workspaceName: string;
   workspaceSlug: string;
@@ -203,12 +210,12 @@ function LeadRow({
   const { sessionToken } = useDashboardAuth();
   const updateStatus = useMutation(api.leads.updateStatus);
   const assign = useMutation(api.leads.assign);
-  const updateLead = useMutation(api.leads.update);
 
   const [pendingStatus, setPendingStatus] = useState<Status | null>(null);
   const [pendingAssignee, setPendingAssignee] = useState<
     Id<"operators"> | "none" | null
   >(null);
+  const [remarksOpen, setRemarksOpen] = useState(false);
 
   const onStatusChange = async (next: Status) => {
     if (next === lead.status) return;
@@ -234,15 +241,6 @@ function LeadRow({
       alert(e instanceof Error ? e.message : "Couldn't assign lead.");
     } finally {
       setPendingAssignee(null);
-    }
-  };
-
-  const onSaveNotes = async (notes: string) => {
-    if (notes === (lead.notes ?? "")) return;
-    try {
-      await updateLead({ sessionToken, leadId: lead._id, notes });
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't save remarks.");
     }
   };
 
@@ -306,8 +304,17 @@ function LeadRow({
       <td className="px-3 py-2.5 font-mono text-[10.5px] text-muted">
         {lead.ip ?? "—"}
       </td>
-      <td className="px-3 py-2.5 min-w-[260px]">
-        <RemarksCell value={lead.notes ?? ""} onSave={onSaveNotes} />
+      <td className="px-3 py-2.5 min-w-[280px]">
+        <RemarksCell
+          leadId={lead._id}
+          legacyNote={lead.notes ?? null}
+          summaryCount={lead.remarksCount ?? 0}
+          summaryLatest={lead.latestRemark ?? null}
+          open={remarksOpen}
+          onToggle={() => setRemarksOpen((v) => !v)}
+          meRole={meRole}
+          meId={meId}
+        />
       </td>
     </tr>
   );
@@ -416,51 +423,97 @@ function AssigneeSelect({
  * reveals a textarea. Save button commits + closes; Esc / blur on
  * empty change closes without committing.
  */
+/**
+ * Threaded remarks. Default state shows the latest remark + "N more"
+ * counter. Click toggles open the thread (chronological list +
+ * compose box). Each agent gets attribution; the original author or
+ * any owner/admin can edit/delete.
+ */
 function RemarksCell({
-  value,
-  onSave,
+  leadId,
+  legacyNote,
+  summaryCount,
+  summaryLatest,
+  open,
+  onToggle,
+  meRole,
+  meId,
 }: {
-  value: string;
-  onSave: (next: string) => Promise<void>;
+  leadId: Id<"leads">;
+  legacyNote: string | null;
+  summaryCount: number;
+  summaryLatest: {
+    _id: Id<"leadRemarks">;
+    body: string;
+    createdAt: number;
+    authorName: string;
+  } | null;
+  open: boolean;
+  onToggle: () => void;
+  meRole: "owner" | "admin" | "agent";
+  meId: Id<"operators">;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
+  const { sessionToken } = useDashboardAuth();
+  // Skip the live query until the cell is actually opened — saves a
+  // subscription per row on a busy table.
+  const remarks = useQuery(
+    api.leads.listRemarks,
+    open ? { sessionToken, leadId } : "skip",
+  );
+  const addRemark = useMutation(api.leads.addRemark);
+  const updateRemark = useMutation(api.leads.updateRemark);
+  const deleteRemark = useMutation(api.leads.deleteRemark);
+
+  const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const taRef = useRef<HTMLTextAreaElement | null>(null);
 
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-
-  useEffect(() => {
-    if (editing) taRef.current?.focus();
-  }, [editing]);
-
-  const commit = async () => {
+  const onAdd = async () => {
+    const body = draft.trim();
+    if (!body) return;
     setBusy(true);
     try {
-      await onSave(draft.trim());
-      setEditing(false);
+      await addRemark({ sessionToken, leadId, body });
+      setDraft("");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't save remark.");
     } finally {
       setBusy(false);
     }
   };
 
-  if (!editing) {
+  const totalCount = summaryCount + (legacyNote && legacyNote.trim() ? 1 : 0);
+
+  if (!open) {
     return (
       <button
         type="button"
-        onClick={() => setEditing(true)}
+        onClick={onToggle}
         className="block w-full text-left"
-        title={value || "Click to add remarks"}
+        title="Click to view + add remarks"
       >
-        {value ? (
-          <span className="line-clamp-2 text-[12px] text-ink hover:underline underline-offset-2">
-            {value}
-          </span>
+        {summaryLatest ? (
+          <>
+            <span className="line-clamp-2 text-[12px] text-ink">
+              {summaryLatest.body}
+            </span>
+            <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+              {summaryLatest.authorName} ·{" "}
+              {timeAgo(summaryLatest.createdAt)}
+              {totalCount > 1 ? ` · ${totalCount - 1} more` : ""}
+            </span>
+          </>
+        ) : legacyNote && legacyNote.trim() ? (
+          <>
+            <span className="line-clamp-2 text-[12px] text-ink">
+              {legacyNote}
+            </span>
+            <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+              legacy note
+            </span>
+          </>
         ) : (
           <span className="text-[11px] italic text-muted hover:text-ink">
-            + add remarks
+            + add remark
           </span>
         )}
       </button>
@@ -468,51 +521,223 @@ function RemarksCell({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <textarea
-        ref={taRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        rows={3}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            setDraft(value);
-            setEditing(false);
-          }
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-            e.preventDefault();
-            void commit();
-          }
-        }}
-        className="w-full resize-none rounded-lg border border-rule-2 bg-paper px-2.5 py-1.5 text-[12px] outline-none focus:border-ink"
-        placeholder="Notes for the team — context, next steps, links…"
-      />
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted">
-          ⌘↵ to save · Esc to cancel
+    <div className="flex flex-col gap-2 rounded-lg border border-rule-2 bg-paper-2/40 p-2">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+          Thread · {totalCount} remark{totalCount === 1 ? "" : "s"}
         </span>
-        <div className="flex gap-1.5">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-ink"
+        >
+          Collapse ↑
+        </button>
+      </div>
+
+      <ul className="m-0 flex max-h-64 flex-col gap-2 overflow-y-auto p-0">
+        {legacyNote && legacyNote.trim() ? (
+          <RemarkBubble
+            who="(legacy note)"
+            body={legacyNote}
+            when={null}
+            canEdit={false}
+            isPending={false}
+            onEdit={() => {}}
+            onDelete={() => {}}
+          />
+        ) : null}
+        {remarks === undefined ? (
+          <li className="px-1 text-[11px] text-muted">Loading…</li>
+        ) : remarks.length === 0 && !legacyNote ? (
+          <li className="px-1 text-[11px] italic text-muted">
+            No remarks yet. Be the first.
+          </li>
+        ) : (
+          remarks?.map((r) => {
+            const canEdit =
+              meRole === "owner" ||
+              meRole === "admin" ||
+              r.author._id === meId;
+            return (
+              <RemarkBubble
+                key={r._id}
+                who={r.author.name}
+                body={r.body}
+                when={r.createdAt}
+                editedAt={r.updatedAt}
+                canEdit={canEdit}
+                isPending={false}
+                onEdit={async (next) => {
+                  try {
+                    await updateRemark({
+                      sessionToken,
+                      remarkId: r._id,
+                      body: next,
+                    });
+                  } catch (e) {
+                    alert(
+                      e instanceof Error ? e.message : "Couldn't edit remark.",
+                    );
+                  }
+                }}
+                onDelete={async () => {
+                  if (!confirm("Delete this remark?")) return;
+                  try {
+                    await deleteRemark({ sessionToken, remarkId: r._id });
+                  } catch (e) {
+                    alert(
+                      e instanceof Error
+                        ? e.message
+                        : "Couldn't delete remark.",
+                    );
+                  }
+                }}
+              />
+            );
+          })
+        )}
+      </ul>
+
+      <div className="flex flex-col gap-1.5 border-t border-rule pt-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={2}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              void onAdd();
+            }
+          }}
+          className="w-full resize-none rounded-lg border border-rule-2 bg-paper px-2.5 py-1.5 text-[12px] outline-none focus:border-ink"
+          placeholder="Add a remark — context, next steps, what happened on the call…"
+        />
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted">
+            ⌘↵ to add
+          </span>
           <button
             type="button"
-            onClick={() => {
-              setDraft(value);
-              setEditing(false);
-            }}
-            disabled={busy}
-            className="rounded-full border border-rule-2 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-ink"
+            onClick={onAdd}
+            disabled={busy || !draft.trim()}
+            className="rounded-full bg-ink px-3 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-paper disabled:opacity-50"
           >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={commit}
-            disabled={busy}
-            className="rounded-full bg-ink px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-paper disabled:opacity-50"
-          >
-            {busy ? "Saving…" : "Save"}
+            {busy ? "Adding…" : "Add remark"}
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+function RemarkBubble({
+  who,
+  body,
+  when,
+  editedAt,
+  canEdit,
+  isPending,
+  onEdit,
+  onDelete,
+}: {
+  who: string;
+  body: string;
+  when: number | null;
+  editedAt?: number | null;
+  canEdit: boolean;
+  isPending: boolean;
+  onEdit: (next: string) => void | Promise<void>;
+  onDelete: () => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(body);
+  useEffect(() => {
+    if (!editing) setDraft(body);
+  }, [body, editing]);
+
+  return (
+    <li className="rounded-lg bg-paper px-2.5 py-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+          {who}
+          {when !== null && (
+            <span className="ml-1.5 text-muted/70">· {timeAgo(when)}</span>
+          )}
+          {editedAt && (
+            <span className="ml-1 text-muted/70">(edited)</span>
+          )}
+        </span>
+        {canEdit && !editing && (
+          <span className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-ink"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => void onDelete()}
+              className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-red-700"
+            >
+              Delete
+            </button>
+          </span>
+        )}
+      </div>
+      {editing ? (
+        <div className="mt-1 flex flex-col gap-1.5">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={2}
+            className="w-full resize-none rounded-lg border border-rule-2 bg-paper px-2 py-1 text-[12px] outline-none focus:border-ink"
+          />
+          <div className="flex justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(body);
+                setEditing(false);
+              }}
+              className="rounded-full border border-rule-2 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const next = draft.trim();
+                if (!next || next === body) {
+                  setEditing(false);
+                  return;
+                }
+                await onEdit(next);
+                setEditing(false);
+              }}
+              disabled={isPending}
+              className="rounded-full bg-ink px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-paper disabled:opacity-50"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-0.5 whitespace-pre-wrap text-[12.5px] text-ink">
+          {body}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function timeAgo(ms: number): string {
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`;
+  if (diff < 604_800_000) return `${Math.round(diff / 86_400_000)}d ago`;
+  return new Date(ms).toLocaleDateString();
 }

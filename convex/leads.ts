@@ -116,7 +116,31 @@ export const list = query({
       }
     }
 
-    return leads.map((l) => ({
+    // Latest remark + total count per lead. We fetch in parallel
+    // because each lead needs its own indexed lookup.
+    const remarkSummaries = await Promise.all(
+      leads.map(async (l) => {
+        const all = await ctx.db
+          .query("leadRemarks")
+          .withIndex("by_lead_created", (q) => q.eq("leadId", l._id))
+          .order("desc")
+          .collect();
+        if (all.length === 0) return { latest: null, count: 0 };
+        const latest = all[0];
+        const author = await ctx.db.get(latest.operatorId);
+        return {
+          count: all.length,
+          latest: {
+            _id: latest._id,
+            body: latest.body,
+            createdAt: latest.createdAt,
+            authorName: author?.name ?? "(deleted)",
+          },
+        };
+      }),
+    );
+
+    return leads.map((l, i) => ({
       ...l,
       brand: l.brandId
         ? (() => {
@@ -129,6 +153,8 @@ export const list = query({
       assignedTo: l.assignedToOperatorId
         ? assigneeIndex.get(l.assignedToOperatorId) ?? null
         : null,
+      remarksCount: remarkSummaries[i].count,
+      latestRemark: remarkSummaries[i].latest,
     }));
   },
 });
@@ -448,5 +474,171 @@ export const findByConversation = query({
     if (!lead || lead.workspaceId !== workspaceId) return null;
     if (lead.brandId && !hasBrandAccess(operator, lead.brandId)) return null;
     return lead;
+  },
+});
+
+// ── Remarks (per-lead thread) ──────────────────────────────────────────
+
+/**
+ * List every remark on a lead, oldest-first. Same access checks as
+ * the lead itself — workspace + brand access.
+ */
+export const listRemarks = query({
+  args: {
+    sessionToken: v.string(),
+    leadId: v.id("leads"),
+  },
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const lead = await ctx.db.get(args.leadId);
+    if (!lead || lead.workspaceId !== workspaceId) return [];
+    if (lead.brandId && !hasBrandAccess(operator, lead.brandId)) return [];
+
+    const remarks = await ctx.db
+      .query("leadRemarks")
+      .withIndex("by_lead_created", (q) => q.eq("leadId", args.leadId))
+      .order("asc")
+      .collect();
+
+    // Hydrate author + editor names so the thread renders without
+    // an extra round-trip per remark.
+    const opIds = new Set<Id<"operators">>();
+    for (const r of remarks) {
+      opIds.add(r.operatorId);
+      if (r.editedByOperatorId) opIds.add(r.editedByOperatorId);
+    }
+    const opIndex = new Map<
+      string,
+      { _id: Id<"operators">; name: string; email: string }
+    >();
+    for (const id of opIds) {
+      const op = await ctx.db.get(id);
+      if (op) {
+        opIndex.set(op._id, { _id: op._id, name: op.name, email: op.email });
+      }
+    }
+
+    return remarks.map((r) => ({
+      _id: r._id,
+      body: r.body,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt ?? null,
+      author: opIndex.get(r.operatorId) ?? {
+        _id: r.operatorId,
+        name: "(deleted operator)",
+        email: "",
+      },
+      editedBy: r.editedByOperatorId
+        ? opIndex.get(r.editedByOperatorId) ?? null
+        : null,
+    }));
+  },
+});
+
+/**
+ * Append a remark to a lead. Anyone with access to the lead's brand
+ * can post.
+ */
+export const addRemark = mutation({
+  args: {
+    sessionToken: v.string(),
+    leadId: v.id("leads"),
+    body: v.string(),
+  },
+  returns: v.id("leadRemarks"),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const body = args.body.trim();
+    if (!body) throw new Error("Remark body is required.");
+    const lead = await ctx.db.get(args.leadId);
+    if (!lead || lead.workspaceId !== workspaceId) {
+      throw new Error("Lead not found.");
+    }
+    if (lead.brandId && !hasBrandAccess(operator, lead.brandId)) {
+      throw new Error("No access to this brand.");
+    }
+    const now = Date.now();
+    const remarkId = await ctx.db.insert("leadRemarks", {
+      workspaceId,
+      leadId: args.leadId,
+      operatorId: operator._id,
+      body,
+      createdAt: now,
+    });
+    // Bump the lead's updatedAt so list views re-sort correctly.
+    await ctx.db.patch(args.leadId, { updatedAt: now });
+    return remarkId;
+  },
+});
+
+/**
+ * Edit a remark. Only the original author or an owner/admin can edit.
+ */
+export const updateRemark = mutation({
+  args: {
+    sessionToken: v.string(),
+    remarkId: v.id("leadRemarks"),
+    body: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const remark = await ctx.db.get(args.remarkId);
+    if (!remark || remark.workspaceId !== workspaceId) {
+      throw new Error("Remark not found.");
+    }
+    const isAuthor = remark.operatorId === operator._id;
+    const isStaff = operator.role === "owner" || operator.role === "admin";
+    if (!isAuthor && !isStaff) {
+      throw new Error("Only the author or an admin can edit this remark.");
+    }
+    const body = args.body.trim();
+    if (!body) throw new Error("Remark body is required.");
+    const now = Date.now();
+    await ctx.db.patch(args.remarkId, {
+      body,
+      updatedAt: now,
+      editedByOperatorId: operator._id,
+    });
+    await ctx.db.patch(remark.leadId, { updatedAt: now });
+    return null;
+  },
+});
+
+/**
+ * Delete a remark. Only the original author or an owner/admin can delete.
+ */
+export const deleteRemark = mutation({
+  args: {
+    sessionToken: v.string(),
+    remarkId: v.id("leadRemarks"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const remark = await ctx.db.get(args.remarkId);
+    if (!remark || remark.workspaceId !== workspaceId) {
+      throw new Error("Remark not found.");
+    }
+    const isAuthor = remark.operatorId === operator._id;
+    const isStaff = operator.role === "owner" || operator.role === "admin";
+    if (!isAuthor && !isStaff) {
+      throw new Error("Only the author or an admin can delete this remark.");
+    }
+    await ctx.db.delete(args.remarkId);
+    await ctx.db.patch(remark.leadId, { updatedAt: Date.now() });
+    return null;
   },
 });

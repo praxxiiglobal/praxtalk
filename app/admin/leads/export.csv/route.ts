@@ -53,6 +53,8 @@ export async function GET(req: Request) {
     "city",
     "ip",
     "notes",
+    "remarksCount",
+    "remarks",
     "assignedToName",
     "assignedToEmail",
     "assignedAt",
