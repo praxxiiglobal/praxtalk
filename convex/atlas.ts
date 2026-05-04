@@ -1342,10 +1342,15 @@ export const _runWebsiteIngest = internalAction({
       const pages: ExtractedPage[] = [];
       const canonicalSeen = new Set<string>();
       let jsRenderedSkipped = 0;
+      let fetchedButTooShort = 0;
+      let fetchFailed = 0;
       for (const u of urls) {
         if (pages.length >= MAX_PAGES) break;
         const page = await fetchAndExtract(u);
-        if (!page) continue;
+        if (!page) {
+          fetchFailed++;
+          continue;
+        }
         if (page.jsRendered) {
           jsRenderedSkipped++;
           continue;
@@ -1355,14 +1360,27 @@ export const _runWebsiteIngest = internalAction({
         const dedupeKey = page.canonicalUrl ?? page.url;
         if (canonicalSeen.has(dedupeKey)) continue;
         canonicalSeen.add(dedupeKey);
-        if (page.text.length > 80) pages.push(page);
+        // Threshold lowered from 80 → 30 chars: even a thin marketing
+        // landing ("Welcome to Acme — premium doodads") clears 30 and
+        // is genuinely useful in a KB.
+        if (page.text.length > 30) {
+          pages.push(page);
+        } else {
+          fetchedButTooShort++;
+        }
       }
 
       if (pages.length === 0) {
-        const msg =
-          jsRenderedSkipped > 0
-            ? `Crawled the site but every page (${jsRenderedSkipped}) appears to be JS-rendered — Atlas can only read server-rendered HTML. Try linking your sitemap.xml of static-rendered pages directly.`
-            : "Crawled the site but didn't find any text content.";
+        let msg: string;
+        if (jsRenderedSkipped > 0) {
+          msg = `Crawled the site but every page (${jsRenderedSkipped}) appears to be JS-rendered — Atlas can only read server-rendered HTML. Try linking your sitemap.xml of static-rendered pages directly, or pre-render the routes you want indexed.`;
+        } else if (fetchedButTooShort > 0) {
+          msg = `Crawled ${urls.length} URL(s) — ${fetchedButTooShort} returned HTML but each had under 30 chars of extractable text after stripping nav/scripts. Your pages may be image-heavy, behind auth, or use unusual markup.`;
+        } else if (fetchFailed > 0) {
+          msg = `Crawled ${urls.length} URL(s) but every fetch failed (${fetchFailed} non-200 / non-HTML responses). Check that the URL is publicly reachable and serves text/html.`;
+        } else {
+          msg = `Crawled ${urls.length} URL(s) but didn't find any text content. The site may be empty, gated, or render entirely client-side.`;
+        }
         throw new Error(msg);
       }
 
@@ -1864,18 +1882,21 @@ function stripInlineTags(s: string): string {
  */
 function htmlToText(html: string): string {
   let s = html;
-  // Strip non-content blocks entirely.
+  // Strip blocks that genuinely contain no useful KB text. Note we
+  // do NOT strip <header>, <footer>, <aside> here — Next.js + many
+  // modern frameworks wrap hero copy and main marketing content in
+  // <header>, so removing the whole element nukes the page.
   s = s.replace(/<script[\s\S]*?<\/script>/gi, " ");
   s = s.replace(/<style[\s\S]*?<\/style>/gi, " ");
   s = s.replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
   s = s.replace(/<nav[\s\S]*?<\/nav>/gi, " ");
-  s = s.replace(/<header[\s\S]*?<\/header>/gi, " ");
-  s = s.replace(/<footer[\s\S]*?<\/footer>/gi, " ");
-  s = s.replace(/<aside[\s\S]*?<\/aside>/gi, " ");
   s = s.replace(/<form[\s\S]*?<\/form>/gi, " ");
   s = s.replace(/<svg[\s\S]*?<\/svg>/gi, " ");
   // Convert block-level closers to newlines so paragraphs survive.
-  s = s.replace(/<\/(p|div|li|h\d|tr|br|section|article)\s*>/gi, "\n");
+  s = s.replace(
+    /<\/(p|div|li|h\d|tr|br|section|article|header|footer|aside)\s*>/gi,
+    "\n",
+  );
   s = s.replace(/<br\s*\/?\s*>/gi, "\n");
   // Drop everything else.
   s = s.replace(/<[^>]+>/g, " ");
