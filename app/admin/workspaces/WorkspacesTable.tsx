@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -72,12 +72,21 @@ export function WorkspacesTable(props: {
 }
 
 function WorkspacesTableInner({
-  workspaces,
+  workspaces: initialWorkspaces,
   sessionToken,
 }: {
   workspaces: Row[];
   sessionToken: string;
 }) {
+  // SSR primes the page, then we subscribe to a live Convex query so
+  // every dropdown change (plan, platform status) is reflected
+  // immediately when the mutation acks — no more snapping back to
+  // a stale SSR snapshot. The cast bridges Row['_id'] (string for
+  // SSR portability) with the Id<'workspaces'> the live query
+  // returns; the runtime shapes are identical.
+  const live = useQuery(api._admin.listWorkspaces, { sessionToken });
+  const workspaces: Row[] = (live as Row[] | undefined) ?? initialWorkspaces;
+
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [planFilter, setPlanFilter] = useState<"all" | Plan>("all");
@@ -544,26 +553,27 @@ function PlanSelect({
   sessionToken: string;
 }) {
   const setPlan = useMutation(api._admin.setPlan);
-  const [optimistic, setOptimistic] = useState<Plan>(value);
-  const [busy, setBusy] = useState(false);
-  if (!busy && optimistic !== value) setOptimistic(value);
+  // While the mutation is in flight, show the value the user picked.
+  // Otherwise show the live server value (`value` updates as soon as
+  // the parent's useQuery subscription receives the change). No
+  // stale-resync hack needed.
+  const [pending, setPending] = useState<Plan | null>(null);
+  const display = pending ?? value;
 
   return (
     <select
-      value={optimistic}
-      disabled={busy}
+      value={display}
+      disabled={pending !== null}
       onChange={async (e) => {
         const next = e.target.value as Plan;
         if (next === value) return;
-        setOptimistic(next);
-        setBusy(true);
+        setPending(next);
         try {
           await setPlan({ sessionToken, workspaceId, plan: next });
         } catch (err) {
           alert(err instanceof Error ? err.message : "Couldn't update plan.");
-          setOptimistic(value);
         } finally {
-          setBusy(false);
+          setPending(null);
         }
       }}
       title="Plan tier"
@@ -587,23 +597,22 @@ function PlatformSelect({
   sessionToken: string;
 }) {
   const setStatus = useMutation(api._admin.setPlatformStatus);
-  const [optimistic, setOptimistic] = useState<PlatformStatus>(value);
-  const [busy, setBusy] = useState(false);
-  if (!busy && optimistic !== value) setOptimistic(value);
+  const [pending, setPending] = useState<PlatformStatus | null>(null);
+  const display = pending ?? value;
 
   const tint =
-    optimistic === "active"
+    display === "active"
       ? "bg-good/15 text-good"
-      : optimistic === "suspended"
+      : display === "suspended"
         ? "bg-red-100 text-red-700"
-        : optimistic === "pending_review"
+        : display === "pending_review"
           ? "bg-yellow-100 text-yellow-800"
           : "bg-orange-100 text-orange-800";
 
   return (
     <select
-      value={optimistic}
-      disabled={busy}
+      value={display}
+      disabled={pending !== null}
       onChange={async (e) => {
         const next = e.target.value as PlatformStatus;
         if (next === value) return;
@@ -615,15 +624,13 @@ function PlatformSelect({
         ) {
           return;
         }
-        setOptimistic(next);
-        setBusy(true);
+        setPending(next);
         try {
           await setStatus({ sessionToken, workspaceId, status: next });
         } catch (err) {
           alert(err instanceof Error ? err.message : "Couldn't update status.");
-          setOptimistic(value);
         } finally {
-          setBusy(false);
+          setPending(null);
         }
       }}
       title="Platform moderation status"
