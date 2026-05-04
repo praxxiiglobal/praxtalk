@@ -19,6 +19,7 @@ export const EVENT_TYPES = [
   "message.created",
   "lead.created",
   "lead.status_changed",
+  "lead.assigned",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

@@ -763,6 +763,12 @@ export default defineSchema({
       v.literal("lost"),
     ),
     notes: v.optional(v.string()),
+    // Optional pipeline assignee — typically a sales / CX rep who's
+    // working the lead. Owners + admins can pick anyone; agents can
+    // only assign to themselves (enforced server-side).
+    assignedToOperatorId: v.optional(v.id("operators")),
+    assignedAt: v.optional(v.number()),
+    assignedByOperatorId: v.optional(v.id("operators")),
     createdBy: v.id("operators"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -774,7 +780,12 @@ export default defineSchema({
     ])
     .index("by_brand_status_updated", ["brandId", "status", "updatedAt"])
     .index("by_workspace_email", ["workspaceId", "email"])
-    .index("by_conversation", ["conversationId"]),
+    .index("by_conversation", ["conversationId"])
+    .index("by_workspace_assignee_updated", [
+      "workspaceId",
+      "assignedToOperatorId",
+      "updatedAt",
+    ]),
 
   messages: defineTable({
     conversationId: v.id("conversations"),

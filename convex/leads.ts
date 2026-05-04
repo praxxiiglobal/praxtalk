@@ -94,6 +94,28 @@ export const list = query({
       (l) => !l.brandId || hasBrandAccess(operator, l.brandId),
     );
 
+    // Hydrate assignee operator name + email so the table can render
+    // "Assigned to Jane Doe" without an extra round-trip per row.
+    const assigneeIds = new Set(
+      leads
+        .map((l) => l.assignedToOperatorId)
+        .filter((id): id is Id<"operators"> => !!id),
+    );
+    const assigneeIndex = new Map<
+      string,
+      { _id: Id<"operators">; name: string; email: string }
+    >();
+    for (const id of assigneeIds) {
+      const op = await ctx.db.get(id);
+      if (op) {
+        assigneeIndex.set(op._id, {
+          _id: op._id,
+          name: op.name,
+          email: op.email,
+        });
+      }
+    }
+
     return leads.map((l) => ({
       ...l,
       brand: l.brandId
@@ -103,6 +125,9 @@ export const list = query({
               ? { _id: b._id, name: b.name, primaryColor: b.primaryColor }
               : null;
           })()
+        : null,
+      assignedTo: l.assignedToOperatorId
+        ? assigneeIndex.get(l.assignedToOperatorId) ?? null
         : null,
     }));
   },
@@ -264,6 +289,74 @@ export const updateStatus = mutation({
       leadId: args.leadId,
       previousStatus: lead.status,
       status: args.status,
+    });
+    return null;
+  },
+});
+
+/**
+ * Assign a lead to an operator, or unassign by passing null.
+ *
+ * Owners + admins can assign anyone in the workspace. Agents can only
+ * assign to themselves (self-claim) — they shouldn't be reorganising
+ * the team's pipeline. Brand-scoped agents must also have access to
+ * the lead's brand.
+ */
+export const assign = mutation({
+  args: {
+    sessionToken: v.string(),
+    leadId: v.id("leads"),
+    operatorId: v.union(v.id("operators"), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    const lead = await ctx.db.get(args.leadId);
+    if (!lead || lead.workspaceId !== workspaceId) {
+      throw new Error("Lead not found.");
+    }
+    if (lead.brandId && !hasBrandAccess(operator, lead.brandId)) {
+      throw new Error("No access to this brand.");
+    }
+    if (operator.role === "agent") {
+      // Agents can self-claim or unclaim themselves; nothing else.
+      const isSelf = args.operatorId === operator._id;
+      const isUnclaimSelf =
+        args.operatorId === null && lead.assignedToOperatorId === operator._id;
+      if (!isSelf && !isUnclaimSelf) {
+        throw new Error(
+          "Agents can only assign leads to themselves. Ask an admin to reassign.",
+        );
+      }
+    }
+    if (args.operatorId) {
+      const target = await ctx.db.get(args.operatorId);
+      if (!target || target.workspaceId !== workspaceId) {
+        throw new Error("Assignee must be a teammate in this workspace.");
+      }
+      // Brand-scoped operators can't be assigned a lead they couldn't
+      // open anyway — block at assign time so the pipeline stays
+      // workable.
+      if (lead.brandId && !hasBrandAccess(target, lead.brandId)) {
+        throw new Error(
+          "That teammate doesn't have access to this lead's brand.",
+        );
+      }
+    }
+    const now = Date.now();
+    await ctx.db.patch(args.leadId, {
+      assignedToOperatorId: args.operatorId ?? undefined,
+      assignedAt: args.operatorId ? now : undefined,
+      assignedByOperatorId: args.operatorId ? operator._id : undefined,
+      updatedAt: now,
+    });
+    await fireEvent(ctx, workspaceId, "lead.assigned", {
+      leadId: args.leadId,
+      assigneeOperatorId: args.operatorId,
+      previousAssigneeOperatorId: lead.assignedToOperatorId ?? null,
     });
     return null;
   },

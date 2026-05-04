@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useDashboardAuth } from "../DashboardShell";
@@ -28,30 +28,50 @@ const STATUS_OPTIONS: Status[] = [
   "lost",
 ];
 
+type Operator = {
+  _id: Id<"operators">;
+  name: string;
+  email: string;
+  role: "owner" | "admin" | "agent";
+};
+
 export function LeadsView() {
-  const { sessionToken, workspace } = useDashboardAuth();
+  const { sessionToken, workspace, operator: me } = useDashboardAuth();
   const selectedBrand = useSelectedBrand();
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [filter, setFilter] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState<
+    "all" | "mine" | "unassigned" | string
+  >("all");
 
   const leads = useQuery(api.leads.list, {
     sessionToken,
     status: statusFilter === "all" ? undefined : statusFilter,
     brandId: selectedBrand ?? undefined,
   });
+  const operators = useQuery(api.operators.list, { sessionToken });
 
   const filtered = useMemo(() => {
     if (!leads) return null;
+    let list = leads;
+    if (assigneeFilter === "mine") {
+      list = list.filter((l) => l.assignedTo?._id === me._id);
+    } else if (assigneeFilter === "unassigned") {
+      list = list.filter((l) => !l.assignedTo);
+    } else if (assigneeFilter !== "all") {
+      list = list.filter((l) => l.assignedTo?._id === assigneeFilter);
+    }
     const q = filter.trim().toLowerCase();
-    if (!q) return leads;
-    return leads.filter(
+    if (!q) return list;
+    return list.filter(
       (l) =>
         l.name.toLowerCase().includes(q) ||
         (l.email?.toLowerCase().includes(q) ?? false) ||
         (l.phone?.toLowerCase().includes(q) ?? false) ||
-        (l.brand?.name.toLowerCase().includes(q) ?? false),
+        (l.brand?.name.toLowerCase().includes(q) ?? false) ||
+        (l.assignedTo?.name.toLowerCase().includes(q) ?? false),
     );
-  }, [leads, filter]);
+  }, [leads, filter, assigneeFilter, me._id]);
 
   return (
     <>
@@ -61,7 +81,7 @@ export function LeadsView() {
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter by name, email, phone, brand…"
+            placeholder="Filter by name, email, phone, brand, assignee…"
             className="h-9 w-72 rounded-full border border-rule-2 bg-paper px-3.5 text-sm outline-none focus:border-ink"
           />
           <div className="flex flex-wrap gap-1.5">
@@ -81,6 +101,20 @@ export function LeadsView() {
               </button>
             ))}
           </div>
+          <select
+            value={assigneeFilter}
+            onChange={(e) => setAssigneeFilter(e.target.value)}
+            className="h-9 rounded-full border border-rule-2 bg-paper px-3 font-mono text-[11px] uppercase tracking-[0.06em] outline-none focus:border-ink"
+          >
+            <option value="all">Any assignee</option>
+            <option value="mine">Assigned to me</option>
+            <option value="unassigned">Unassigned</option>
+            {operators?.map((op) => (
+              <option key={op._id} value={op._id}>
+                {op.name}
+              </option>
+            ))}
+          </select>
           {filtered && (
             <span className="ml-auto font-mono text-[11px] text-muted">
               {filtered.length} {filtered.length === 1 ? "lead" : "leads"}
@@ -114,9 +148,10 @@ export function LeadsView() {
                 <th className="px-3 py-2.5">Workspace</th>
                 <th className="px-3 py-2.5">Brand</th>
                 <th className="px-3 py-2.5">Status</th>
+                <th className="px-3 py-2.5">Assignee</th>
                 <th className="px-3 py-2.5">Where</th>
                 <th className="px-3 py-2.5">IP</th>
-                <th className="px-3 py-2.5">Remarks</th>
+                <th className="px-3 py-2.5 min-w-[260px]">Remarks</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-rule">
@@ -125,6 +160,9 @@ export function LeadsView() {
                   key={l._id}
                   workspaceName={workspace.name}
                   workspaceSlug={workspace.slug}
+                  operators={operators ?? []}
+                  meRole={me.role}
+                  meId={me._id as Id<"operators">}
                   lead={l}
                 />
               ))}
@@ -140,6 +178,9 @@ function LeadRow({
   lead,
   workspaceName,
   workspaceSlug,
+  operators,
+  meRole,
+  meId,
 }: {
   lead: {
     _id: Id<"leads">;
@@ -151,24 +192,57 @@ function LeadRow({
     location?: { city?: string; country?: string };
     ip?: string;
     brand: { _id: Id<"brands">; name: string; primaryColor: string } | null;
+    assignedTo: { _id: Id<"operators">; name: string; email: string } | null;
   };
   workspaceName: string;
   workspaceSlug: string;
+  operators: Operator[];
+  meRole: "owner" | "admin" | "agent";
+  meId: Id<"operators">;
 }) {
   const { sessionToken } = useDashboardAuth();
   const updateStatus = useMutation(api.leads.updateStatus);
-  const [pending, setPending] = useState<Status | null>(null);
-  const display = pending ?? lead.status;
+  const assign = useMutation(api.leads.assign);
+  const updateLead = useMutation(api.leads.update);
 
-  const onChange = async (next: Status) => {
+  const [pendingStatus, setPendingStatus] = useState<Status | null>(null);
+  const [pendingAssignee, setPendingAssignee] = useState<
+    Id<"operators"> | "none" | null
+  >(null);
+
+  const onStatusChange = async (next: Status) => {
     if (next === lead.status) return;
-    setPending(next);
+    setPendingStatus(next);
     try {
       await updateStatus({ sessionToken, leadId: lead._id, status: next });
     } catch (e) {
       alert(e instanceof Error ? e.message : "Couldn't update status.");
     } finally {
-      setPending(null);
+      setPendingStatus(null);
+    }
+  };
+
+  const onAssign = async (next: Id<"operators"> | "none") => {
+    setPendingAssignee(next);
+    try {
+      await assign({
+        sessionToken,
+        leadId: lead._id,
+        operatorId: next === "none" ? null : next,
+      });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't assign lead.");
+    } finally {
+      setPendingAssignee(null);
+    }
+  };
+
+  const onSaveNotes = async (notes: string) => {
+    if (notes === (lead.notes ?? "")) return;
+    try {
+      await updateLead({ sessionToken, leadId: lead._id, notes });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't save remarks.");
     }
   };
 
@@ -177,7 +251,7 @@ function LeadRow({
     "—";
 
   return (
-    <tr className="hover:bg-paper-2/30">
+    <tr className="align-top hover:bg-paper-2/30">
       <td className="px-3 py-2.5 font-medium text-ink">{lead.name}</td>
       <td className="px-3 py-2.5 font-mono text-[11px]">
         {lead.email ? (
@@ -211,9 +285,19 @@ function LeadRow({
       </td>
       <td className="px-3 py-2.5">
         <StatusSelect
-          value={display}
-          disabled={pending !== null}
-          onChange={onChange}
+          value={pendingStatus ?? lead.status}
+          disabled={pendingStatus !== null}
+          onChange={onStatusChange}
+        />
+      </td>
+      <td className="px-3 py-2.5">
+        <AssigneeSelect
+          assigned={lead.assignedTo}
+          operators={operators}
+          meRole={meRole}
+          meId={meId}
+          pending={pendingAssignee}
+          onChange={onAssign}
         />
       </td>
       <td className="px-3 py-2.5 font-mono text-[10.5px] text-muted">
@@ -222,17 +306,8 @@ function LeadRow({
       <td className="px-3 py-2.5 font-mono text-[10.5px] text-muted">
         {lead.ip ?? "—"}
       </td>
-      <td className="px-3 py-2.5 max-w-[260px]">
-        {lead.notes ? (
-          <span
-            className="block truncate text-[12px] text-ink"
-            title={lead.notes}
-          >
-            {lead.notes}
-          </span>
-        ) : (
-          <span className="text-muted">—</span>
-        )}
+      <td className="px-3 py-2.5 min-w-[260px]">
+        <RemarksCell value={lead.notes ?? ""} onSave={onSaveNotes} />
       </td>
     </tr>
   );
@@ -273,5 +348,171 @@ function StatusSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+function AssigneeSelect({
+  assigned,
+  operators,
+  meRole,
+  meId,
+  pending,
+  onChange,
+}: {
+  assigned: { _id: Id<"operators">; name: string; email: string } | null;
+  operators: Operator[];
+  meRole: "owner" | "admin" | "agent";
+  meId: Id<"operators">;
+  pending: Id<"operators"> | "none" | null;
+  onChange: (next: Id<"operators"> | "none") => void;
+}) {
+  // Agents can only self-claim or unclaim themselves — we narrow the
+  // dropdown options accordingly so they don't see options the server
+  // would reject.
+  const options =
+    meRole === "agent"
+      ? operators.filter((o) => o._id === meId)
+      : operators;
+
+  const value =
+    pending !== null
+      ? pending === "none"
+        ? "none"
+        : (pending as string)
+      : (assigned?._id ?? "none");
+
+  return (
+    <select
+      value={value}
+      disabled={pending !== null}
+      onChange={(e) =>
+        onChange(
+          e.target.value === "none"
+            ? "none"
+            : (e.target.value as Id<"operators">),
+        )
+      }
+      className={cn(
+        "h-7 max-w-[160px] rounded-full px-2.5 font-mono text-[10.5px] outline-none focus:ring-1 focus:ring-ink",
+        assigned
+          ? "bg-paper-2 text-ink"
+          : "border border-dashed border-rule-2 text-muted",
+      )}
+      title={assigned ? `${assigned.name} <${assigned.email}>` : "Unassigned"}
+    >
+      <option value="none">Unassigned</option>
+      {options.map((op) => (
+        <option key={op._id} value={op._id}>
+          {op.name}
+          {op._id === meId ? " (me)" : ""}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * Click-to-edit remarks. Renders truncated text by default; clicking
+ * reveals a textarea. Save button commits + closes; Esc / blur on
+ * empty change closes without committing.
+ */
+function RemarksCell({
+  value,
+  onSave,
+}: {
+  value: string;
+  onSave: (next: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [busy, setBusy] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  useEffect(() => {
+    if (editing) taRef.current?.focus();
+  }, [editing]);
+
+  const commit = async () => {
+    setBusy(true);
+    try {
+      await onSave(draft.trim());
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="block w-full text-left"
+        title={value || "Click to add remarks"}
+      >
+        {value ? (
+          <span className="line-clamp-2 text-[12px] text-ink hover:underline underline-offset-2">
+            {value}
+          </span>
+        ) : (
+          <span className="text-[11px] italic text-muted hover:text-ink">
+            + add remarks
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <textarea
+        ref={taRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        rows={3}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+          }
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            void commit();
+          }
+        }}
+        className="w-full resize-none rounded-lg border border-rule-2 bg-paper px-2.5 py-1.5 text-[12px] outline-none focus:border-ink"
+        placeholder="Notes for the team — context, next steps, links…"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted">
+          ⌘↵ to save · Esc to cancel
+        </span>
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(value);
+              setEditing(false);
+            }}
+            disabled={busy}
+            className="rounded-full border border-rule-2 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={commit}
+            disabled={busy}
+            className="rounded-full bg-ink px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-paper disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

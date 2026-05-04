@@ -53,6 +53,9 @@ export async function GET(req: Request) {
     "city",
     "ip",
     "notes",
+    "assignedToName",
+    "assignedToEmail",
+    "assignedAt",
     "createdByName",
     "createdByEmail",
     "createdAt",
@@ -68,7 +71,7 @@ export async function GET(req: Request) {
           const v = (l as unknown as Record<string, unknown>)[
             c === "leadId" ? "_id" : c
           ];
-          if (c === "createdAt" || c === "updatedAt") {
+          if (c === "createdAt" || c === "updatedAt" || c === "assignedAt") {
             return csvCell(
               typeof v === "number" ? new Date(v).toISOString() : "",
             );

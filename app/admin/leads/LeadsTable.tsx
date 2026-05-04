@@ -21,6 +21,9 @@ type Row = {
   city: string | null;
   ip: string | null;
   notes: string | null;
+  assignedToName: string | null;
+  assignedToEmail: string | null;
+  assignedAt: number | null;
   createdByName: string;
   createdByEmail: string;
   createdAt: number;
@@ -121,6 +124,7 @@ export function LeadsTable({
                 <th className="px-3 py-2.5">Workspace</th>
                 <th className="px-3 py-2.5">Brand</th>
                 <th className="px-3 py-2.5">Status</th>
+                <th className="px-3 py-2.5">Assignee</th>
                 <th className="px-3 py-2.5">Where</th>
                 <th className="px-3 py-2.5">IP</th>
                 <th className="px-3 py-2.5">Remarks</th>
@@ -172,6 +176,25 @@ export function LeadsTable({
                   </td>
                   <td className="px-3 py-2.5">
                     <StatusPill status={l.status} />
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {l.assignedToName ? (
+                      <>
+                        <div className="text-[12.5px] text-ink">
+                          {l.assignedToName}
+                        </div>
+                        <div
+                          className="font-mono text-[10.5px] text-muted"
+                          title={l.assignedToEmail ?? undefined}
+                        >
+                          {l.assignedToEmail}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="font-mono text-[10.5px] italic text-muted">
+                        unassigned
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 font-mono text-[10.5px] text-muted">
                     {[l.city, l.country].filter(Boolean).join(", ") || "—"}

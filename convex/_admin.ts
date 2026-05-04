@@ -869,11 +869,17 @@ export const listAllLeads = query({
     }
     const leads = await leadsQuery.order("desc").take(limit);
 
-    // Hydrate workspace + brand names for the table. Caching
-    // workspaces/brands in Maps means we hit each row once.
+    // Hydrate workspace + brand + operator names for the table.
+    // Caching workspaces/brands/operators in Maps means we hit each
+    // row once.
     const wsCache = new Map<string, Doc<"workspaces"> | null>();
     const brandCache = new Map<string, Doc<"brands"> | null>();
     const opCache = new Map<string, Doc<"operators"> | null>();
+    const getOp = async (id: Id<"operators">) => {
+      const key = id as unknown as string;
+      if (!opCache.has(key)) opCache.set(key, await ctx.db.get(id));
+      return opCache.get(key) ?? null;
+    };
 
     const rows = await Promise.all(
       leads.map(async (lead) => {
@@ -883,13 +889,13 @@ export const listAllLeads = query({
         const brandKey = lead.brandId as unknown as string;
         if (!brandCache.has(brandKey))
           brandCache.set(brandKey, await ctx.db.get(lead.brandId));
-        const opKey = lead.createdBy as unknown as string;
-        if (!opCache.has(opKey))
-          opCache.set(opKey, await ctx.db.get(lead.createdBy));
 
         const ws = wsCache.get(wsKey);
         const brand = brandCache.get(brandKey);
-        const operator = opCache.get(opKey);
+        const creator = await getOp(lead.createdBy);
+        const assignee = lead.assignedToOperatorId
+          ? await getOp(lead.assignedToOperatorId)
+          : null;
         return {
           _id: lead._id,
           workspaceId: lead.workspaceId,
@@ -905,8 +911,11 @@ export const listAllLeads = query({
           city: lead.location?.city ?? null,
           ip: lead.ip ?? null,
           notes: lead.notes ?? null,
-          createdByName: operator?.name ?? "",
-          createdByEmail: operator?.email ?? "",
+          assignedToName: assignee?.name ?? null,
+          assignedToEmail: assignee?.email ?? null,
+          assignedAt: lead.assignedAt ?? null,
+          createdByName: creator?.name ?? "",
+          createdByEmail: creator?.email ?? "",
           createdAt: lead.createdAt,
           updatedAt: lead.updatedAt,
           conversationId: lead.conversationId ?? null,
