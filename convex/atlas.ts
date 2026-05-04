@@ -1191,6 +1191,12 @@ export const startKbWebsiteIngest = mutation({
     // missing scheduled function ref, transient infra hiccup) surface
     // to the client with a real message instead of Convex's generic
     // "Server Error" mask. ConvexErrors pass through unchanged.
+    // Marker "DIAG-V3" lets us tell from the client-side error alone
+    // whether this build is live on prod. If you see "Server Error"
+    // without the DIAG-V3 string, prod is on an older function.
+    console.log("[startKbWebsiteIngest] DIAG-V3 handler entered", {
+      hasUrl: typeof args.url === "string" && args.url.length > 0,
+    });
     try {
       const { operator, workspaceId } = await requireOperator(
         ctx,
@@ -1240,8 +1246,8 @@ export const startKbWebsiteIngest = mutation({
             ? err
             : "Unknown error scheduling the website crawl.";
       // Logged server-side so we can grep `convex logs` later.
-      console.error("[startKbWebsiteIngest] non-ConvexError:", err);
-      throw new ConvexError(`Couldn't start the crawl: ${message}`);
+      console.error("[startKbWebsiteIngest] DIAG-V3 non-ConvexError:", err);
+      throw new ConvexError(`DIAG-V3 Couldn't start the crawl: ${message}`);
     }
   },
 });
