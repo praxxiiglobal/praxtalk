@@ -37,7 +37,8 @@ export function SideNav() {
             item.href === "/app"
               ? pathname === "/app"
               : pathname?.startsWith(item.href);
-          const showBadge = item.href === "/app" && unread > 0;
+          const showBadge =
+            item.href === "/app/notifications" && unread > 0;
           return (
             <Link
               key={item.href}
