@@ -5,6 +5,11 @@ import { useMemo, useState } from "react";
 const PER_SEAT = { team: 29, scale: 89 } as const;
 const FREE_RES_PER_MONTH = 100; // Spark allowance reused inside Team/Scale
 const PRAXTALK_PER_RES = 0.04;
+// Annual prepayment trades a chunky discount for cash-up-front. 20%
+// is the standard SaaS anchor (matches Crisp + Intercom's annual
+// rates) and lands the Team plan at $23.20/seat — competitive with
+// Tawk.to + a chatbot add-on at scale.
+const ANNUAL_DISCOUNT = 0.2;
 
 // Rough comparison anchors. These are public list prices for a small
 // CX team — not negotiated rates. Linked to provider sites in the
@@ -35,10 +40,14 @@ const COMPETITORS = [
 export function PricingCalculator() {
   const [seats, setSeats] = useState(5);
   const [aiRes, setAiRes] = useState(2000);
+  const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
 
   const billed = useMemo(() => {
-    const teamSeatCost = seats * PER_SEAT.team;
-    const scaleSeatCost = seats * PER_SEAT.scale;
+    const seatMultiplier = billing === "annual" ? 1 - ANNUAL_DISCOUNT : 1;
+    const teamPerSeat = PER_SEAT.team * seatMultiplier;
+    const scalePerSeat = PER_SEAT.scale * seatMultiplier;
+    const teamSeatCost = seats * teamPerSeat;
+    const scaleSeatCost = seats * scalePerSeat;
     const billableRes = Math.max(0, aiRes - FREE_RES_PER_MONTH * seats);
     const aiCost = billableRes * PRAXTALK_PER_RES;
     return {
@@ -48,8 +57,15 @@ export function PricingCalculator() {
       teamSeatCost,
       scaleSeatCost,
       billableRes,
+      teamPerSeat,
+      scalePerSeat,
     };
-  }, [seats, aiRes]);
+  }, [seats, aiRes, billing]);
+
+  const annualSavingsTeam =
+    billing === "annual"
+      ? Math.round((seats * PER_SEAT.team - billed.teamPerSeat * seats) * 12)
+      : 0;
 
   return (
     <section className="border-t border-rule bg-paper-2/40 py-16 sm:py-20">
@@ -57,7 +73,7 @@ export function PricingCalculator() {
         <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-16">
           <div>
             <div className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted">
-              Total cost · monthly
+              Total cost · {billing === "annual" ? "annual prepay" : "monthly"}
             </div>
             <h2 className="mt-2 text-[36px] font-semibold leading-[1.05] tracking-[-0.025em] text-ink sm:text-[44px]">
               Run the numbers for{" "}
@@ -70,7 +86,25 @@ export function PricingCalculator() {
               probably weighing it against.
             </p>
 
-            <div className="mt-8 flex flex-col gap-6">
+            <div className="mt-7 inline-flex items-center gap-1 rounded-full border border-rule-2 bg-paper p-1">
+              <BillingToggle
+                active={billing === "monthly"}
+                onClick={() => setBilling("monthly")}
+              >
+                Monthly
+              </BillingToggle>
+              <BillingToggle
+                active={billing === "annual"}
+                onClick={() => setBilling("annual")}
+              >
+                Annual
+                <span className="ml-1.5 rounded-full bg-good/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em] text-good">
+                  −{Math.round(ANNUAL_DISCOUNT * 100)}%
+                </span>
+              </BillingToggle>
+            </div>
+
+            <div className="mt-7 flex flex-col gap-6">
               <Slider
                 label="Operators / agents"
                 value={seats}
@@ -94,6 +128,16 @@ export function PricingCalculator() {
                 First {FREE_RES_PER_MONTH} resolutions per seat are free.
                 After that, $0.04 per AI resolution. Human-handled
                 conversations are always free.
+                {billing === "annual" && annualSavingsTeam > 0 && (
+                  <>
+                    {" "}
+                    <strong className="text-ink">
+                      Annual prepay saves $
+                      {annualSavingsTeam.toLocaleString()} on Team across the
+                      year vs the monthly plan.
+                    </strong>
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -102,13 +146,17 @@ export function PricingCalculator() {
             <PlanRow
               name="PraxTalk Team"
               total={billed.team}
-              detail={`${seats} × $29 + ${billed.billableRes.toLocaleString()} AI res @ $0.04`}
+              detail={`${seats} × $${billed.teamPerSeat.toFixed(2)}${
+                billing === "annual" ? " (annual)" : ""
+              } + ${billed.billableRes.toLocaleString()} AI res @ $0.04`}
               feat
             />
             <PlanRow
               name="PraxTalk Scale"
               total={billed.scale}
-              detail={`${seats} × $89 + ${billed.billableRes.toLocaleString()} AI res @ $0.04`}
+              detail={`${seats} × $${billed.scalePerSeat.toFixed(2)}${
+                billing === "annual" ? " (annual)" : ""
+              } + ${billed.billableRes.toLocaleString()} AI res @ $0.04`}
             />
             <div className="my-5 border-t border-dashed border-rule-2" />
             <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
@@ -247,5 +295,28 @@ function CompareRow({
         </span>
       </div>
     </div>
+  );
+}
+
+function BillingToggle({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "inline-flex h-7 items-center rounded-full px-3 font-mono text-[10.5px] uppercase tracking-[0.06em] transition " +
+        (active ? "bg-ink text-paper" : "text-muted hover:text-ink")
+      }
+    >
+      {children}
+    </button>
   );
 }

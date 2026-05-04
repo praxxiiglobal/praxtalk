@@ -77,6 +77,88 @@ export default function TermsPage() {
         </Prose>
       </Section>
 
+      <Section
+        id="sla"
+        title="Service level agreement"
+        description="Uptime targets + service credits for paid tiers. Live status: praxtalk.com/status."
+      >
+        <Prose>
+          <p>
+            <strong>Uptime targets:</strong>
+          </p>
+          <ul>
+            <li>
+              <strong>Spark (free):</strong> best-effort. No SLA, no
+              credits. Live status published at{" "}
+              <a href="/status">praxtalk.com/status</a>.
+            </li>
+            <li>
+              <strong>Team:</strong> 99.9% monthly uptime on the
+              dashboard, widget runtime, REST API, and webhook
+              delivery — 43 minutes of allowable downtime per month.
+            </li>
+            <li>
+              <strong>Scale:</strong> 99.9% with priority incident
+              response (24/7 on-call paged for P1 within 15 minutes).
+            </li>
+            <li>
+              <strong>Enterprise:</strong> 99.95% on a per-region
+              basis, contractual escalation paths, dedicated solutions
+              architect.
+            </li>
+          </ul>
+          <p>
+            Atlas AI inference and the third-party voice / SMS /
+            WhatsApp providers are excluded from these targets where
+            their own provider availability is the bottleneck (we
+            publish provider uptime alongside ours on the status
+            page).
+          </p>
+          <p>
+            <strong>Service credits</strong> apply to Team / Scale /
+            Enterprise on the following schedule, calculated against
+            the monthly fee for the affected workspace:
+          </p>
+          <ul>
+            <li>
+              Below 99.9% but at or above 99.0% → <strong>10%</strong>{" "}
+              credit on next invoice.
+            </li>
+            <li>
+              Below 99.0% but at or above 95.0% → <strong>25%</strong>{" "}
+              credit.
+            </li>
+            <li>
+              Below 95.0% → <strong>50%</strong> credit and the right
+              to terminate without penalty.
+            </li>
+          </ul>
+          <p>
+            Credits are requested via{" "}
+            <a href="mailto:hello@praxtalk.com?subject=SLA%20credit%20request">
+              hello@praxtalk.com
+            </a>{" "}
+            within 30 days of the affected billing period and applied
+            to the next invoice. Credits are the sole and exclusive
+            remedy for SLA breaches.
+          </p>
+          <p>
+            <strong>Excluded from SLA calculation:</strong> scheduled
+            maintenance announced 48+ hours in advance (rare; capped
+            at 4 hours / month), force majeure, customer-caused
+            incidents (mis-configured widgets, exhausted API rate
+            limits), and any downtime affecting only the free Spark
+            tier.
+          </p>
+          <p className="text-[12.5px] text-muted">
+            During the open beta (pre-v1.0 GA), the SLA targets
+            above are best-effort commitments. Contractual SLA + the
+            credit schedule become binding at GA. Enterprise customers
+            on signed contracts get the contractual SLA from day one.
+          </p>
+        </Prose>
+      </Section>
+
       <Section title="Beta-quality disclaimer">
         <Prose>
           <p>

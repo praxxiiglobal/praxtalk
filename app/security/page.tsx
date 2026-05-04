@@ -93,6 +93,63 @@ export default function SecurityPage() {
         </Prose>
       </Section>
 
+      <Section
+        id="sub-processors"
+        title="Sub-processors"
+        description="Vendors that process customer data on our behalf. Same list as the DPA, kept here as the human-readable canonical source."
+      >
+        <Prose>
+          <p>
+            We notify workspace owners 30 days before adding or
+            replacing any sub-processor; you can object via{" "}
+            <a href="mailto:privacy@praxtalk.com">privacy@praxtalk.com</a>.
+            See{" "}
+            <a href="/dpa">the DPA</a> for the contractual obligations
+            that bind each one.
+          </p>
+          <ul>
+            <li>
+              <strong>Convex</strong> (USA) — primary database +
+              real-time backend.
+            </li>
+            <li>
+              <strong>Vercel</strong> (USA) — application hosting,
+              Edge runtime, and CDN.
+            </li>
+            <li>
+              <strong>Anthropic</strong> (USA) — Atlas AI inference
+              (Claude). Zero data retention; not opted in to model
+              training.
+            </li>
+            <li>
+              <strong>Postmark / SendGrid / Resend</strong>{" "}
+              (USA / EU) — transactional + workspace email delivery.
+              Customer picks one per workspace.
+            </li>
+            <li>
+              <strong>Twilio / CallHippo / TeleCMI</strong>{" "}
+              (USA / India) — voice + SMS, when enabled.
+            </li>
+            <li>
+              <strong>Meta WhatsApp Business Cloud API</strong>{" "}
+              (Ireland) — WhatsApp channel, when enabled.
+            </li>
+            <li>
+              <strong>Upstash</strong> (USA) — Redis-backed rate
+              limiting + ephemeral counters.
+            </li>
+            <li>
+              <strong>Cloudflare</strong> (USA) — Turnstile CAPTCHA +
+              edge DDoS protection.
+            </li>
+            <li>
+              <strong>PayPal / Razorpay</strong> (USA / India) —
+              subscription billing; we never see your card details.
+            </li>
+          </ul>
+        </Prose>
+      </Section>
+
       <Section title="Privacy">
         <Prose>
           <p>
@@ -106,6 +163,8 @@ export default function SecurityPage() {
           <p>
             For data deletion or export requests, email{" "}
             <a href="mailto:privacy@praxtalk.com">privacy@praxtalk.com</a>.
+            Workspace owners can self-serve a complete JSON export from{" "}
+            <a href="/app/settings">/app/settings</a> at any time.
           </p>
         </Prose>
       </Section>

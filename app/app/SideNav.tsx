@@ -7,21 +7,50 @@ import { api } from "@/convex/_generated/api";
 import { useDashboardAuth } from "./DashboardShell";
 import { cn } from "@/lib/cn";
 
-export const navItems: { href: string; label: string; icon: NavIconName }[] = [
-  { href: "/app", label: "Inbox", icon: "inbox" },
-  { href: "/app/notifications", label: "Notifications", icon: "bell" },
-  { href: "/app/leads", label: "Leads", icon: "lead" },
-  { href: "/app/calls", label: "Calls", icon: "phone" },
-  { href: "/app/emails", label: "Emails", icon: "envelope" },
-  // Reminders + Booking pages now live together under Schedules.
-  { href: "/app/schedules", label: "Schedules", icon: "calendar" },
-  { href: "/app/atlas", label: "Atlas AI", icon: "atlas" },
-  { href: "/app/lobby", label: "Lobby intake", icon: "lobby" },
-  { href: "/app/analytics", label: "Analytics", icon: "chart" },
-  // Integrations / Brands / Team / Saved replies / Billing — all
-  // moved into /app/settings as link rows.
-  { href: "/app/settings", label: "Settings", icon: "settings" },
+type NavGroup = {
+  label: string | null;
+  items: { href: string; label: string; icon: NavIconName }[];
+};
+
+/**
+ * Side nav reorganised into three implicit groups so it scans as
+ * categories instead of one flat list of nine. Lobby intake moved
+ * out of top-level into /app/settings — it configures a form, not a
+ * data view, so it belongs there.
+ *
+ * Reminders + Booking pages already live under Schedules.
+ * Integrations / Brands / Team / Saved replies / Billing all live
+ * under Settings.
+ */
+export const navGroups: NavGroup[] = [
+  {
+    label: null,
+    items: [
+      { href: "/app", label: "Inbox", icon: "inbox" },
+      { href: "/app/notifications", label: "Notifications", icon: "bell" },
+      { href: "/app/leads", label: "Leads", icon: "lead" },
+      { href: "/app/calls", label: "Calls", icon: "phone" },
+      { href: "/app/emails", label: "Emails", icon: "envelope" },
+    ],
+  },
+  {
+    label: "Workflow",
+    items: [
+      { href: "/app/schedules", label: "Schedules", icon: "calendar" },
+      { href: "/app/atlas", label: "Atlas AI", icon: "atlas" },
+      { href: "/app/analytics", label: "Analytics", icon: "chart" },
+    ],
+  },
+  {
+    label: null,
+    items: [
+      { href: "/app/settings", label: "Settings", icon: "settings" },
+    ],
+  },
 ];
+
+// Flat list kept for any external imports of `navItems`.
+export const navItems = navGroups.flatMap((g) => g.items);
 
 export function SideNav() {
   const pathname = usePathname();
@@ -31,40 +60,49 @@ export function SideNav() {
 
   return (
     <aside className="hidden w-56 shrink-0 border-r border-rule bg-paper-2/40 md:flex md:flex-col">
-      <nav className="flex flex-col gap-0.5 p-3">
-        {navItems.map((item) => {
-          const active =
-            item.href === "/app"
-              ? pathname === "/app"
-              : pathname?.startsWith(item.href);
-          const showBadge =
-            item.href === "/app/notifications" && unread > 0;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition",
-                active
-                  ? "bg-ink text-paper"
-                  : "text-ink/85 hover:bg-paper-2 hover:text-ink",
-              )}
-            >
-              <NavIcon name={item.icon} active={active} />
-              <span className="flex-1">{item.label}</span>
-              {showBadge ? (
-                <span
+      <nav className="flex flex-col gap-1 p-3">
+        {navGroups.map((group, gi) => (
+          <div key={gi} className={cn("flex flex-col gap-0.5", gi > 0 && "mt-3")}>
+            {group.label && (
+              <div className="mb-1 px-3 font-mono text-[9.5px] uppercase tracking-[0.08em] text-muted">
+                {group.label}
+              </div>
+            )}
+            {group.items.map((item) => {
+              const active =
+                item.href === "/app"
+                  ? pathname === "/app"
+                  : pathname?.startsWith(item.href);
+              const showBadge =
+                item.href === "/app/notifications" && unread > 0;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
                   className={cn(
-                    "inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 font-mono text-[10px] font-semibold",
-                    active ? "bg-paper text-ink" : "bg-warn text-ink",
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition",
+                    active
+                      ? "bg-ink text-paper"
+                      : "text-ink/85 hover:bg-paper-2 hover:text-ink",
                   )}
                 >
-                  {unread > 99 ? "99+" : unread}
-                </span>
-              ) : null}
-            </Link>
-          );
-        })}
+                  <NavIcon name={item.icon} active={active} />
+                  <span className="flex-1">{item.label}</span>
+                  {showBadge ? (
+                    <span
+                      className={cn(
+                        "inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 font-mono text-[10px] font-semibold",
+                        active ? "bg-paper text-ink" : "bg-warn text-ink",
+                      )}
+                    >
+                      {unread > 99 ? "99+" : unread}
+                    </span>
+                  ) : null}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
     </aside>
   );
@@ -76,40 +114,50 @@ export function MobileNavList({ onNavigate }: { onNavigate?: () => void }) {
   const summary = useQuery(api.notifications.summary, { sessionToken });
   const unread = summary?.unreadCount ?? 0;
   return (
-    <nav className="flex flex-col gap-0.5">
-      {navItems.map((item) => {
-        const active =
-          item.href === "/app"
-            ? pathname === "/app"
-            : pathname?.startsWith(item.href);
-        const showBadge = item.href === "/app" && unread > 0;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium transition",
-              active
-                ? "bg-ink text-paper"
-                : "text-ink hover:bg-paper-2",
-            )}
-          >
-            <NavIcon name={item.icon} active={active} />
-            <span className="flex-1">{item.label}</span>
-            {showBadge ? (
-              <span
+    <nav className="flex flex-col gap-1">
+      {navGroups.map((group, gi) => (
+        <div key={gi} className={cn("flex flex-col gap-0.5", gi > 0 && "mt-3")}>
+          {group.label && (
+            <div className="mb-1 px-3 font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+              {group.label}
+            </div>
+          )}
+          {group.items.map((item) => {
+            const active =
+              item.href === "/app"
+                ? pathname === "/app"
+                : pathname?.startsWith(item.href);
+            const showBadge =
+              item.href === "/app/notifications" && unread > 0;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onNavigate}
                 className={cn(
-                  "inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 font-mono text-[10px] font-semibold",
-                  active ? "bg-paper text-ink" : "bg-warn text-ink",
+                  "flex items-center gap-3 rounded-xl px-3 py-3 text-base font-medium transition",
+                  active
+                    ? "bg-ink text-paper"
+                    : "text-ink hover:bg-paper-2",
                 )}
               >
-                {unread > 99 ? "99+" : unread}
-              </span>
-            ) : null}
-          </Link>
-        );
-      })}
+                <NavIcon name={item.icon} active={active} />
+                <span className="flex-1">{item.label}</span>
+                {showBadge ? (
+                  <span
+                    className={cn(
+                      "inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 font-mono text-[10px] font-semibold",
+                      active ? "bg-paper text-ink" : "bg-warn text-ink",
+                    )}
+                  >
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                ) : null}
+              </Link>
+            );
+          })}
+        </div>
+      ))}
     </nav>
   );
 }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CalendarsSection } from "./CalendarsSection";
 import { DataExportSection } from "./DataExportSection";
 import { WorkspaceSettings } from "./WorkspaceSettings";
@@ -27,6 +28,17 @@ export default function SettingsPage() {
         </Card>
         <Card title="Notifications">
           <PushToggle />
+        </Card>
+        <Card
+          title="Lobby intake"
+          description="Ask visitors a few structured questions before chat starts — name, account ID, urgency, anything you need from them up-front. Configure the form fields here."
+        >
+          <Link
+            href="/app/lobby"
+            className="inline-flex h-9 items-center rounded-full bg-ink px-4 text-sm font-medium text-paper transition hover:-translate-y-px"
+          >
+            Configure lobby form →
+          </Link>
         </Card>
         <Card
           title="Data export"
