@@ -69,6 +69,12 @@ export default async function AdminLayout({
             >
               Workspaces
             </Link>
+            <Link
+              href="/admin/leads"
+              className="text-ink/85 hover:text-ink"
+            >
+              Leads
+            </Link>
           </nav>
           <Link
             href="/app"

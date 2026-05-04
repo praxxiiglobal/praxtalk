@@ -13,6 +13,10 @@ import { loadSession } from "./auth";
 import { isPlatformAdmin } from "./lib/platformAdmin";
 import * as paypal from "./lib/paypal";
 import * as razorpay from "./lib/razorpay";
+import {
+  buildMessagesPage,
+  buildWorkspaceCoreExport,
+} from "./lib/workspaceExport";
 
 /**
  * Cross-tenant queries for the /admin page. Auth gate is the
@@ -682,112 +686,11 @@ async function writePlatformAuditLog(
   void args.performedByEmail; // already in summary
 }
 
-// ── Workspace export ────────────────────────────────────────────────────
+// ── Workspace export (platform-admin path) ─────────────────────────────
 //
-// One-shot dump of every per-workspace record. Used by the staff-only
-// "Download workspace export" button on /admin/workspaces/[id]. Secrets
-// (password hashes, API tokens, webhook signing keys, session tokens)
-// are stripped before leaving the backend so the file is safe to attach
-// to a support ticket or hand to a customer's compliance team.
-//
-// Messages are NOT included here — they can run into the millions per
-// workspace and would blow the 8MB query response cap. The route
-// handler at /admin/workspaces/[id]/export.json paginates messages
-// separately via `_exportWorkspaceMessagesPage` and stitches them in.
-
-const REDACTED = "***REDACTED***" as const;
-
-function redactOperator(op: Doc<"operators">) {
-  const { passwordHash, ...rest } = op;
-  void passwordHash;
-  return { ...rest, passwordHash: REDACTED };
-}
-
-function redactInvite(inv: Doc<"operatorInvites">) {
-  const { tokenHash, ...rest } = inv;
-  void tokenHash;
-  return { ...rest, tokenHash: REDACTED };
-}
-
-function redactApiKey(k: Doc<"apiKeys">) {
-  const { keyHash, ...rest } = k;
-  void keyHash;
-  return { ...rest, keyHash: REDACTED };
-}
-
-function redactWebhookSub(w: Doc<"webhookSubscriptions">) {
-  const { secret, ...rest } = w;
-  void secret;
-  return { ...rest, secret: REDACTED };
-}
-
-function redactCalendarConn(c: Doc<"calendarConnections">) {
-  const { accessToken, refreshToken, ...rest } = c;
-  void accessToken;
-  void refreshToken;
-  return { ...rest, accessToken: REDACTED, refreshToken: REDACTED };
-}
-
-function redactAtlasConfig(a: Doc<"atlasConfigs">) {
-  const { apiKey, ...rest } = a;
-  void apiKey;
-  return { ...rest, apiKey: REDACTED };
-}
-
-function redactWhatsapp(w: Doc<"whatsappIntegrations">) {
-  const { accessToken, ...rest } = w;
-  void accessToken;
-  return { ...rest, accessToken: REDACTED };
-}
-
-function redactVoice(v: Doc<"voiceIntegrations">) {
-  const { apiKey, apiToken, webhookSecret, ...rest } = v;
-  void apiKey;
-  void apiToken;
-  void webhookSecret;
-  return {
-    ...rest,
-    apiKey: REDACTED,
-    apiToken: REDACTED,
-    webhookSecret: REDACTED,
-  };
-}
-
-function redactBotim(b: Doc<"botimIntegrations">) {
-  const { apiKey, ...rest } = b;
-  void apiKey;
-  return { ...rest, apiKey: apiKey ? REDACTED : undefined };
-}
-
-function redactEmail(e: Doc<"emailIntegrations">) {
-  const { apiKey, ...rest } = e;
-  void apiKey;
-  return { ...rest, apiKey: REDACTED };
-}
-
-async function collectByWorkspace<T extends "brands" | "operators" | "operatorInvites" | "visitors" | "conversations" | "apiKeys" | "calendarConnections" | "calendarEvents" | "activeCalls" | "integrationGrants" | "pushSubscriptions" | "reminders" | "messageDrafts" | "bookingPages" | "bookings" | "bookingApprovals" | "webhookSubscriptions" | "notifications" | "leads" | "atlasConfigs" | "atlasKnowledgeChunks" | "atlasRuns" | "lobbyConfigs" | "intakeResponses" | "savedReplies" | "whatsappIntegrations" | "whatsappTemplates" | "voiceIntegrations" | "botimIntegrations" | "emailIntegrations" | "auditLogs">(
-  ctx: QueryCtx,
-  table: T,
-  workspaceId: Id<"workspaces">,
-): Promise<Doc<T>[]> {
-  // Most workspace-scoped tables have a `by_workspace*` index. We use
-  // a `filter` instead of `withIndex` so we don't have to pick the
-  // exact index name per table — the export is admin-only, runs
-  // rarely, and most workspaces are small enough that the table scan
-  // is fine. Switch to per-table indexed queries if any workspace
-  // breaches the 16k-row read limit on a single export call.
-  const rows = await ctx.db
-    .query(table)
-    // Cast bypasses TS narrowing — the union of listed tables would
-    // make `q.eq(q.field("workspaceId"), ...)` unhappy because the
-    // field-type union doesn't unify, but every listed table really
-    // does have a workspaceId of Id<"workspaces"> at runtime.
-    .filter((q) =>
-      q.eq(q.field("workspaceId"), workspaceId as unknown as never),
-    )
-    .collect();
-  return rows;
-}
+// Staff-only entry points behind /admin/workspaces. Everything heavy is
+// in convex/lib/workspaceExport.ts so the customer-facing self-serve
+// export in convex/workspaces.ts can reuse it byte-for-byte.
 
 export const exportWorkspaceCore = query({
   args: {
@@ -799,121 +702,11 @@ export const exportWorkspaceCore = query({
   // consumer and treats it as opaque bytes.
   handler: async (ctx, args) => {
     await requirePlatformAdmin(ctx, args.sessionToken);
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (!workspace) throw new ConvexError("Workspace not found.");
-
-    const [
-      brands,
-      operators,
-      operatorInvites,
-      visitors,
-      conversations,
-      apiKeys,
-      calendarConnections,
-      calendarEvents,
-      activeCalls,
-      integrationGrants,
-      pushSubscriptions,
-      reminders,
-      messageDrafts,
-      bookingPages,
-      bookings,
-      bookingApprovals,
-      webhookSubscriptions,
-      notifications,
-      leads,
-      atlasConfigs,
-      atlasKnowledgeChunks,
-      atlasRuns,
-      lobbyConfigs,
-      intakeResponses,
-      savedReplies,
-      whatsappIntegrations,
-      whatsappTemplates,
-      voiceIntegrations,
-      botimIntegrations,
-      emailIntegrations,
-      auditLogs,
-    ] = await Promise.all([
-      collectByWorkspace(ctx, "brands", args.workspaceId),
-      collectByWorkspace(ctx, "operators", args.workspaceId),
-      collectByWorkspace(ctx, "operatorInvites", args.workspaceId),
-      collectByWorkspace(ctx, "visitors", args.workspaceId),
-      collectByWorkspace(ctx, "conversations", args.workspaceId),
-      collectByWorkspace(ctx, "apiKeys", args.workspaceId),
-      collectByWorkspace(ctx, "calendarConnections", args.workspaceId),
-      collectByWorkspace(ctx, "calendarEvents", args.workspaceId),
-      collectByWorkspace(ctx, "activeCalls", args.workspaceId),
-      collectByWorkspace(ctx, "integrationGrants", args.workspaceId),
-      collectByWorkspace(ctx, "pushSubscriptions", args.workspaceId),
-      collectByWorkspace(ctx, "reminders", args.workspaceId),
-      collectByWorkspace(ctx, "messageDrafts", args.workspaceId),
-      collectByWorkspace(ctx, "bookingPages", args.workspaceId),
-      collectByWorkspace(ctx, "bookings", args.workspaceId),
-      collectByWorkspace(ctx, "bookingApprovals", args.workspaceId),
-      collectByWorkspace(ctx, "webhookSubscriptions", args.workspaceId),
-      collectByWorkspace(ctx, "notifications", args.workspaceId),
-      collectByWorkspace(ctx, "leads", args.workspaceId),
-      collectByWorkspace(ctx, "atlasConfigs", args.workspaceId),
-      collectByWorkspace(ctx, "atlasKnowledgeChunks", args.workspaceId),
-      collectByWorkspace(ctx, "atlasRuns", args.workspaceId),
-      collectByWorkspace(ctx, "lobbyConfigs", args.workspaceId),
-      collectByWorkspace(ctx, "intakeResponses", args.workspaceId),
-      collectByWorkspace(ctx, "savedReplies", args.workspaceId),
-      collectByWorkspace(ctx, "whatsappIntegrations", args.workspaceId),
-      collectByWorkspace(ctx, "whatsappTemplates", args.workspaceId),
-      collectByWorkspace(ctx, "voiceIntegrations", args.workspaceId),
-      collectByWorkspace(ctx, "botimIntegrations", args.workspaceId),
-      collectByWorkspace(ctx, "emailIntegrations", args.workspaceId),
-      collectByWorkspace(ctx, "auditLogs", args.workspaceId),
-    ]);
-
-    return {
-      meta: {
-        exportedAt: new Date().toISOString(),
-        workspaceId: args.workspaceId,
-        workspaceSlug: workspace.slug,
-        workspaceName: workspace.name,
-        format: "praxtalk-workspace-export@v1",
-        notes:
-          "Sensitive fields (password hashes, OAuth tokens, API keys, " +
-          "webhook secrets, session tokens) are redacted as ***REDACTED***. " +
-          "Sessions + password reset tokens are excluded entirely. " +
-          "Messages are streamed separately by the route handler.",
-      },
-      workspace,
-      brands,
-      operators: operators.map(redactOperator),
-      operatorInvites: operatorInvites.map(redactInvite),
-      visitors,
-      conversations,
-      apiKeys: apiKeys.map(redactApiKey),
-      calendarConnections: calendarConnections.map(redactCalendarConn),
-      calendarEvents,
-      activeCalls,
-      integrationGrants,
-      pushSubscriptions,
-      reminders,
-      messageDrafts,
-      bookingPages,
-      bookings,
-      bookingApprovals,
-      webhookSubscriptions: webhookSubscriptions.map(redactWebhookSub),
-      notifications,
-      leads,
-      atlasConfigs: atlasConfigs.map(redactAtlasConfig),
-      atlasKnowledgeChunks,
-      atlasRuns,
-      lobbyConfigs,
-      intakeResponses,
-      savedReplies,
-      whatsappIntegrations: whatsappIntegrations.map(redactWhatsapp),
-      whatsappTemplates,
-      voiceIntegrations: voiceIntegrations.map(redactVoice),
-      botimIntegrations: botimIntegrations.map(redactBotim),
-      emailIntegrations: emailIntegrations.map(redactEmail),
-      auditLogs,
-    };
+    return await buildWorkspaceCoreExport(
+      ctx,
+      args.workspaceId,
+      "platform_admin",
+    );
   },
 });
 
@@ -927,29 +720,17 @@ export const exportWorkspaceMessagesPage = query({
   args: {
     sessionToken: v.string(),
     workspaceId: v.id("workspaces"),
-    // Last _creationTime from the previous page; the next page returns
-    // messages strictly older than this. Pass null on the first call.
     cursor: v.union(v.number(), v.null()),
     pageSize: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requirePlatformAdmin(ctx, args.sessionToken);
-    const ws = await ctx.db.get(args.workspaceId);
-    if (!ws) throw new ConvexError("Workspace not found.");
-    const limit = Math.min(Math.max(args.pageSize ?? 5000, 1), 5000);
-
-    let q = ctx.db
-      .query("messages")
-      .filter((q) => q.eq(q.field("workspaceId"), args.workspaceId));
-    if (args.cursor !== null) {
-      q = q.filter((q) =>
-        q.lt(q.field("_creationTime"), args.cursor as number),
-      );
-    }
-    const messages = await q.order("desc").take(limit);
-    const nextCursor =
-      messages.length === limit ? messages[messages.length - 1]._creationTime : null;
-    return { messages, nextCursor, done: nextCursor === null };
+    return await buildMessagesPage(
+      ctx,
+      args.workspaceId,
+      args.cursor,
+      args.pageSize ?? 5000,
+    );
   },
 });
 
@@ -1043,5 +824,94 @@ export const exportAllWorkspacesSummary = query({
         };
       }),
     );
+  },
+});
+
+// ── Cross-workspace leads ──────────────────────────────────────────────
+//
+// Single roll-up of every lead across every workspace, used by the
+// /admin/leads page and its CSV export. Same auth gate as the rest of
+// /admin (platform-admin email allowlist).
+
+export const listAllLeads = query({
+  args: {
+    sessionToken: v.string(),
+    // Optional filters; the page ships with these wired to the URL
+    // so staff can deep-link to "every new lead this week" etc.
+    status: v.optional(
+      v.union(
+        v.literal("new"),
+        v.literal("contacted"),
+        v.literal("qualified"),
+        v.literal("won"),
+        v.literal("lost"),
+      ),
+    ),
+    workspaceId: v.optional(v.id("workspaces")),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requirePlatformAdmin(ctx, args.sessionToken);
+    const limit = Math.min(Math.max(args.limit ?? 1000, 1), 5000);
+
+    let leadsQuery = ctx.db.query("leads");
+    if (args.status) {
+      const status = args.status;
+      leadsQuery = leadsQuery.filter((q) =>
+        q.eq(q.field("status"), status),
+      );
+    }
+    if (args.workspaceId) {
+      const wid = args.workspaceId;
+      leadsQuery = leadsQuery.filter((q) =>
+        q.eq(q.field("workspaceId"), wid),
+      );
+    }
+    const leads = await leadsQuery.order("desc").take(limit);
+
+    // Hydrate workspace + brand names for the table. Caching
+    // workspaces/brands in Maps means we hit each row once.
+    const wsCache = new Map<string, Doc<"workspaces"> | null>();
+    const brandCache = new Map<string, Doc<"brands"> | null>();
+    const opCache = new Map<string, Doc<"operators"> | null>();
+
+    const rows = await Promise.all(
+      leads.map(async (lead) => {
+        const wsKey = lead.workspaceId as unknown as string;
+        if (!wsCache.has(wsKey))
+          wsCache.set(wsKey, await ctx.db.get(lead.workspaceId));
+        const brandKey = lead.brandId as unknown as string;
+        if (!brandCache.has(brandKey))
+          brandCache.set(brandKey, await ctx.db.get(lead.brandId));
+        const opKey = lead.createdBy as unknown as string;
+        if (!opCache.has(opKey))
+          opCache.set(opKey, await ctx.db.get(lead.createdBy));
+
+        const ws = wsCache.get(wsKey);
+        const brand = brandCache.get(brandKey);
+        const operator = opCache.get(opKey);
+        return {
+          _id: lead._id,
+          workspaceId: lead.workspaceId,
+          workspaceSlug: ws?.slug ?? "",
+          workspaceName: ws?.name ?? "",
+          brandId: lead.brandId,
+          brandName: brand?.name ?? "",
+          name: lead.name,
+          email: lead.email ?? null,
+          phone: lead.phone ?? null,
+          status: lead.status,
+          country: lead.location?.country ?? null,
+          city: lead.location?.city ?? null,
+          notes: lead.notes ?? null,
+          createdByName: operator?.name ?? "",
+          createdByEmail: operator?.email ?? "",
+          createdAt: lead.createdAt,
+          updatedAt: lead.updatedAt,
+          conversationId: lead.conversationId ?? null,
+        };
+      }),
+    );
+    return rows;
   },
 });

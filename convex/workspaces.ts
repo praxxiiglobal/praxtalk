@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireOperator } from "./auth";
 import {
@@ -8,6 +8,10 @@ import {
   hashToken,
   slugify,
 } from "./lib/auth";
+import {
+  buildMessagesPage,
+  buildWorkspaceCoreExport,
+} from "./lib/workspaceExport";
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -324,5 +328,58 @@ export const getBySlug = query({
       .query("workspaces")
       .withIndex("by_slug", (q) => q.eq("slug", slug))
       .unique();
+  },
+});
+
+// ── Customer self-serve export ─────────────────────────────────────────
+//
+// Workspace owners + admins can download a complete dump of their
+// own workspace data. This is GDPR Article 20 (data portability)
+// table-stakes and the same data the platform-admin export gives us
+// — same redaction rules, same shape — just gated by the operator's
+// own session instead of the platform-admin allowlist.
+//
+// Agents (role="agent") can't export — they have access only to
+// conversations they're assigned to via brand access, not the
+// whole workspace.
+
+export const exportMine = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    if (operator.role === "agent") {
+      throw new ConvexError(
+        "Only workspace owners and admins can export workspace data.",
+      );
+    }
+    return await buildWorkspaceCoreExport(ctx, workspaceId, "workspace_owner");
+  },
+});
+
+export const exportMineMessagesPage = query({
+  args: {
+    sessionToken: v.string(),
+    cursor: v.union(v.number(), v.null()),
+    pageSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { operator, workspaceId } = await requireOperator(
+      ctx,
+      args.sessionToken,
+    );
+    if (operator.role === "agent") {
+      throw new ConvexError(
+        "Only workspace owners and admins can export workspace data.",
+      );
+    }
+    return await buildMessagesPage(
+      ctx,
+      workspaceId,
+      args.cursor,
+      args.pageSize ?? 5000,
+    );
   },
 });
