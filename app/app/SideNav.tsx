@@ -52,11 +52,29 @@ export const navGroups: NavGroup[] = [
 // Flat list kept for any external imports of `navItems`.
 export const navItems = navGroups.flatMap((g) => g.items);
 
+/**
+ * Decide which row a given href's badge should display, and what
+ * count to show. notifications.summary returns split counts so we
+ * can put the *right* number on each:
+ *  - Inbox row → chatUnreadCount (unread visitor messages)
+ *  - Notifications row → activityUnreadCount (system events)
+ * Conflating them ends up showing chat traffic next to the bell,
+ * which is what the previous fix accidentally did.
+ */
+function badgeCountFor(
+  href: string,
+  summary: { chatUnreadCount: number; activityUnreadCount: number } | undefined,
+): number {
+  if (!summary) return 0;
+  if (href === "/app") return summary.chatUnreadCount;
+  if (href === "/app/notifications") return summary.activityUnreadCount;
+  return 0;
+}
+
 export function SideNav() {
   const pathname = usePathname();
   const { sessionToken } = useDashboardAuth();
   const summary = useQuery(api.notifications.summary, { sessionToken });
-  const unread = summary?.unreadCount ?? 0;
 
   return (
     <aside className="hidden w-56 shrink-0 border-r border-rule bg-paper-2/40 md:flex md:flex-col">
@@ -73,8 +91,7 @@ export function SideNav() {
                 item.href === "/app"
                   ? pathname === "/app"
                   : pathname?.startsWith(item.href);
-              const showBadge =
-                item.href === "/app/notifications" && unread > 0;
+              const count = badgeCountFor(item.href, summary);
               return (
                 <Link
                   key={item.href}
@@ -88,14 +105,14 @@ export function SideNav() {
                 >
                   <NavIcon name={item.icon} active={active} />
                   <span className="flex-1">{item.label}</span>
-                  {showBadge ? (
+                  {count > 0 ? (
                     <span
                       className={cn(
                         "inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 font-mono text-[10px] font-semibold",
                         active ? "bg-paper text-ink" : "bg-warn text-ink",
                       )}
                     >
-                      {unread > 99 ? "99+" : unread}
+                      {count > 99 ? "99+" : count}
                     </span>
                   ) : null}
                 </Link>
@@ -112,7 +129,6 @@ export function MobileNavList({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { sessionToken } = useDashboardAuth();
   const summary = useQuery(api.notifications.summary, { sessionToken });
-  const unread = summary?.unreadCount ?? 0;
   return (
     <nav className="flex flex-col gap-1">
       {navGroups.map((group, gi) => (
@@ -127,8 +143,7 @@ export function MobileNavList({ onNavigate }: { onNavigate?: () => void }) {
               item.href === "/app"
                 ? pathname === "/app"
                 : pathname?.startsWith(item.href);
-            const showBadge =
-              item.href === "/app/notifications" && unread > 0;
+            const count = badgeCountFor(item.href, summary);
             return (
               <Link
                 key={item.href}
@@ -143,14 +158,14 @@ export function MobileNavList({ onNavigate }: { onNavigate?: () => void }) {
               >
                 <NavIcon name={item.icon} active={active} />
                 <span className="flex-1">{item.label}</span>
-                {showBadge ? (
+                {count > 0 ? (
                   <span
                     className={cn(
                       "inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 font-mono text-[10px] font-semibold",
                       active ? "bg-paper text-ink" : "bg-warn text-ink",
                     )}
                   >
-                    {unread > 99 ? "99+" : unread}
+                    {count > 99 ? "99+" : count}
                   </span>
                 ) : null}
               </Link>
