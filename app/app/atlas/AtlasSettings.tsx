@@ -230,10 +230,10 @@ export function AtlasSettings() {
               />
             </label>
 
-            <fieldset className="flex flex-col gap-2 rounded-xl border border-rule bg-paper-2 p-4">
-              <legend className="px-2 font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+            <div className="flex flex-col gap-2 rounded-xl border border-rule bg-paper-2 p-4">
+              <div className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
                 Knowledge base from website (optional)
-              </legend>
+              </div>
               <p className="text-[12px] leading-[1.55] text-muted">
                 Paste your website URL — we&apos;ll crawl public pages
                 (sitemap if available, otherwise links from the homepage),
@@ -283,7 +283,7 @@ export function AtlasSettings() {
                 sourceUrl={config?.kbSourceUrl ?? null}
                 error={config?.kbIngestError ?? null}
               />
-            </fieldset>
+            </div>
 
             <label className="flex flex-col gap-1">
               <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
