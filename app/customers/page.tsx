@@ -104,9 +104,9 @@ export default function CustomersPage() {
             </li>
             <li>
               <strong>Roadmap influence.</strong> Pick the next two
-              integrations or workflow features. We&apos;ve already built
-              entire integrations (Zoho, Botim) because launch partners
-              asked.
+              integrations or workflow features. We&apos;ve already
+              shipped requested integrations (Zoho, voice providers)
+              because launch partners asked.
             </li>
             <li>
               <strong>Logo placement</strong> on this page when you&apos;re

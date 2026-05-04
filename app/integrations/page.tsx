@@ -7,7 +7,7 @@ import { Footer } from "@/components/marketing/Footer";
 export const metadata = {
   title: "Integrations · PraxTalk — connects with the tools you already use",
   description:
-    "PraxTalk integrates with Postmark, SendGrid, Resend, SMTP/IMAP, WhatsApp Cloud API, Twilio, CallHippo, TeleCMI, Botim, Google Calendar, Microsoft Calendar, Salesforce, HubSpot, Linear, plus a REST API + signed webhooks.",
+    "PraxTalk integrates with Postmark, SendGrid, Resend, SMTP/IMAP, WhatsApp Cloud API + wa.me click-to-chat, Twilio, CallHippo, TeleCMI, Google Calendar, Microsoft Calendar, Salesforce, HubSpot, Linear, plus a REST API + signed webhooks.",
   alternates: { canonical: "/integrations" },
 };
 

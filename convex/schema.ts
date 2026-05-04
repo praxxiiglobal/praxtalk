@@ -105,6 +105,13 @@ export default defineSchema({
     position: v.union(v.literal("br"), v.literal("bl")),
     avatarUrl: v.optional(v.string()),
     businessHours: v.optional(v.string()),
+    // Click-to-chat WhatsApp ("wa.me lite") — phone in
+    // international E.164 without "+", e.g. "919876543210". When set,
+    // the widget can render a "Chat on WhatsApp" button that opens
+    // wa.me/<phone>?text=<welcome>. No API setup required, no inbox
+    // integration — just a deep-link.
+    waMePhone: v.optional(v.string()),
+    waMePrefilledMessage: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
@@ -1126,28 +1133,7 @@ export default defineSchema({
     .index("by_workspace_operator", ["workspaceId", "operatorId"])
     .index("by_webhook_secret", ["webhookSecret"]),
 
-  // ── Botim integration (UAE) ───────────────────────────────────────
-  // Per-workspace Botim Business config. Note: as of 2026-04-30 Botim
-  // does not expose a public self-serve messaging API like Meta's
-  // WhatsApp Cloud API. We capture the config and credentials here so
-  // operators can pre-configure; once Botim opens API access (or a
-  // partnership is signed) the same row drives inbound + outbound.
-  botimIntegrations: defineTable({
-    workspaceId: v.id("workspaces"),
-    businessAccountId: v.optional(v.string()), // assigned by Botim partner
-    apiKey: v.optional(v.string()), // when provided
-    displayName: v.string(), // public name shown to UAE customers
-    contactEmail: v.string(), // ops contact for Botim's onboarding team
-    enabled: v.boolean(),
-    // Until Botim's API ships, we leave this false and surface a
-    // "pending API access" banner in the dashboard. Flip to true when
-    // we have credentials that actually work.
-    apiAvailable: v.boolean(),
-    createdBy: v.id("operators"),
-    createdAt: v.number(),
-  }).index("by_workspace", ["workspaceId"]),
-
-  // ── Email integration ─────────────────────────────────────────────
+// ── Email integration ─────────────────────────────────────────────
   // Per-workspace email provider config. Drives both inbound parsing
   // (which workspace owns mail to a given inbox alias) and outbound
   // sending (which API key + from address to use).

@@ -116,6 +116,8 @@ export const update = mutation({
     position: v.optional(v.union(v.literal("br"), v.literal("bl"))),
     avatarUrl: v.optional(v.string()),
     businessHours: v.optional(v.string()),
+    waMePhone: v.optional(v.string()),
+    waMePrefilledMessage: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -146,6 +148,15 @@ export const update = mutation({
     if (args.avatarUrl !== undefined) patch.avatarUrl = args.avatarUrl;
     if (args.businessHours !== undefined)
       patch.businessHours = args.businessHours;
+    if (args.waMePhone !== undefined) {
+      // Strip non-digits and leading '+'. Empty string clears.
+      const digits = args.waMePhone.replace(/[^\d]/g, "");
+      patch.waMePhone = digits.length === 0 ? undefined : digits;
+    }
+    if (args.waMePrefilledMessage !== undefined) {
+      const trimmed = args.waMePrefilledMessage.trim();
+      patch.waMePrefilledMessage = trimmed.length === 0 ? undefined : trimmed;
+    }
 
     await ctx.db.patch(args.brandId, patch);
     return null;
@@ -250,6 +261,8 @@ function toPublicBrand(b: Doc<"brands">) {
     position: b.position,
     avatarUrl: b.avatarUrl,
     businessHours: b.businessHours,
+    waMePhone: b.waMePhone,
+    waMePrefilledMessage: b.waMePrefilledMessage,
     createdAt: b.createdAt,
   };
 }

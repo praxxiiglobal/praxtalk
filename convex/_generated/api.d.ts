@@ -15,7 +15,6 @@ import type * as atlas from "../atlas.js";
 import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
 import type * as bookingPages from "../bookingPages.js";
-import type * as botimIntegrations from "../botimIntegrations.js";
 import type * as brands from "../brands.js";
 import type * as calendarConnections from "../calendarConnections.js";
 import type * as calendarSync from "../calendarSync.js";
@@ -70,7 +69,6 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   billing: typeof billing;
   bookingPages: typeof bookingPages;
-  botimIntegrations: typeof botimIntegrations;
   brands: typeof brands;
   calendarConnections: typeof calendarConnections;
   calendarSync: typeof calendarSync;

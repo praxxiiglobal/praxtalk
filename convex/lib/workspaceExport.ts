@@ -67,11 +67,6 @@ export function redactVoice(v: Doc<"voiceIntegrations">) {
   };
 }
 
-export function redactBotim(b: Doc<"botimIntegrations">) {
-  const { apiKey, ...rest } = b;
-  return { ...rest, apiKey: apiKey ? REDACTED : undefined };
-}
-
 export function redactEmail(e: Doc<"emailIntegrations">) {
   const { apiKey, ...rest } = e;
   void apiKey;
@@ -107,7 +102,6 @@ type ExportTable =
   | "whatsappIntegrations"
   | "whatsappTemplates"
   | "voiceIntegrations"
-  | "botimIntegrations"
   | "emailIntegrations"
   | "auditLogs";
 
@@ -174,7 +168,6 @@ export async function buildWorkspaceCoreExport(
     whatsappIntegrations,
     whatsappTemplates,
     voiceIntegrations,
-    botimIntegrations,
     emailIntegrations,
     auditLogs,
   ] = await Promise.all([
@@ -206,7 +199,6 @@ export async function buildWorkspaceCoreExport(
     collectByWorkspace(ctx, "whatsappIntegrations", workspaceId),
     collectByWorkspace(ctx, "whatsappTemplates", workspaceId),
     collectByWorkspace(ctx, "voiceIntegrations", workspaceId),
-    collectByWorkspace(ctx, "botimIntegrations", workspaceId),
     collectByWorkspace(ctx, "emailIntegrations", workspaceId),
     collectByWorkspace(ctx, "auditLogs", workspaceId),
   ]);
@@ -254,7 +246,6 @@ export async function buildWorkspaceCoreExport(
     whatsappIntegrations: whatsappIntegrations.map(redactWhatsapp),
     whatsappTemplates,
     voiceIntegrations: voiceIntegrations.map(redactVoice),
-    botimIntegrations: botimIntegrations.map(redactBotim),
     emailIntegrations: emailIntegrations.map(redactEmail),
     auditLogs,
   };

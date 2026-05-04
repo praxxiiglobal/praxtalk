@@ -13,7 +13,7 @@ const WORKSPACE_LINKS: { href: string; label: string; description: string }[] = 
     href: "/app/integrations",
     label: "Integrations",
     description:
-      "Email (Postmark/SendGrid/Resend/SMTP), WhatsApp, Voice/SMS (Twilio/CallHippo/TeleCMI), Botim, REST API keys, webhooks.",
+      "Email (Postmark/SendGrid/Resend/SMTP), WhatsApp, Voice/SMS (Twilio/CallHippo/TeleCMI), REST API keys, webhooks.",
   },
   {
     href: "/app/brands",
