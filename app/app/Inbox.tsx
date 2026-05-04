@@ -508,12 +508,12 @@ function ConversationPane({
             </span>
           ) : null}
           {locationLabel ? (
-            <span title="IP-based — approximate, often resolves to the ISP's POP rather than the visitor's exact city">
-              <span className="opacity-60">loc (approx)</span>{" "}
-              <span className="text-ink">{locationLabel}</span>
-              {location?.timezone ? (
-                <span className="opacity-60"> · {location.timezone}</span>
-              ) : null}
+            <span className="inline-flex items-center gap-1">
+              <LocationConfidenceTag
+                ip={visitor?.ip ?? null}
+                locationLabel={locationLabel}
+                timezone={location?.timezone ?? null}
+              />
             </span>
           ) : null}
           {visitor?.ip ? (
@@ -1470,4 +1470,128 @@ function timeAgo(ms: number): string {
   if (h < 24) return `${h}h`;
   const d = Math.floor(h / 24);
   return `${d}d`;
+}
+
+/**
+ * Renders the visitor's IP-derived location with a confidence-aware
+ * tooltip + label. Detects known anonymising services by IP range
+ * so operators understand WHY the city is wrong (and what to do
+ * about it) instead of just seeing "Mumbai" for someone in Ghaziabad.
+ *
+ * Detection is IP-prefix based — no external API call needed.
+ */
+function LocationConfidenceTag({
+  ip,
+  locationLabel,
+  timezone,
+}: {
+  ip: string | null;
+  locationLabel: string;
+  timezone: string | null;
+}) {
+  const verdict = classifyIp(ip);
+  return (
+    <span
+      title={verdict.hint}
+      className="inline-flex items-center gap-1"
+    >
+      <span className={verdict.lowConfidence ? "text-warn" : "opacity-60"}>
+        loc ({verdict.label})
+      </span>{" "}
+      <span className="text-ink">{locationLabel}</span>
+      {timezone ? (
+        <span className="opacity-60"> · {timezone}</span>
+      ) : null}
+      <InfoDot tone={verdict.lowConfidence ? "warn" : "muted"} />
+    </span>
+  );
+}
+
+function InfoDot({ tone }: { tone: "warn" | "muted" }) {
+  return (
+    <span
+      aria-hidden
+      className={
+        "inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border text-[8.5px] font-bold leading-none " +
+        (tone === "warn"
+          ? "border-warn/50 bg-warn/15 text-warn"
+          : "border-rule-2 text-muted")
+      }
+    >
+      i
+    </span>
+  );
+}
+
+/**
+ * Classify a visitor IP by ownership / anonymisation status. Detection
+ * is intentionally IP-prefix based (no external lookup needed) — these
+ * ranges are publicly documented and stable.
+ *
+ * Lists kept short on purpose: only the hits we've actually seen mis-
+ * locating customer chats. Add to it as we encounter more in support.
+ */
+function classifyIp(ip: string | null): {
+  label: string;
+  hint: string;
+  lowConfidence: boolean;
+} {
+  if (!ip) {
+    return {
+      label: "unknown",
+      hint: "No IP captured for this visitor.",
+      lowConfidence: false,
+    };
+  }
+
+  // Apple iCloud Private Relay — 172.224.0.0/12 covers
+  // 172.224.0.0 to 172.239.255.255. Apple deliberately routes
+  // through a regional egress (~country level), so the city is
+  // almost always wrong — but it's the *closest Apple POP* to
+  // the visitor, not the visitor.
+  if (/^172\.(22[4-9]|23[0-9])\./.test(ip)) {
+    return {
+      label: "Apple Private Relay",
+      hint:
+        "This visitor is on Apple iCloud Private Relay (iPhone/Mac with iCloud+). " +
+        "The IP belongs to Apple's regional egress — for India that's typically Mumbai — NOT the visitor's actual city. " +
+        "Ask them to tap 'Share location' in the widget for an accurate position (browser GPS still works through Private Relay).",
+      lowConfidence: true,
+    };
+  }
+
+  // Cloudflare WARP / 1.1.1.1 — egress IPs are 162.158.x.x and a
+  // handful of others; same problem, same fix.
+  if (/^104\.28\./.test(ip) || /^162\.158\./.test(ip)) {
+    return {
+      label: "Cloudflare WARP",
+      hint:
+        "This visitor is on Cloudflare's 1.1.1.1 / WARP VPN. The IP belongs to a Cloudflare PoP, not the visitor. " +
+        "Ask them to tap 'Share location' in the widget for accurate geolocation.",
+      lowConfidence: true,
+    };
+  }
+
+  // Generic CGNAT range used by many mobile carriers (RFC 6598).
+  // Carrier traffic gets aggregated through metro PoPs so the city
+  // is the carrier's exit, not the visitor's location.
+  if (/^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./.test(ip)) {
+    return {
+      label: "approx · CGNAT",
+      hint:
+        "This visitor is behind carrier-grade NAT (typical for mobile carriers in India + emerging markets). " +
+        "The IP belongs to the carrier's egress PoP — usually a major metro — not the visitor's actual city. " +
+        "Ask them to tap 'Share location' in the widget for accurate geolocation.",
+      lowConfidence: true,
+    };
+  }
+
+  return {
+    label: "approx",
+    hint:
+      "IP-based geolocation — best-effort. Mobile carriers and ISPs commonly route through metro PoPs, " +
+      "so the city shown can be off by hundreds of km. " +
+      "Ask the visitor to tap 'Share location' in the widget if you need an exact position.",
+    lowConfidence: false,
+  };
 }
