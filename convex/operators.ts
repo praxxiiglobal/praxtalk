@@ -1,8 +1,13 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireOperator } from "./auth";
-import { generateSessionToken, hashPassword, hashToken } from "./lib/auth";
+import {
+  generateSessionToken,
+  hashPassword,
+  hashToken,
+  verifyPassword,
+} from "./lib/auth";
 import { pushActivity } from "./notifications";
 
 /**
@@ -370,3 +375,101 @@ export const listAuditLogs = query({
 // flow lands.
 void generateSessionToken;
 void hashToken;
+
+// ── Profile self-management ─────────────────────────────────────────────
+//
+// Operators (any role) can update their own email + password from
+// /app/settings → Account. Both flows require the current password
+// for confirmation — without that, anyone with a stolen session
+// cookie could lock the real owner out by changing the email/password.
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const updateMyEmail = mutation({
+  args: {
+    sessionToken: v.string(),
+    currentPassword: v.string(),
+    newEmail: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator } = await requireOperator(ctx, args.sessionToken);
+
+    const newEmail = args.newEmail.trim().toLowerCase();
+    if (!EMAIL_RE.test(newEmail)) {
+      throw new ConvexError("That doesn't look like a valid email address.");
+    }
+    if (newEmail === operator.email) {
+      // No-op — silently succeed so the UI stays simple.
+      return null;
+    }
+
+    const ok = await verifyPassword(args.currentPassword, operator.passwordHash);
+    if (!ok) {
+      throw new ConvexError("Current password is incorrect.");
+    }
+
+    // Email uniqueness is enforced platform-wide so logins stay
+    // unambiguous (the login form looks up by email, not workspace).
+    const taken = await ctx.db
+      .query("operators")
+      .withIndex("by_email", (q) => q.eq("email", newEmail))
+      .first();
+    if (taken && taken._id !== operator._id) {
+      throw new ConvexError("That email already has an account.");
+    }
+
+    await ctx.db.patch(operator._id, { email: newEmail });
+    return null;
+  },
+});
+
+export const updateMyPassword = mutation({
+  args: {
+    sessionToken: v.string(),
+    currentPassword: v.string(),
+    newPassword: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator } = await requireOperator(ctx, args.sessionToken);
+
+    if (args.newPassword.length < 8) {
+      throw new ConvexError("New password must be at least 8 characters.");
+    }
+    if (args.newPassword === args.currentPassword) {
+      throw new ConvexError("New password must differ from current.");
+    }
+
+    const ok = await verifyPassword(args.currentPassword, operator.passwordHash);
+    if (!ok) {
+      throw new ConvexError("Current password is incorrect.");
+    }
+
+    const passwordHash = await hashPassword(args.newPassword);
+    await ctx.db.patch(operator._id, { passwordHash });
+    // Note: existing sessions stay valid — that's the standard pattern
+    // (Slack, Linear, etc. don't auto-logout on password change). If
+    // we ever need to nuke them, walk the sessions index by operatorId
+    // and delete them all here.
+    return null;
+  },
+});
+
+export const updateMyName = mutation({
+  args: {
+    sessionToken: v.string(),
+    newName: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operator } = await requireOperator(ctx, args.sessionToken);
+    const name = args.newName.trim();
+    if (!name) throw new ConvexError("Name can't be empty.");
+    if (name.length > 80) throw new ConvexError("Name is too long (max 80).");
+    if (name !== operator.name) {
+      await ctx.db.patch(operator._id, { name });
+    }
+    return null;
+  },
+});

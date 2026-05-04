@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AccountSection } from "./AccountSection";
 import { CalendarsSection } from "./CalendarsSection";
 import { DataExportSection } from "./DataExportSection";
 import { WorkspaceSettings } from "./WorkspaceSettings";
@@ -18,6 +19,12 @@ export default function SettingsPage() {
         description="Workspace, team, billing, theme, and integration preferences."
       />
       <PageBody>
+        <Card
+          title="Your account"
+          description="Change your name, email address, or password. You'll need your current password to confirm email + password changes."
+        >
+          <AccountSection />
+        </Card>
         <WorkspaceSettings />
         <WidgetSnippet />
         <Card
