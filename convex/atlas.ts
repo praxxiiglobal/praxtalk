@@ -1187,41 +1187,62 @@ export const startKbWebsiteIngest = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { operator, workspaceId } = await requireOperator(
-      ctx,
-      args.sessionToken,
-    );
-    if (operator.role === "agent") {
-      throw new ConvexError("Only admins and owners can ingest website KBs.");
-    }
-    const normalised = normaliseUrl(args.url);
-    if (!normalised) {
-      throw new ConvexError("Couldn't parse that URL — needs http:// or https://.");
-    }
-    const config = await loadConfig(ctx, workspaceId);
-    if (!config) {
-      throw new ConvexError(
-        "Connect Atlas with an API key first, then run an ingest.",
+    // Wrap the whole body so unexpected errors (schema validation,
+    // missing scheduled function ref, transient infra hiccup) surface
+    // to the client with a real message instead of Convex's generic
+    // "Server Error" mask. ConvexErrors pass through unchanged.
+    try {
+      const { operator, workspaceId } = await requireOperator(
+        ctx,
+        args.sessionToken,
       );
+      if (operator.role === "agent") {
+        throw new ConvexError(
+          "Only admins and owners can ingest website KBs.",
+        );
+      }
+      const normalised = normaliseUrl(args.url);
+      if (!normalised) {
+        throw new ConvexError(
+          "Couldn't parse that URL — needs http:// or https://, and a public hostname.",
+        );
+      }
+      const config = await loadConfig(ctx, workspaceId);
+      if (!config) {
+        throw new ConvexError(
+          "Atlas isn't configured for this workspace yet. Open Atlas settings and add an Anthropic API key first.",
+        );
+      }
+      if (config.kbIngestStatus === "running") {
+        throw new ConvexError(
+          "An ingest is already running — wait for it to finish.",
+        );
+      }
+      await ctx.db.patch(config._id, {
+        kbSourceUrl: normalised,
+        kbIngestStatus: "pending",
+        kbIngestStartedAt: Date.now(),
+        kbIngestCompletedAt: undefined,
+        kbIngestPagesFetched: undefined,
+        kbIngestError: undefined,
+      });
+      await ctx.scheduler.runAfter(0, internal.atlas._runWebsiteIngest, {
+        workspaceId,
+        url: normalised,
+      });
+      return null;
+    } catch (err) {
+      if (err instanceof ConvexError) throw err;
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+            ? err
+            : "Unknown error scheduling the website crawl.";
+      // Logged server-side so we can grep `convex logs` later.
+      console.error("[startKbWebsiteIngest] non-ConvexError:", err);
+      throw new ConvexError(`Couldn't start the crawl: ${message}`);
     }
-    if (config.kbIngestStatus === "running") {
-      throw new ConvexError(
-        "An ingest is already running — wait for it to finish.",
-      );
-    }
-    await ctx.db.patch(config._id, {
-      kbSourceUrl: normalised,
-      kbIngestStatus: "pending",
-      kbIngestStartedAt: Date.now(),
-      kbIngestCompletedAt: undefined,
-      kbIngestPagesFetched: undefined,
-      kbIngestError: undefined,
-    });
-    await ctx.scheduler.runAfter(0, internal.atlas._runWebsiteIngest, {
-      workspaceId,
-      url: normalised,
-    });
-    return null;
   },
 });
 
