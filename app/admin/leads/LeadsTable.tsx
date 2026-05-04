@@ -114,44 +114,42 @@ export function LeadsTable({
           <table className="w-full text-sm">
             <thead className="bg-paper-2/60 text-left font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
               <tr>
-                <th className="px-3 py-2.5">Lead</th>
-                <th className="px-3 py-2.5">Contact</th>
-                <th className="px-3 py-2.5">Workspace · Brand</th>
+                <th className="px-3 py-2.5">Customer name</th>
+                <th className="px-3 py-2.5">Email</th>
+                <th className="px-3 py-2.5">Phone</th>
+                <th className="px-3 py-2.5">Workspace</th>
+                <th className="px-3 py-2.5">Brand</th>
                 <th className="px-3 py-2.5">Status</th>
                 <th className="px-3 py-2.5">Where</th>
-                <th className="px-3 py-2.5">Captured by</th>
-                <th className="px-3 py-2.5">Last update</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-rule">
               {filtered.map((l) => (
                 <tr key={l._id} className="hover:bg-paper-2/30">
-                  <td className="px-3 py-2.5">
-                    <div className="font-medium text-ink">{l.name}</div>
-                    {l.notes && (
-                      <div className="mt-0.5 max-w-xs truncate text-[11px] text-muted">
-                        {l.notes}
-                      </div>
-                    )}
+                  <td className="px-3 py-2.5 font-medium text-ink">
+                    {l.name}
                   </td>
                   <td className="px-3 py-2.5 font-mono text-[11px]">
-                    {l.email && (
+                    {l.email ? (
                       <a
                         href={`mailto:${l.email}`}
-                        className="block truncate text-ink hover:underline"
+                        className="text-ink hover:underline"
                       >
                         {l.email}
                       </a>
+                    ) : (
+                      <span className="text-muted">—</span>
                     )}
-                    {l.phone && (
+                  </td>
+                  <td className="px-3 py-2.5 font-mono text-[11px]">
+                    {l.phone ? (
                       <a
                         href={`tel:${l.phone}`}
-                        className="block truncate text-muted hover:text-ink"
+                        className="text-ink hover:underline"
                       >
                         {l.phone}
                       </a>
-                    )}
-                    {!l.email && !l.phone && (
+                    ) : (
                       <span className="text-muted">—</span>
                     )}
                   </td>
@@ -163,23 +161,17 @@ export function LeadsTable({
                       {l.workspaceName}
                     </Link>
                     <div className="font-mono text-[10.5px] text-muted">
-                      {l.workspaceSlug} · {l.brandName}
+                      {l.workspaceSlug}
                     </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-[13px] text-ink">
+                    {l.brandName || "—"}
                   </td>
                   <td className="px-3 py-2.5">
                     <StatusPill status={l.status} />
                   </td>
                   <td className="px-3 py-2.5 font-mono text-[10.5px] text-muted">
                     {[l.city, l.country].filter(Boolean).join(", ") || "—"}
-                  </td>
-                  <td className="px-3 py-2.5 text-[12px]">
-                    <div className="text-ink">{l.createdByName || "—"}</div>
-                    <div className="font-mono text-[10.5px] text-muted">
-                      {l.createdByEmail}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 font-mono text-[10.5px] text-muted">
-                    {relativeAgo(l.updatedAt)}
                   </td>
                 </tr>
               ))}
@@ -211,11 +203,3 @@ function StatusPill({ status }: { status: Status }) {
   );
 }
 
-function relativeAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`;
-  if (diff < 604_800_000) return `${Math.round(diff / 86_400_000)}d ago`;
-  return new Date(ts).toLocaleDateString();
-}
