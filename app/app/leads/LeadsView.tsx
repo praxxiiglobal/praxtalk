@@ -304,14 +304,16 @@ function LeadRow({
       <td className="px-3 py-2.5 font-mono text-[10.5px] text-muted">
         {lead.ip ?? "—"}
       </td>
-      <td className="px-3 py-2.5 min-w-[280px]">
+      <td className="px-3 py-2.5 max-w-[280px]">
         <RemarksCell
+          leadName={lead.name}
           leadId={lead._id}
           legacyNote={lead.notes ?? null}
           summaryCount={lead.remarksCount ?? 0}
           summaryLatest={lead.latestRemark ?? null}
           open={remarksOpen}
-          onToggle={() => setRemarksOpen((v) => !v)}
+          onOpen={() => setRemarksOpen(true)}
+          onClose={() => setRemarksOpen(false)}
           meRole={meRole}
           meId={meId}
         />
@@ -424,21 +426,23 @@ function AssigneeSelect({
  * empty change closes without committing.
  */
 /**
- * Threaded remarks. Default state shows the latest remark + "N more"
- * counter. Click toggles open the thread (chronological list +
- * compose box). Each agent gets attribution; the original author or
- * any owner/admin can edit/delete.
+ * Threaded remarks. The cell itself stays compact (single-line preview
+ * + count) so rows never grow past their natural height. Clicking opens
+ * a centered dialog with the full chronological thread + compose box.
  */
 function RemarksCell({
+  leadName,
   leadId,
   legacyNote,
   summaryCount,
   summaryLatest,
   open,
-  onToggle,
+  onOpen,
+  onClose,
   meRole,
   meId,
 }: {
+  leadName: string;
   leadId: Id<"leads">;
   legacyNote: string | null;
   summaryCount: number;
@@ -449,23 +453,100 @@ function RemarksCell({
     authorName: string;
   } | null;
   open: boolean;
-  onToggle: () => void;
+  onOpen: () => void;
+  onClose: () => void;
   meRole: "owner" | "admin" | "agent";
   meId: Id<"operators">;
 }) {
-  const { sessionToken } = useDashboardAuth();
-  // Skip the live query until the cell is actually opened — saves a
-  // subscription per row on a busy table.
-  const remarks = useQuery(
-    api.leads.listRemarks,
-    open ? { sessionToken, leadId } : "skip",
+  const totalCount = summaryCount + (legacyNote && legacyNote.trim() ? 1 : 0);
+  const previewBody = summaryLatest?.body ?? legacyNote ?? null;
+  const previewAuthor = summaryLatest?.authorName ?? null;
+  const previewWhen = summaryLatest?.createdAt ?? null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="block w-full text-left"
+        title={previewBody ?? "Click to add a remark"}
+      >
+        {previewBody ? (
+          <span className="block truncate text-[12px] text-ink">
+            {previewBody}
+          </span>
+        ) : (
+          <span className="block text-[11px] italic text-muted hover:text-ink">
+            + add remark
+          </span>
+        )}
+        {totalCount > 0 && (
+          <span className="mt-0.5 block truncate font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+            {previewAuthor ?? "legacy note"}
+            {previewWhen !== null && ` · ${timeAgo(previewWhen)}`}
+            {totalCount > 1 && ` · +${totalCount - 1} more`}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <RemarksModal
+          leadName={leadName}
+          leadId={leadId}
+          legacyNote={legacyNote}
+          totalCount={totalCount}
+          meRole={meRole}
+          meId={meId}
+          onClose={onClose}
+        />
+      )}
+    </>
   );
+}
+
+/**
+ * Centered dialog with the full remarks thread + compose box. Closes
+ * on backdrop click, Esc, or the X button. Renders inline (not via
+ * portal) — Tailwind `fixed inset-0 z-50` puts it above the table.
+ */
+function RemarksModal({
+  leadName,
+  leadId,
+  legacyNote,
+  totalCount,
+  meRole,
+  meId,
+  onClose,
+}: {
+  leadName: string;
+  leadId: Id<"leads">;
+  legacyNote: string | null;
+  totalCount: number;
+  meRole: "owner" | "admin" | "agent";
+  meId: Id<"operators">;
+  onClose: () => void;
+}) {
+  const { sessionToken } = useDashboardAuth();
+  const remarks = useQuery(api.leads.listRemarks, { sessionToken, leadId });
   const addRemark = useMutation(api.leads.addRemark);
   const updateRemark = useMutation(api.leads.updateRemark);
   const deleteRemark = useMutation(api.leads.deleteRemark);
 
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const composeRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    composeRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const onAdd = async () => {
     const body = draft.trim();
@@ -481,151 +562,132 @@ function RemarksCell({
     }
   };
 
-  const totalCount = summaryCount + (legacyNote && legacyNote.trim() ? 1 : 0);
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={onToggle}
-        className="block w-full text-left"
-        title="Click to view + add remarks"
-      >
-        {summaryLatest ? (
-          <>
-            <span className="line-clamp-2 text-[12px] text-ink">
-              {summaryLatest.body}
-            </span>
-            <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
-              {summaryLatest.authorName} ·{" "}
-              {timeAgo(summaryLatest.createdAt)}
-              {totalCount > 1 ? ` · ${totalCount - 1} more` : ""}
-            </span>
-          </>
-        ) : legacyNote && legacyNote.trim() ? (
-          <>
-            <span className="line-clamp-2 text-[12px] text-ink">
-              {legacyNote}
-            </span>
-            <span className="mt-0.5 block font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
-              legacy note
-            </span>
-          </>
-        ) : (
-          <span className="text-[11px] italic text-muted hover:text-ink">
-            + add remark
-          </span>
-        )}
-      </button>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-rule-2 bg-paper-2/40 p-2">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
-          Thread · {totalCount} remark{totalCount === 1 ? "" : "s"}
-        </span>
-        <button
-          type="button"
-          onClick={onToggle}
-          className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-ink"
-        >
-          Collapse ↑
-        </button>
-      </div>
-
-      <ul className="m-0 flex max-h-64 flex-col gap-2 overflow-y-auto p-0">
-        {legacyNote && legacyNote.trim() ? (
-          <RemarkBubble
-            who="(legacy note)"
-            body={legacyNote}
-            when={null}
-            canEdit={false}
-            isPending={false}
-            onEdit={() => {}}
-            onDelete={() => {}}
-          />
-        ) : null}
-        {remarks === undefined ? (
-          <li className="px-1 text-[11px] text-muted">Loading…</li>
-        ) : remarks.length === 0 && !legacyNote ? (
-          <li className="px-1 text-[11px] italic text-muted">
-            No remarks yet. Be the first.
-          </li>
-        ) : (
-          remarks?.map((r) => {
-            const canEdit =
-              meRole === "owner" ||
-              meRole === "admin" ||
-              r.author._id === meId;
-            return (
-              <RemarkBubble
-                key={r._id}
-                who={r.author.name}
-                body={r.body}
-                when={r.createdAt}
-                editedAt={r.updatedAt}
-                canEdit={canEdit}
-                isPending={false}
-                onEdit={async (next) => {
-                  try {
-                    await updateRemark({
-                      sessionToken,
-                      remarkId: r._id,
-                      body: next,
-                    });
-                  } catch (e) {
-                    alert(
-                      e instanceof Error ? e.message : "Couldn't edit remark.",
-                    );
-                  }
-                }}
-                onDelete={async () => {
-                  if (!confirm("Delete this remark?")) return;
-                  try {
-                    await deleteRemark({ sessionToken, remarkId: r._id });
-                  } catch (e) {
-                    alert(
-                      e instanceof Error
-                        ? e.message
-                        : "Couldn't delete remark.",
-                    );
-                  }
-                }}
-              />
-            );
-          })
-        )}
-      </ul>
-
-      <div className="flex flex-col gap-1.5 border-t border-rule pt-2">
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          rows={2}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              e.preventDefault();
-              void onAdd();
-            }
-          }}
-          className="w-full resize-none rounded-lg border border-rule-2 bg-paper px-2.5 py-1.5 text-[12px] outline-none focus:border-ink"
-          placeholder="Add a remark — context, next steps, what happened on the call…"
-        />
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted">
-            ⌘↵ to add
-          </span>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Remarks for ${leadName}`}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-rule bg-paper shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-start justify-between gap-3 border-b border-rule px-5 py-4">
+          <div>
+            <div className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted">
+              Remarks · {totalCount} entr{totalCount === 1 ? "y" : "ies"}
+            </div>
+            <h3 className="mt-0.5 text-base font-semibold tracking-[-0.01em] text-ink">
+              {leadName}
+            </h3>
+          </div>
           <button
             type="button"
-            onClick={onAdd}
-            disabled={busy || !draft.trim()}
-            className="rounded-full bg-ink px-3 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-paper disabled:opacity-50"
+            onClick={onClose}
+            className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted hover:text-ink"
+            aria-label="Close"
           >
-            {busy ? "Adding…" : "Add remark"}
+            Close ✕
           </button>
-        </div>
+        </header>
+
+        <ul className="m-0 flex flex-1 flex-col gap-2 overflow-y-auto p-4">
+          {legacyNote && legacyNote.trim() ? (
+            <RemarkBubble
+              who="(legacy note)"
+              body={legacyNote}
+              when={null}
+              canEdit={false}
+              isPending={false}
+              onEdit={() => {}}
+              onDelete={() => {}}
+            />
+          ) : null}
+          {remarks === undefined ? (
+            <li className="px-1 text-[11px] text-muted">Loading…</li>
+          ) : remarks.length === 0 && !legacyNote ? (
+            <li className="px-1 text-[12px] italic text-muted">
+              No remarks yet. Add the first one below.
+            </li>
+          ) : (
+            remarks?.map((r) => {
+              const canEdit =
+                meRole === "owner" ||
+                meRole === "admin" ||
+                r.author._id === meId;
+              return (
+                <RemarkBubble
+                  key={r._id}
+                  who={r.author.name}
+                  body={r.body}
+                  when={r.createdAt}
+                  editedAt={r.updatedAt}
+                  canEdit={canEdit}
+                  isPending={false}
+                  onEdit={async (next) => {
+                    try {
+                      await updateRemark({
+                        sessionToken,
+                        remarkId: r._id,
+                        body: next,
+                      });
+                    } catch (e) {
+                      alert(
+                        e instanceof Error
+                          ? e.message
+                          : "Couldn't edit remark.",
+                      );
+                    }
+                  }}
+                  onDelete={async () => {
+                    if (!confirm("Delete this remark?")) return;
+                    try {
+                      await deleteRemark({ sessionToken, remarkId: r._id });
+                    } catch (e) {
+                      alert(
+                        e instanceof Error
+                          ? e.message
+                          : "Couldn't delete remark.",
+                      );
+                    }
+                  }}
+                />
+              );
+            })
+          )}
+        </ul>
+
+        <footer className="flex flex-col gap-2 border-t border-rule bg-paper-2/40 px-4 py-3">
+          <textarea
+            ref={composeRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={3}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                void onAdd();
+              }
+            }}
+            className="w-full resize-none rounded-lg border border-rule-2 bg-paper px-3 py-2 text-[13px] outline-none focus:border-ink"
+            placeholder="Add a remark — context, next steps, what happened on the call…"
+          />
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+              ⌘↵ to add · Esc to close
+            </span>
+            <button
+              type="button"
+              onClick={onAdd}
+              disabled={busy || !draft.trim()}
+              className="rounded-full bg-ink px-4 py-1 font-mono text-[11px] uppercase tracking-[0.06em] text-paper disabled:opacity-50"
+            >
+              {busy ? "Adding…" : "Add remark"}
+            </button>
+          </div>
+        </footer>
       </div>
     </div>
   );
