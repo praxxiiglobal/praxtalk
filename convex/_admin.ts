@@ -77,6 +77,8 @@ export const listWorkspaces = query({
       conversationCount: v.number(),
       atlasRunsThisMonth: v.number(),
       lastActivityAt: v.union(v.number(), v.null()),
+      ownerName: v.union(v.string(), v.null()),
+      ownerEmail: v.union(v.string(), v.null()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -117,6 +119,14 @@ export const listWorkspaces = query({
         const atlasThisMonth = atlasRuns.filter(
           (r) => r.createdAt >= monthStart,
         ).length;
+        // Owner is the first operator with role="owner" (workspaces
+        // are seeded with exactly one). Fall back to the oldest
+        // operator if a legacy workspace lacks an owner role for
+        // any reason.
+        const owner =
+          operators.find((o) => o.role === "owner") ??
+          operators.sort((a, b) => a.createdAt - b.createdAt)[0] ??
+          null;
         return {
           _id: ws._id,
           slug: ws.slug,
@@ -131,6 +141,8 @@ export const listWorkspaces = query({
           conversationCount: convos.length,
           atlasRunsThisMonth: atlasThisMonth,
           lastActivityAt: convos[0]?.lastMessageAt ?? null,
+          ownerName: owner?.name ?? null,
+          ownerEmail: owner?.email ?? null,
         };
       }),
     );
@@ -352,6 +364,94 @@ export const setPlatformStatus = mutation({
       payload: { before, after: args.status, reason: args.reason },
     });
     return null;
+  },
+});
+
+/**
+ * Same as setPlatformStatus but for many workspaces in one call.
+ * Caps at 100 IDs per request to keep the transaction bounded.
+ * No-op (already-at-target) workspaces are counted in `skipped`,
+ * not `updated`. Audit log entries are written per-workspace so the
+ * per-workspace history stays grep-able. If `status === "suspended"`,
+ * each workspace's active sessions are wiped immediately, same as
+ * the single-workspace path.
+ */
+export const bulkSetPlatformStatus = mutation({
+  args: {
+    sessionToken: v.string(),
+    workspaceIds: v.array(v.id("workspaces")),
+    status: PLATFORM_STATUS_VALIDATOR,
+    reason: v.optional(v.string()),
+  },
+  returns: v.object({
+    updated: v.number(),
+    skipped: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const { operatorId, operatorEmail } = await requirePlatformAdmin(
+      ctx,
+      args.sessionToken,
+    );
+    if (args.workspaceIds.length === 0) {
+      return { updated: 0, skipped: 0 };
+    }
+    if (args.workspaceIds.length > 100) {
+      throw new ConvexError(
+        "Bulk action capped at 100 workspaces per call.",
+      );
+    }
+    const now = Date.now();
+    let updated = 0;
+    let skipped = 0;
+    for (const workspaceId of args.workspaceIds) {
+      const ws = await ctx.db.get(workspaceId);
+      if (!ws) {
+        skipped++;
+        continue;
+      }
+      const before = ws.platformStatus ?? "active";
+      if (before === args.status) {
+        skipped++;
+        continue;
+      }
+      await ctx.db.patch(workspaceId, {
+        platformStatus: args.status,
+        platformStatusReason: args.reason,
+        platformStatusAt: now,
+      });
+      if (args.status === "suspended") {
+        const operators = await ctx.db
+          .query("operators")
+          .withIndex("by_workspace_email", (q) =>
+            q.eq("workspaceId", workspaceId),
+          )
+          .collect();
+        for (const op of operators) {
+          const opSessions = await ctx.db
+            .query("sessions")
+            .withIndex("by_operator", (q) => q.eq("operatorId", op._id))
+            .collect();
+          for (const s of opSessions) await ctx.db.delete(s._id);
+        }
+      }
+      await writePlatformAuditLog(ctx, {
+        workspaceId,
+        performedByOperatorId: operatorId,
+        performedByEmail: operatorEmail,
+        action: "platform.status_changed",
+        summary: `${operatorEmail} set platform status (bulk): ${before} → ${args.status}${
+          args.reason ? ` (${args.reason})` : ""
+        }`,
+        payload: {
+          before,
+          after: args.status,
+          reason: args.reason,
+          bulk: true,
+        },
+      });
+      updated++;
+    }
+    return { updated, skipped };
   },
 });
 
