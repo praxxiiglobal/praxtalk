@@ -21,6 +21,11 @@ export const getConfigByWidgetId = query({
       welcomeMessage: v.string(),
       position: v.union(v.literal("br"), v.literal("bl")),
       avatarUrl: v.optional(v.string()),
+      // wa.me lite — present when the brand has a click-to-chat
+      // WhatsApp number configured. Widget renders a "Prefer
+      // WhatsApp" link in the welcome strip when set; null otherwise.
+      waMePhone: v.union(v.string(), v.null()),
+      waMePrefilledMessage: v.union(v.string(), v.null()),
     }),
   ),
   handler: async (ctx, { widgetId }) => {
@@ -38,6 +43,8 @@ export const getConfigByWidgetId = query({
       welcomeMessage: brand.welcomeMessage,
       position: brand.position,
       avatarUrl: brand.avatarUrl,
+      waMePhone: brand.waMePhone ?? null,
+      waMePrefilledMessage: brand.waMePrefilledMessage ?? null,
     };
   },
 });
