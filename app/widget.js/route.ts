@@ -770,12 +770,26 @@ const SOURCE = /* javascript */ `(() => {
           showForm();
         }
       });
-      els.chooserWa.addEventListener("click", () => {
-        // The anchor opens wa.me in a new tab natively — we just
-        // record the choice so revisits skip the chooser, and close
-        // the panel for tidiness.
+      els.chooserWa.addEventListener("click", (e) => {
+        // Don't rely solely on the anchor's default <a target="_blank">
+        // navigation — it's flaky inside Shadow DOM contexts (some
+        // browsers ignore the target attribute, others race the
+        // setTimeout below). Explicitly call window.open and fall back
+        // to same-tab navigation if a popup blocker eats it.
+        e.preventDefault();
+        const href = els.chooserWa.getAttribute("href");
+        if (!href || href === "#") {
+          console.warn("[PraxTalk] WhatsApp link href not set");
+          return;
+        }
         saveChannelChoice("wa");
-        setTimeout(() => setOpen(false), 200);
+        const opened = window.open(href, "_blank", "noopener,noreferrer");
+        if (!opened) {
+          // Popup blocker or in-app browser — fall back to current tab.
+          window.location.href = href;
+          return;
+        }
+        setTimeout(() => setOpen(false), 250);
       });
 
       const showChooserFirst =
