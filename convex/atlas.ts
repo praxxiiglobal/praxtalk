@@ -1513,11 +1513,18 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
   try {
     parsed = new URL(url);
   } catch {
+    console.warn("[atlas-fetch] bad URL", url);
     return null;
   }
-  if (isPrivateHost(parsed.hostname)) return null;
+  if (isPrivateHost(parsed.hostname)) {
+    console.warn("[atlas-fetch] private host blocked", parsed.hostname);
+    return null;
+  }
   const dohSafe = await isDohSafe(parsed.hostname);
-  if (!dohSafe) return null;
+  if (!dohSafe) {
+    console.warn("[atlas-fetch] DoH refused", parsed.hostname);
+    return null;
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -1578,51 +1585,80 @@ async function isDohSafe(hostname: string): Promise<boolean> {
   if (hostname.startsWith("[")) return true;
   const cached = dohCache.get(hostname);
   if (cached !== undefined) return cached;
+
+  // Track whether each leg succeeded — we need to distinguish
+  // "definitively no records" from "resolver couldn't tell us".
+  let aOk = false;
+  let aaaaOk = false;
+  type DnsAnswer = { type?: number; data?: string };
+  let aAnswers: DnsAnswer[] = [];
+  let aaaaAnswers: DnsAnswer[] = [];
   try {
-    // Query A + AAAA in parallel.
-    const [a, aaaa] = await Promise.all([
+    const [aRes, aaaaRes] = await Promise.all([
       fetch(
         `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`,
         {
           headers: { accept: "application/dns-json" },
-          signal: AbortSignal.timeout(2_500),
+          signal: AbortSignal.timeout(5_000),
         },
-      ).then((r) => (r.ok ? r.json() : { Answer: [] })),
+      ),
       fetch(
         `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=AAAA`,
         {
           headers: { accept: "application/dns-json" },
-          signal: AbortSignal.timeout(2_500),
+          signal: AbortSignal.timeout(5_000),
         },
-      ).then((r) => (r.ok ? r.json() : { Answer: [] })),
+      ),
     ]);
-    type DnsAnswer = { type?: number; data?: string };
-    const ips: string[] = [];
-    for (const ans of [...((a as { Answer?: DnsAnswer[] }).Answer ?? []),
-                       ...((aaaa as { Answer?: DnsAnswer[] }).Answer ?? [])]) {
-      if (typeof ans.data === "string") ips.push(ans.data);
+    if (aRes.ok) {
+      aOk = true;
+      const j = (await aRes.json()) as { Answer?: DnsAnswer[] };
+      aAnswers = j.Answer ?? [];
     }
-    if (ips.length === 0) {
-      // No A/AAAA records — host doesn't actually resolve. Refuse.
+    if (aaaaRes.ok) {
+      aaaaOk = true;
+      const j = (await aaaaRes.json()) as { Answer?: DnsAnswer[] };
+      aaaaAnswers = j.Answer ?? [];
+    }
+  } catch (err) {
+    // Resolver itself failed (timeout, network error). DoH is the
+    // SECOND leg of SSRF defence — isPrivateHost on the literal
+    // hostname is the first, and it already passed. A transient
+    // resolver outage shouldn't kill every legitimate crawl on the
+    // platform. Fail OPEN here, but don't cache so the next call
+    // gets a fresh chance.
+    console.warn("[atlas-ssrf] DoH transient error for", hostname, "— allowing", err);
+    return true;
+  }
+
+  // If neither resolver leg responded ok, treat as transient.
+  if (!aOk && !aaaaOk) {
+    console.warn("[atlas-ssrf] DoH non-ok for both A+AAAA on", hostname, "— allowing");
+    return true;
+  }
+
+  const ips: string[] = [];
+  for (const ans of [...aAnswers, ...aaaaAnswers]) {
+    if (typeof ans.data === "string") ips.push(ans.data);
+  }
+
+  // We got a confident answer from at least one leg — check IPs.
+  if (ips.length === 0) {
+    // Resolver said "no records" definitively. Host doesn't resolve;
+    // the fetch would 404/connection-refuse anyway. Don't cache
+    // — DNS records can change.
+    console.warn("[atlas-ssrf] no DNS records for", hostname);
+    return false;
+  }
+  for (const ip of ips) {
+    if (isPrivateHost(ip) || isPrivateHost(`[${ip}]`)) {
+      console.warn("[atlas-ssrf] refused", hostname, "→", ip);
       dohCache.set(hostname, false);
       return false;
     }
-    for (const ip of ips) {
-      if (isPrivateHost(ip) || isPrivateHost(`[${ip}]`)) {
-        console.warn("[atlas-ssrf] refused", hostname, "→", ip);
-        dohCache.set(hostname, false);
-        return false;
-      }
-    }
-    dohCache.set(hostname, true);
-    return true;
-  } catch (err) {
-    // Resolver failure: fail closed. Better to drop a few legitimate
-    // pages than to let a rebinding attack through.
-    console.warn("[atlas-ssrf] DoH query failed for", hostname, err);
-    dohCache.set(hostname, false);
-    return false;
   }
+  dohCache.set(hostname, true);
+  return true;
 }
 
 /**
@@ -1790,9 +1826,19 @@ async function fetchAndExtract(
   url: string,
 ): Promise<ExtractedPage | null> {
   const res = await fetchWithTimeout(url);
-  if (!res || !res.ok) return null;
+  if (!res) {
+    console.warn("[atlas-fetch] no response for", url);
+    return null;
+  }
+  if (!res.ok) {
+    console.warn("[atlas-fetch] non-ok", res.status, "for", url);
+    return null;
+  }
   const ct = res.headers.get("content-type") ?? "";
-  if (!ct.toLowerCase().includes("text/html")) return null;
+  if (!ct.toLowerCase().includes("text/html")) {
+    console.warn("[atlas-fetch] non-html content-type", ct, "for", url);
+    return null;
+  }
   const html = await res.text();
   const meta = extractMeta(html, url);
   const text = htmlToText(html);
