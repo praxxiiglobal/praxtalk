@@ -9,6 +9,22 @@ import {
 } from "react";
 import { api } from "@/convex/_generated/api";
 
+export type ChannelFlags = {
+  chat: boolean;
+  email: boolean;
+  whatsapp: boolean;
+  voice: boolean;
+  sms: boolean;
+};
+
+export type ModuleFlags = {
+  atlasAi: boolean;
+  leads: boolean;
+  bookingPages: boolean;
+  multiBrand: boolean;
+  analytics: boolean;
+};
+
 export type DashboardAuth = {
   sessionToken: string;
   operator: {
@@ -22,6 +38,10 @@ export type DashboardAuth = {
     slug: string;
     name: string;
     plan: "spark" | "team" | "scale" | "enterprise";
+    features: {
+      channels: ChannelFlags;
+      modules: ModuleFlags;
+    };
   };
 };
 

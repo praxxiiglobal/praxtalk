@@ -61,6 +61,30 @@ export default defineSchema({
     // PraxTalk-green when set. Hex string (`#RRGGBB`). Customers match
     // it to their own brand color.
     dashboardAccent: v.optional(v.string()),
+    // Per-workspace feature gates, set by platform admin from
+    // /admin/workspaces/[id]. Every flag is OPTIONAL — when missing,
+    // we treat the feature as enabled. Setting `false` explicitly
+    // disables it. This default-on posture means existing workspaces
+    // keep working without migration; only when an admin opts a
+    // workspace OUT of a feature does anything change.
+    features: v.optional(
+      v.object({
+        channels: v.optional(
+          v.object({
+            chat: v.optional(v.boolean()),
+            email: v.optional(v.boolean()),
+            whatsapp: v.optional(v.boolean()),
+            voice: v.optional(v.boolean()),
+            sms: v.optional(v.boolean()),
+          }),
+        ),
+        atlasAi: v.optional(v.boolean()),
+        leads: v.optional(v.boolean()),
+        bookingPages: v.optional(v.boolean()),
+        multiBrand: v.optional(v.boolean()),
+        analytics: v.optional(v.boolean()),
+      }),
+    ),
     createdAt: v.number(),
   })
     .index("by_slug", ["slug"])

@@ -17,6 +17,7 @@ import {
   buildMessagesPage,
   buildWorkspaceCoreExport,
 } from "./lib/workspaceExport";
+import { resolveFeatures } from "./lib/features";
 
 /**
  * Cross-tenant queries for the /admin page. Auth gate is the
@@ -198,6 +199,7 @@ export const getWorkspace = query({
         razorpaySubscriptionId: ws.razorpaySubscriptionId ?? null,
         currentPeriodEnd: ws.currentPeriodEnd ?? null,
         createdAt: ws.createdAt,
+        features: resolveFeatures(ws.features),
       },
       operators: operators.map((o) => ({
         _id: o._id,
@@ -950,5 +952,50 @@ export const listAllLeads = query({
       }),
     );
     return rows;
+  },
+});
+
+// ── Per-workspace feature gates ────────────────────────────────────────
+
+export const setFeatures = mutation({
+  args: {
+    sessionToken: v.string(),
+    workspaceId: v.id("workspaces"),
+    features: v.object({
+      channels: v.object({
+        chat: v.boolean(),
+        email: v.boolean(),
+        whatsapp: v.boolean(),
+        voice: v.boolean(),
+        sms: v.boolean(),
+      }),
+      atlasAi: v.boolean(),
+      leads: v.boolean(),
+      bookingPages: v.boolean(),
+      multiBrand: v.boolean(),
+      analytics: v.boolean(),
+    }),
+    reason: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operatorId, operatorEmail } = await requirePlatformAdmin(
+      ctx,
+      args.sessionToken,
+    );
+    const ws = await ctx.db.get(args.workspaceId);
+    if (!ws) throw new ConvexError("Workspace not found.");
+    await ctx.db.patch(args.workspaceId, { features: args.features });
+    await writePlatformAuditLog(ctx, {
+      workspaceId: args.workspaceId,
+      performedByOperatorId: operatorId,
+      performedByEmail: operatorEmail,
+      action: "platform.features_changed",
+      summary: `${operatorEmail} updated feature gates${
+        args.reason ? ` (${args.reason})` : ""
+      }`,
+      payload: { features: args.features, reason: args.reason },
+    });
+    return null;
   },
 });

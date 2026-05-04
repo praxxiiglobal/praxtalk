@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { resolveFeatures } from "./lib/features";
 import {
   generateSessionToken,
   hashPassword,
@@ -117,6 +118,25 @@ export const me = query({
           v.literal("flagged"),
         ),
         platformStatusReason: v.union(v.string(), v.null()),
+        // Resolved feature gates so the dashboard can render
+        // immediately without re-deriving from the (sparse) raw
+        // features doc. Defaults to all-on for legacy workspaces.
+        features: v.object({
+          channels: v.object({
+            chat: v.boolean(),
+            email: v.boolean(),
+            whatsapp: v.boolean(),
+            voice: v.boolean(),
+            sms: v.boolean(),
+          }),
+          modules: v.object({
+            atlasAi: v.boolean(),
+            leads: v.boolean(),
+            bookingPages: v.boolean(),
+            multiBrand: v.boolean(),
+            analytics: v.boolean(),
+          }),
+        }),
       }),
     }),
   ),
@@ -143,6 +163,7 @@ export const me = query({
         plan: workspace.plan,
         platformStatus: workspace.platformStatus ?? "active",
         platformStatusReason: workspace.platformStatusReason ?? null,
+        features: resolveFeatures(workspace.features),
       },
     };
   },

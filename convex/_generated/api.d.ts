@@ -28,6 +28,7 @@ import type * as integrationGrants from "../integrationGrants.js";
 import type * as invites from "../invites.js";
 import type * as leads from "../leads.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_features from "../lib/features.js";
 import type * as lib_paypal from "../lib/paypal.js";
 import type * as lib_platformAdmin from "../lib/platformAdmin.js";
 import type * as lib_razorpay from "../lib/razorpay.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   invites: typeof invites;
   leads: typeof leads;
   "lib/auth": typeof lib_auth;
+  "lib/features": typeof lib_features;
   "lib/paypal": typeof lib_paypal;
   "lib/platformAdmin": typeof lib_platformAdmin;
   "lib/razorpay": typeof lib_razorpay;

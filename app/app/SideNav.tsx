@@ -71,15 +71,54 @@ function badgeCountFor(
   return 0;
 }
 
+/**
+ * Filter the static nav groups by the workspace's resolved feature
+ * flags. A disabled module → its top-level item disappears. The
+ * Calls / Emails entries are also bound to the matching channel
+ * flag so a chat-only workspace doesn't see an Emails tab leading
+ * to an empty page.
+ */
+function filterGroupsByFeatures(
+  groups: NavGroup[],
+  features: {
+    channels: { email: boolean; voice: boolean };
+    modules: {
+      atlasAi: boolean;
+      leads: boolean;
+      bookingPages: boolean;
+      analytics: boolean;
+    };
+  },
+): NavGroup[] {
+  const visibleHrefs = new Set<string>();
+  // Always-on items that aren't gated.
+  visibleHrefs.add("/app");
+  visibleHrefs.add("/app/notifications");
+  visibleHrefs.add("/app/settings");
+  if (features.modules.leads) visibleHrefs.add("/app/leads");
+  if (features.channels.email) visibleHrefs.add("/app/emails");
+  if (features.channels.voice) visibleHrefs.add("/app/calls");
+  if (features.modules.bookingPages) visibleHrefs.add("/app/schedules");
+  if (features.modules.atlasAi) visibleHrefs.add("/app/atlas");
+  if (features.modules.analytics) visibleHrefs.add("/app/analytics");
+  return groups
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((i) => visibleHrefs.has(i.href)),
+    }))
+    .filter((g) => g.items.length > 0);
+}
+
 export function SideNav() {
   const pathname = usePathname();
-  const { sessionToken } = useDashboardAuth();
+  const { sessionToken, workspace } = useDashboardAuth();
   const summary = useQuery(api.notifications.summary, { sessionToken });
+  const groups = filterGroupsByFeatures(navGroups, workspace.features);
 
   return (
     <aside className="hidden w-56 shrink-0 border-r border-rule bg-paper-2/40 md:flex md:flex-col">
       <nav className="flex flex-col gap-1 p-3">
-        {navGroups.map((group, gi) => (
+        {groups.map((group, gi) => (
           <div key={gi} className={cn("flex flex-col gap-0.5", gi > 0 && "mt-3")}>
             {group.label && (
               <div className="mb-1 px-3 font-mono text-[9.5px] uppercase tracking-[0.08em] text-muted">
@@ -127,11 +166,12 @@ export function SideNav() {
 
 export function MobileNavList({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const { sessionToken } = useDashboardAuth();
+  const { sessionToken, workspace } = useDashboardAuth();
   const summary = useQuery(api.notifications.summary, { sessionToken });
+  const groups = filterGroupsByFeatures(navGroups, workspace.features);
   return (
     <nav className="flex flex-col gap-1">
-      {navGroups.map((group, gi) => (
+      {groups.map((group, gi) => (
         <div key={gi} className={cn("flex flex-col gap-0.5", gi > 0 && "mt-3")}>
           {group.label && (
             <div className="mb-1 px-3 font-mono text-[10px] uppercase tracking-[0.08em] text-muted">

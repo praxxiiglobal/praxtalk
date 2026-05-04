@@ -63,6 +63,18 @@ export function Inbox() {
   const selectedBrand = useSelectedBrand();
   const [status, setStatus] = useState<Status>("open");
   const [channel, setChannel] = useState<ChannelFilter>("all");
+  // Channel tabs filtered by per-workspace feature gates. "All" stays
+  // visible always; specific channels appear only when enabled.
+  const channelMap: Record<Channel, boolean> = {
+    web_chat: workspace.features.channels.chat,
+    sms: workspace.features.channels.sms,
+    email: workspace.features.channels.email,
+    whatsapp: workspace.features.channels.whatsapp,
+    voice: workspace.features.channels.voice,
+  };
+  const visibleChannelTabs = channelTabs.filter(
+    (t) => t.value === "all" || channelMap[t.value as Channel],
+  );
   const [assignee, setAssignee] = useState<"all" | "me" | "unassigned">("all");
   const [selectedId, setSelectedId] =
     useState<Id<"conversations"> | null>(null);
@@ -87,7 +99,7 @@ export function Inbox() {
     <div className="grid flex-1 min-h-0 grid-cols-1 md:grid-cols-[320px_1fr]">
       <aside className="flex min-h-0 flex-col border-r border-rule bg-paper-2/60">
         <div className="no-scrollbar flex shrink-0 gap-0.5 overflow-x-auto border-b border-rule px-2 py-2">
-          {channelTabs.map((t) => (
+          {visibleChannelTabs.map((t) => (
             <button
               key={t.value}
               type="button"
