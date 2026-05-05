@@ -14,9 +14,7 @@ type NavGroup = {
 
 /**
  * Side nav reorganised into three implicit groups so it scans as
- * categories instead of one flat list of nine. Lobby intake moved
- * out of top-level into /app/settings — it configures a form, not a
- * data view, so it belongs there.
+ * categories instead of one flat list of nine.
  *
  * Reminders + Booking pages already live under Schedules.
  * Integrations / Brands / Team / Saved replies / Billing all live
@@ -225,7 +223,6 @@ type NavIconName =
   | "envelope"
   | "calendar"
   | "atlas"
-  | "lobby"
   | "chart"
   | "brand"
   | "team"
@@ -277,12 +274,6 @@ function NavIcon({ name, active }: { name: NavIconName; active?: boolean }) {
         <svg {...common} aria-hidden>
           <path d="M8 2L3 5v4c0 3 2 5 5 6 3-1 5-3 5-6V5L8 2z" />
           <path d="M6 8l1.5 1.5L10 7" />
-        </svg>
-      );
-    case "lobby":
-      return (
-        <svg {...common} aria-hidden>
-          <path d="M3 4h10M3 8h10M3 12h6" />
         </svg>
       );
     case "chart":

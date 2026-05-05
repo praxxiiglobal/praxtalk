@@ -6,8 +6,8 @@ import { v } from "convex/values";
  *
  * Multi-brand migration complete (widen-migrate-narrow done as of
  * 2026-05-02). brandId is required on visitors, conversations, leads,
- * messages, and intakeResponses. It stays optional on apiKeys,
- * lobbyConfigs, and savedReplies — those tables use null/absent to mean
+ * messages, and savedReplies. It stays optional on apiKeys —
+ * those tables use null/absent to mean
  * "workspace-wide" (vs brand-scoped), which is a real product axis, not
  * a migration artefact.
  */
@@ -995,53 +995,7 @@ export default defineSchema({
     .index("by_conversation_created", ["conversationId", "createdAt"])
     .index("by_workspace_created", ["workspaceId", "createdAt"]),
 
-  // ── Lobby intake (pre-chat qualification) ─────────────────────────
-  // Per-brand structured intake form rendered by the widget before the
-  // visitor reaches Atlas/operator. Lets the workspace gather context
-  // (company size, urgency, topic) up front so routing + replies are
-  // better informed.
-  //
-  // Lookup order: brand-specific config first, fallback to workspace
-  // default (brandId = null).
-  lobbyConfigs: defineTable({
-    workspaceId: v.id("workspaces"),
-    brandId: v.optional(v.id("brands")), // null = workspace default
-    enabled: v.boolean(),
-    title: v.string(), // "Help us route you" — shown above the form
-    fields: v.array(
-      v.object({
-        id: v.string(), // stable, e.g. "company_size"
-        label: v.string(),
-        type: v.union(
-          v.literal("text"),
-          v.literal("textarea"),
-          v.literal("select"),
-          v.literal("email"),
-          v.literal("phone"),
-        ),
-        required: v.boolean(),
-        options: v.optional(v.array(v.string())), // for select
-        placeholder: v.optional(v.string()),
-      }),
-    ),
-    createdBy: v.id("operators"),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_workspace", ["workspaceId"])
-    .index("by_brand", ["brandId"]),
-
-  // Visitor intake responses — attached to a conversation when the
-  // visitor completes the lobby form. JSON blob keyed by field.id.
-  intakeResponses: defineTable({
-    conversationId: v.id("conversations"),
-    workspaceId: v.id("workspaces"),
-    brandId: v.id("brands"),
-    answers: v.string(), // JSON: {"company_size": "10-50", "topic": "Sales"}
-    submittedAt: v.number(),
-  }).index("by_conversation", ["conversationId"]),
-
-  // ── Saved replies ──────────────────────────────────────────────────
+// ── Saved replies ──────────────────────────────────────────────────
   // Operator boilerplate. Optionally brand-scoped (visible only on a
   // particular brand's conversations) or global to the workspace.
   savedReplies: defineTable({

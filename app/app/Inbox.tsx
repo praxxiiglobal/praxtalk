@@ -319,10 +319,6 @@ function ConversationPane({
   const setStatus = useMutation(api.conversations.setStatus);
   const savedReplies = useQuery(api.savedReplies.list, { sessionToken });
   const originateCall = useAction(api.voiceIntegrations.originateCall);
-  const intake = useQuery(api.lobby.getResponseForConversation, {
-    sessionToken,
-    conversationId,
-  });
   const sendTemplate = useAction(api.whatsappIntegrations.sendTemplate);
 
   const draft = useQuery(api.messageDrafts.get, {
@@ -498,8 +494,6 @@ function ConversationPane({
           </span>
         </div>
       ) : null}
-
-      {intake ? <IntakeStrip intake={intake} /> : null}
 
       {(visitor?.phone || visitor?.ip || locationLabel) && (
         <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-b border-rule bg-paper-2/40 px-5 py-2 font-mono text-[11px] text-muted">
@@ -1097,39 +1091,6 @@ function WhatsappTemplatePicker({
           )}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function IntakeStrip({
-  intake,
-}: {
-  intake: {
-    answers: string;
-    submittedAt: number;
-    fields: Array<{ id: string; label: string }>;
-  };
-}) {
-  let parsed: Record<string, string> = {};
-  try {
-    parsed = JSON.parse(intake.answers);
-  } catch {
-    return null;
-  }
-  const labelFor = new Map(intake.fields.map((f) => [f.id, f.label]));
-  const entries = Object.entries(parsed).filter(([, v]) => v && v.length > 0);
-  if (entries.length === 0) return null;
-  return (
-    <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule bg-accent-soft/40 px-5 py-2 text-[12px] text-ink">
-      <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
-        intake
-      </span>
-      {entries.map(([id, value]) => (
-        <span key={id} className="inline-flex items-center gap-1.5">
-          <span className="text-muted">{labelFor.get(id) ?? id}:</span>
-          <span className="font-medium">{value}</span>
-        </span>
-      ))}
     </div>
   );
 }

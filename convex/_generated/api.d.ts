@@ -32,7 +32,6 @@ import type * as lib_paypal from "../lib/paypal.js";
 import type * as lib_platformAdmin from "../lib/platformAdmin.js";
 import type * as lib_razorpay from "../lib/razorpay.js";
 import type * as lib_workspaceExport from "../lib/workspaceExport.js";
-import type * as lobby from "../lobby.js";
 import type * as messageDrafts from "../messageDrafts.js";
 import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
@@ -86,7 +85,6 @@ declare const fullApi: ApiFromModules<{
   "lib/platformAdmin": typeof lib_platformAdmin;
   "lib/razorpay": typeof lib_razorpay;
   "lib/workspaceExport": typeof lib_workspaceExport;
-  lobby: typeof lobby;
   messageDrafts: typeof messageDrafts;
   messages: typeof messages;
   migrations: typeof migrations;

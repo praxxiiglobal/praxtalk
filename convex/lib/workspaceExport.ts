@@ -96,8 +96,6 @@ type ExportTable =
   | "atlasConfigs"
   | "atlasKnowledgeChunks"
   | "atlasRuns"
-  | "lobbyConfigs"
-  | "intakeResponses"
   | "savedReplies"
   | "whatsappIntegrations"
   | "whatsappTemplates"
@@ -162,8 +160,6 @@ export async function buildWorkspaceCoreExport(
     atlasConfigs,
     atlasKnowledgeChunks,
     atlasRuns,
-    lobbyConfigs,
-    intakeResponses,
     savedReplies,
     whatsappIntegrations,
     whatsappTemplates,
@@ -193,8 +189,6 @@ export async function buildWorkspaceCoreExport(
     collectByWorkspace(ctx, "atlasConfigs", workspaceId),
     collectByWorkspace(ctx, "atlasKnowledgeChunks", workspaceId),
     collectByWorkspace(ctx, "atlasRuns", workspaceId),
-    collectByWorkspace(ctx, "lobbyConfigs", workspaceId),
-    collectByWorkspace(ctx, "intakeResponses", workspaceId),
     collectByWorkspace(ctx, "savedReplies", workspaceId),
     collectByWorkspace(ctx, "whatsappIntegrations", workspaceId),
     collectByWorkspace(ctx, "whatsappTemplates", workspaceId),
@@ -240,8 +234,6 @@ export async function buildWorkspaceCoreExport(
     atlasConfigs: atlasConfigs.map(redactAtlasConfig),
     atlasKnowledgeChunks,
     atlasRuns,
-    lobbyConfigs,
-    intakeResponses,
     savedReplies,
     whatsappIntegrations: whatsappIntegrations.map(redactWhatsapp),
     whatsappTemplates,
