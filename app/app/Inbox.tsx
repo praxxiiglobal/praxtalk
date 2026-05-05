@@ -675,7 +675,39 @@ function ConversationPane({
         <div className="flex items-end gap-2">
           <textarea
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              // Shortcut expansion: when the user just typed a space or
+              // newline, check whether the token immediately preceding
+              // the trigger matches a saved-reply shortcut. If so, swap
+              // the token (and consume the trigger) for the reply body.
+              const justTyped = next.length > body.length;
+              const trigger = justTyped ? next[next.length - 1] : "";
+              if (
+                (trigger === " " || trigger === "\n") &&
+                savedReplies &&
+                savedReplies.length > 0
+              ) {
+                const before = next.slice(0, -1);
+                const lastBreak = Math.max(
+                  before.lastIndexOf(" "),
+                  before.lastIndexOf("\n"),
+                  before.lastIndexOf("\t"),
+                );
+                const token = before.slice(lastBreak + 1);
+                if (/^\/?[a-zA-Z0-9_-]{2,30}$/.test(token)) {
+                  const tokenLower = token.toLowerCase();
+                  const reply = savedReplies.find(
+                    (r) => r.shortcut?.toLowerCase() === tokenLower,
+                  );
+                  if (reply) {
+                    setBody(before.slice(0, lastBreak + 1) + reply.body);
+                    return;
+                  }
+                }
+              }
+              setBody(next);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
