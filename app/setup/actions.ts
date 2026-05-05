@@ -1,7 +1,9 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { api } from "@/convex/_generated/api";
+import { readClientIp } from "@/lib/clientIp";
 import { convexServer } from "@/lib/convexServer";
 import { setSessionCookie } from "@/lib/session";
 
@@ -17,6 +19,14 @@ export async function createWorkspaceAction(
   const ownerName = String(formData.get("ownerName") ?? "").trim();
   const ownerEmail = String(formData.get("ownerEmail") ?? "").trim();
   const ownerPassword = String(formData.get("ownerPassword") ?? "");
+  // Bot-detection signals from the client. honeypot is a hidden
+  // input no real user can see — non-empty means a naive bot
+  // filled every field. formStartedAt is a hidden field stamped
+  // when the form mounts; the server checks the elapsed time
+  // before letting the signup through.
+  const honeypot = String(formData.get("website") ?? "");
+  const formStartedAtRaw = String(formData.get("formStartedAt") ?? "");
+  const formStartedAt = Number(formStartedAtRaw);
 
   if (!workspaceName || !ownerName || !ownerEmail || !ownerPassword) {
     return { status: "error", message: "All fields are required." };
@@ -28,12 +38,19 @@ export async function createWorkspaceAction(
     return { status: "error", message: "Enter a valid email address." };
   }
 
+  const ipAddress = readClientIp(await headers());
+
   try {
     const result = await convexServer.mutation(api.workspaces.create, {
       workspaceName,
       ownerName,
       ownerEmail,
       ownerPassword,
+      ipAddress,
+      honeypot: honeypot || undefined,
+      formStartedAt: Number.isFinite(formStartedAt)
+        ? formStartedAt
+        : undefined,
     });
     await setSessionCookie(result.sessionToken);
   } catch (e) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useMemo } from "react";
 import { useFormStatus } from "react-dom";
 import { createWorkspaceAction, type SetupState } from "./actions";
 
@@ -8,9 +8,45 @@ const initial: SetupState = { status: "idle" };
 
 export function SetupForm() {
   const [state, formAction] = useActionState(createWorkspaceAction, initial);
+  // Stamp form-mount time so the server can refuse <1.5s submissions.
+  // useMemo with [] runs once per mount (client-side), the resulting
+  // ms timestamp is sent as a hidden field at submit. Bots that POST
+  // synthetic FormData without rendering the page won't have it; the
+  // server treats a missing/zero stamp as "skip the timing check"
+  // since older clients won't have it either, but a stale 1970
+  // timestamp would also appear as 50+ years elapsed (always > 1.5s).
+  const formStartedAt = useMemo(() => Date.now(), []);
 
   return (
     <form action={formAction} className="flex flex-col gap-5">
+      {/* Honeypot — hidden from real users via tabIndex + aria-hidden
+          + autocomplete=off + visually hidden. Bots that fill every
+          field will fill this too; server rejects on non-empty value.
+          Leaves the form behaviour identical for real users. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          left: "-10000px",
+          top: "auto",
+          width: 1,
+          height: 1,
+          overflow: "hidden",
+        }}
+      >
+        <label>
+          Website (leave empty)
+          <input
+            type="text"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            defaultValue=""
+          />
+        </label>
+      </div>
+      <input type="hidden" name="formStartedAt" value={formStartedAt} />
+
       <Field
         label="Workspace name"
         name="workspaceName"

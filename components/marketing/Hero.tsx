@@ -41,20 +41,6 @@ export function Hero() {
                   →
                 </span>
               </a>
-              <a
-                href="/widget-demo"
-                target="_blank"
-                rel="noreferrer"
-                className="group inline-flex h-[38px] items-center gap-2 rounded-full border border-rule-2 px-4 text-sm font-medium transition hover:-translate-y-px"
-              >
-                Try the widget live
-                <span
-                  aria-hidden
-                  className="text-muted transition group-hover:translate-x-0.5"
-                >
-                  ↗
-                </span>
-              </a>
             </div>
 
             <div className="mt-9 grid max-w-[520px] grid-cols-3 gap-8 border-t border-rule pt-[18px] text-[13px] text-muted">

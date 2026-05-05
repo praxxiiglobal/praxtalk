@@ -12,27 +12,28 @@ import {
   buildMessagesPage,
   buildWorkspaceCoreExport,
 } from "./lib/workspaceExport";
+import { takeBucket } from "./rateLimits";
+import disposableDomainsList from "disposable-email-domains";
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-// Disposable / temporary email domains. New signups using these
+// Maintained 120k-domain list (npm `disposable-email-domains`,
+// updated regularly). New signups whose email domain is in here
 // land in pending_review (not auto-approved) so staff can vet them.
-// Kept short on purpose — this is a soft signal, not a blocklist.
-// Add to it as we see abuse patterns.
-const DISPOSABLE_EMAIL_DOMAINS = new Set([
-  "mailinator.com",
-  "guerrillamail.com",
-  "10minutemail.com",
-  "tempmail.com",
-  "throwaway.email",
-  "trashmail.com",
-  "yopmail.com",
-  "sharklasers.com",
-  "getnada.com",
-  "maildrop.cc",
-  "fakeinbox.com",
-  "dispostable.com",
-]);
+// Bundled at deploy time — refresh by `npm update`.
+const DISPOSABLE_EMAIL_DOMAINS = new Set<string>(disposableDomainsList);
+
+const SIGNUP_LIMITS = {
+  perIp: 5,                      // 5 signups / hour / IP
+  perEmailPerDay: 1,             // legitimate signups don't reuse email at all
+  windowMs: 60 * 60_000,         // 1 hour
+  windowMsDay: 24 * 60 * 60_000, // 1 day
+};
+
+// Hard floor on form-fill time. A human can't fill workspace name +
+// owner name + email + password in under 1.5s. Anything faster is a
+// bot submitting the form before the page even rendered.
+const SIGNUP_MIN_FORM_FILL_MS = 1500;
 
 /**
  * Risk-screen a new signup. Returns null when the signup looks fine
@@ -89,6 +90,11 @@ export const create = mutation({
     ownerName: v.string(),
     ownerEmail: v.string(),
     ownerPassword: v.string(),
+    // Bot-detection signals (all optional so older clients keep
+    // working — but the server action SHOULD always send them).
+    ipAddress: v.optional(v.string()),
+    honeypot: v.optional(v.string()),     // hidden form field; non-empty = bot
+    formStartedAt: v.optional(v.number()), // client-stamped, ms since epoch
   },
   returns: v.object({
     workspaceId: v.id("workspaces"),
@@ -97,6 +103,45 @@ export const create = mutation({
     widgetId: v.string(),
   }),
   handler: async (ctx, args) => {
+    // Honeypot — a hidden input no real user can see/fill. Reject
+    // hard, no need to be polite about why.
+    if (args.honeypot && args.honeypot.length > 0) {
+      throw new ConvexError("Signup blocked.");
+    }
+
+    // Form-fill timing — humans take >1.5s to fill the form. Bots
+    // submit immediately. Skip if the client didn't stamp (older
+    // bundles) so we don't break in-flight form posts.
+    if (args.formStartedAt) {
+      const elapsed = Date.now() - args.formStartedAt;
+      if (elapsed >= 0 && elapsed < SIGNUP_MIN_FORM_FILL_MS) {
+        throw new ConvexError("Signup blocked.");
+      }
+    }
+
+    // Per-IP signup throttle (5/hour). Per-email throttle (1/day —
+    // legit users don't sign up with the same email twice). The
+    // duplicate-email check below will reject the second signup
+    // anyway, but the rate-limit fires earlier, before we hit the
+    // operators index — useful for IP-spread attacks against
+    // many email candidates.
+    const ipBucket = args.ipAddress
+      ? `signup-ip:${args.ipAddress}`
+      : "signup-ip:unknown";
+    {
+      const limit = await takeBucket(
+        ctx,
+        ipBucket,
+        SIGNUP_LIMITS.perIp,
+        SIGNUP_LIMITS.windowMs,
+      );
+      if (!limit.allowed) {
+        throw new ConvexError(
+          `Too many signups. Try again in ${limit.retryAfterSeconds ?? 60}s.`,
+        );
+      }
+    }
+
     const slug = slugify(args.workspaceName);
     if (!slug) throw new Error("Workspace name must contain letters or numbers.");
 
@@ -107,6 +152,17 @@ export const create = mutation({
     if (existing) throw new Error(`Workspace "${slug}" already exists.`);
 
     const email = args.ownerEmail.trim().toLowerCase();
+    {
+      const limit = await takeBucket(
+        ctx,
+        `signup-email:${email}`,
+        SIGNUP_LIMITS.perEmailPerDay,
+        SIGNUP_LIMITS.windowMsDay,
+      );
+      if (!limit.allowed) {
+        throw new ConvexError("Signup blocked.");
+      }
+    }
     const emailTaken = await ctx.db
       .query("operators")
       .withIndex("by_email", (q) => q.eq("email", email))

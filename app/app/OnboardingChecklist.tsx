@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useDashboardAuth } from "./DashboardShell";
 
-type StepKey = "snippet" | "test" | "atlas" | "team";
+type StepKey = "snippet" | "atlas" | "team";
 
 const STORAGE_PREFIX = "praxtalk.onboarding.v1";
 
@@ -26,7 +26,6 @@ export function OnboardingChecklist() {
   const [dismissed, setDismissed] = useState<boolean | null>(null);
   const [done, setDone] = useState<Record<StepKey, boolean>>({
     snippet: false,
-    test: false,
     atlas: false,
     team: false,
   });
@@ -66,13 +65,11 @@ export function OnboardingChecklist() {
         : null,
     [widgetId],
   );
-  const previewUrl = widgetId ? `/widget-demo?ws=${widgetId}` : "/widget-demo";
-
   // Hidden until we know dismiss state (avoids flash) and after dismiss.
   if (dismissed !== false) return null;
 
   const completedCount = Object.values(done).filter(Boolean).length;
-  const allDone = completedCount === 4;
+  const allDone = completedCount === 3;
 
   return (
     <div className="mx-3 mt-3 rounded-2xl border border-rule-2 bg-paper-2/50 p-5 sm:mx-5">
@@ -116,21 +113,6 @@ export function OnboardingChecklist() {
         />
         <Step
           n={2}
-          done={done.test}
-          title="Test it on a sample page"
-          body={
-            <Link
-              href={previewUrl}
-              target="_blank"
-              onClick={() => markDone("test")}
-              className="inline-flex h-8 items-center rounded-full border border-rule-2 bg-paper px-3 font-mono text-[11px] uppercase tracking-[0.06em] text-ink transition hover:border-ink"
-            >
-              Open live preview ↗
-            </Link>
-          }
-        />
-        <Step
-          n={3}
           done={done.atlas}
           title="Tune Atlas (your AI agent)"
           body={
@@ -144,7 +126,7 @@ export function OnboardingChecklist() {
           }
         />
         <Step
-          n={4}
+          n={3}
           done={done.team}
           title="Invite your team"
           body={
