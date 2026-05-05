@@ -85,6 +85,13 @@ export default defineSchema({
         analytics: v.optional(v.boolean()),
       }),
     ),
+    // Cap on concurrent active sessions per operator. Set by platform
+    // admin from /admin/workspaces/[id]. When undefined or 0 → no cap.
+    // Enforced on login: if cap is exceeded after issuing the new
+    // session, the oldest session(s) are evicted to bring the count
+    // back to the cap. Use this to limit how many devices/browsers a
+    // single operator account can be signed in on at once.
+    maxSessionsPerOperator: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_slug", ["slug"])
@@ -173,7 +180,8 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_token_hash", ["tokenHash"])
-    .index("by_operator", ["operatorId"]),
+    .index("by_operator", ["operatorId"])
+    .index("by_workspace", ["workspaceId"]),
 
   // Password reset tokens — single-use, 1-hour TTL. Operator clicks the
   // link in their email, lands on /reset-password/<token>, sets a new

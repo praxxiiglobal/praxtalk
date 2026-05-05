@@ -5,6 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { convexServer } from "@/lib/convexServer";
 import { readSessionToken } from "@/lib/session";
 import { FeatureGates } from "./FeatureGates";
+import { Sessions } from "./Sessions";
 import { WorkspaceManagement } from "./WorkspaceManagement";
 
 export const dynamic = "force-dynamic";
@@ -113,6 +114,17 @@ export default async function WorkspaceDetailPage({
           workspaceId={workspace._id}
           sessionToken={sessionToken}
           initial={workspace.features}
+        />
+      </section>
+
+      <section className="mb-8">
+        <h2 className="mb-3 font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+          Active sessions
+        </h2>
+        <Sessions
+          sessionToken={sessionToken}
+          workspaceId={workspace._id}
+          initialCap={workspace.maxSessionsPerOperator}
         />
       </section>
 

@@ -59,6 +59,25 @@ export const login = mutation({
       expiresAt: Date.now() + SESSION_TTL_MS,
     });
 
+    // Per-workspace cap on concurrent active sessions per operator. When
+    // the cap is set and exceeded after issuing this session, evict the
+    // oldest sessions for the operator until the count is back under the
+    // cap. The session we just inserted is the newest, so it survives.
+    const cap = ws?.maxSessionsPerOperator ?? 0;
+    if (cap > 0) {
+      const now = Date.now();
+      const all = await ctx.db
+        .query("sessions")
+        .withIndex("by_operator", (q) => q.eq("operatorId", operator._id))
+        .collect();
+      const live = all
+        .filter((s) => s.expiresAt > now)
+        .sort((a, b) => b._creationTime - a._creationTime);
+      for (const s of live.slice(cap)) {
+        await ctx.db.delete(s._id);
+      }
+    }
+
     return {
       operatorId: operator._id,
       workspaceId: operator.workspaceId,

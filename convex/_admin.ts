@@ -200,6 +200,7 @@ export const getWorkspace = query({
         currentPeriodEnd: ws.currentPeriodEnd ?? null,
         createdAt: ws.createdAt,
         features: resolveFeatures(ws.features),
+        maxSessionsPerOperator: ws.maxSessionsPerOperator ?? null,
       },
       operators: operators.map((o) => ({
         _id: o._id,
@@ -663,6 +664,189 @@ export const listAuditForWorkspace = query({
         payload: r.payload ?? null,
         createdAt: r.createdAt,
       }));
+  },
+});
+
+// ── Session visibility + revocation (platform-admin only) ────────────
+//
+// Surfaces which devices/browsers an operator account is currently
+// signed in on, lets staff force-logout individual sessions, all of
+// an operator's sessions, or every session in the workspace, and
+// optionally cap how many concurrent sessions a single operator can
+// hold (enforced inside auth.login).
+
+export const listWorkspaceSessions = query({
+  args: {
+    sessionToken: v.string(),
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args) => {
+    await requirePlatformAdmin(ctx, args.sessionToken);
+    const now = Date.now();
+    const operators = await ctx.db
+      .query("operators")
+      .withIndex("by_workspace_email", (q) =>
+        q.eq("workspaceId", args.workspaceId),
+      )
+      .collect();
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    const live = sessions.filter((s) => s.expiresAt > now);
+    const byOp = new Map<Id<"operators">, typeof live>();
+    for (const s of live) {
+      const list = byOp.get(s.operatorId) ?? [];
+      list.push(s);
+      byOp.set(s.operatorId, list);
+    }
+    return {
+      totalActive: live.length,
+      operators: operators
+        .map((op) => {
+          const opSessions = (byOp.get(op._id) ?? []).sort(
+            (a, b) => b._creationTime - a._creationTime,
+          );
+          return {
+            operatorId: op._id,
+            email: op.email,
+            name: op.name,
+            role: op.role,
+            sessions: opSessions.map((s) => ({
+              _id: s._id,
+              startedAt: s._creationTime,
+              expiresAt: s.expiresAt,
+            })),
+          };
+        })
+        .sort((a, b) => b.sessions.length - a.sessions.length),
+    };
+  },
+});
+
+export const revokeSession = mutation({
+  args: {
+    sessionToken: v.string(),
+    sessionId: v.id("sessions"),
+    reason: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operatorId, operatorEmail } = await requirePlatformAdmin(
+      ctx,
+      args.sessionToken,
+    );
+    const target = await ctx.db.get(args.sessionId);
+    if (!target) return null;
+    await ctx.db.delete(args.sessionId);
+    await writePlatformAuditLog(ctx, {
+      workspaceId: target.workspaceId,
+      performedByOperatorId: operatorId,
+      performedByEmail: operatorEmail,
+      action: "platform.session.revoke_one",
+      summary: `${operatorEmail} revoked one session for operator ${target.operatorId}`,
+      payload: { sessionId: args.sessionId, reason: args.reason ?? null },
+    });
+    return null;
+  },
+});
+
+export const revokeAllOperatorSessions = mutation({
+  args: {
+    sessionToken: v.string(),
+    operatorId: v.id("operators"),
+    reason: v.optional(v.string()),
+  },
+  returns: v.object({ revoked: v.number() }),
+  handler: async (ctx, args) => {
+    const { operatorId: actorId, operatorEmail } = await requirePlatformAdmin(
+      ctx,
+      args.sessionToken,
+    );
+    const target = await ctx.db.get(args.operatorId);
+    if (!target) return { revoked: 0 };
+    const rows = await ctx.db
+      .query("sessions")
+      .withIndex("by_operator", (q) => q.eq("operatorId", args.operatorId))
+      .collect();
+    for (const s of rows) {
+      await ctx.db.delete(s._id);
+    }
+    await writePlatformAuditLog(ctx, {
+      workspaceId: target.workspaceId,
+      performedByOperatorId: actorId,
+      performedByEmail: operatorEmail,
+      action: "platform.session.revoke_operator",
+      summary: `${operatorEmail} revoked all ${rows.length} sessions for ${target.email}`,
+      payload: { operatorId: args.operatorId, reason: args.reason ?? null },
+    });
+    return { revoked: rows.length };
+  },
+});
+
+export const revokeAllWorkspaceSessions = mutation({
+  args: {
+    sessionToken: v.string(),
+    workspaceId: v.id("workspaces"),
+    reason: v.optional(v.string()),
+  },
+  returns: v.object({ revoked: v.number() }),
+  handler: async (ctx, args) => {
+    const { operatorId: actorId, operatorEmail } = await requirePlatformAdmin(
+      ctx,
+      args.sessionToken,
+    );
+    const rows = await ctx.db
+      .query("sessions")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    for (const s of rows) {
+      await ctx.db.delete(s._id);
+    }
+    await writePlatformAuditLog(ctx, {
+      workspaceId: args.workspaceId,
+      performedByOperatorId: actorId,
+      performedByEmail: operatorEmail,
+      action: "platform.session.revoke_workspace",
+      summary: `${operatorEmail} revoked all ${rows.length} sessions for the workspace`,
+      payload: { reason: args.reason ?? null },
+    });
+    return { revoked: rows.length };
+  },
+});
+
+export const setMaxSessionsPerOperator = mutation({
+  args: {
+    sessionToken: v.string(),
+    workspaceId: v.id("workspaces"),
+    cap: v.union(v.number(), v.null()),
+    reason: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { operatorId, operatorEmail } = await requirePlatformAdmin(
+      ctx,
+      args.sessionToken,
+    );
+    const ws = await ctx.db.get(args.workspaceId);
+    if (!ws) throw new ConvexError("Workspace not found.");
+    if (args.cap !== null && (!Number.isFinite(args.cap) || args.cap < 1)) {
+      throw new ConvexError("Cap must be a positive integer or null to clear.");
+    }
+    const value = args.cap === null ? undefined : Math.floor(args.cap);
+    await ctx.db.patch(args.workspaceId, { maxSessionsPerOperator: value });
+    await writePlatformAuditLog(ctx, {
+      workspaceId: args.workspaceId,
+      performedByOperatorId: operatorId,
+      performedByEmail: operatorEmail,
+      action: "platform.session.set_cap",
+      summary:
+        value === undefined
+          ? `${operatorEmail} cleared the per-operator session cap`
+          : `${operatorEmail} set per-operator session cap to ${value}`,
+      payload: { cap: value ?? null, reason: args.reason ?? null },
+    });
+    return null;
   },
 });
 
