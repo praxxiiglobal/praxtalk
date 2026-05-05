@@ -999,3 +999,28 @@ export const setFeatures = mutation({
     return null;
   },
 });
+
+/**
+ * One-shot admin tool — clears waMePhone + waMePrefilledMessage on
+ * every brand platform-wide. Hides the WhatsApp chooser + welcome-
+ * strip link from every widget instantly, no code change. Re-enable
+ * a brand by setting its number again from /app/integrations.
+ */
+export const _clearAllWaMePhones = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const brands = await ctx.db.query("brands").collect();
+    let cleared = 0;
+    for (const b of brands) {
+      if (b.waMePhone || b.waMePrefilledMessage) {
+        await ctx.db.patch(b._id, {
+          waMePhone: undefined,
+          waMePrefilledMessage: undefined,
+        });
+        cleared++;
+      }
+    }
+    return cleared;
+  },
+});
