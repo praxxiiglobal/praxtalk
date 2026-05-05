@@ -9,6 +9,7 @@ import {
   needsRehash,
   verifyPassword,
 } from "./lib/auth";
+import { LOGIN_LIMITS, takeBucket } from "./rateLimits";
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -32,6 +33,25 @@ export const login = mutation({
   }),
   handler: async (ctx, args) => {
     const email = args.email.trim().toLowerCase();
+
+    // Per-IP login rate-limit. Cheap defence against credential
+    // stuffing — 20 login attempts per 15-minute window per source
+    // IP. We deliberately don't gate per-email so a malicious actor
+    // can't lock out a victim's account by spamming bad guesses
+    // against their email.
+    if (args.ipAddress) {
+      const limit = await takeBucket(
+        ctx,
+        `login-ip:${args.ipAddress}`,
+        LOGIN_LIMITS.perIp,
+        LOGIN_LIMITS.windowMs,
+      );
+      if (!limit.allowed) {
+        throw new ConvexError(
+          `Too many sign-in attempts. Try again in ${limit.retryAfterSeconds ?? 60}s.`,
+        );
+      }
+    }
 
     const operator = await ctx.db
       .query("operators")

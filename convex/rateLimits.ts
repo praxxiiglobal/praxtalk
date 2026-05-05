@@ -1,10 +1,69 @@
 import { v } from "convex/values";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, type MutationCtx } from "./_generated/server";
 
 const WINDOW_MS = 60_000; // 1 minute
 const LIMIT_PER_WINDOW = 60; // 60 requests per minute per IP
 const LIMIT_PER_KEY_READ = 6_000;  // 6k req/min per read-scope API key
 const LIMIT_PER_KEY_WRITE = 600;   // 600 req/min per write-scope API key
+
+const LOGIN_WINDOW_MS = 15 * 60_000; // 15 minutes
+const LOGIN_LIMIT_PER_IP = 20;       // 20 login attempts / 15 min / IP
+const RESET_WINDOW_MS = 60 * 60_000; // 1 hour
+const RESET_LIMIT_PER_IP = 10;       // 10 password-reset requests / hour / IP
+const RESET_LIMIT_PER_EMAIL = 3;     // 3 password-reset requests / hour / email
+
+/**
+ * Inline rate-limit primitive shared by login + password-reset paths.
+ * Mutations can't call other mutations through ctx.runMutation cheaply
+ * (async hop + no shared txn), so we inline the bucket update here and
+ * import this helper from auth.ts / passwordReset.ts.
+ */
+export async function takeBucket(
+  ctx: MutationCtx,
+  bucket: string,
+  limit: number,
+  windowMs: number,
+): Promise<{ allowed: boolean; retryAfterSeconds?: number }> {
+  const now = Date.now();
+  const windowStart = Math.floor(now / windowMs) * windowMs;
+  const existing = await ctx.db
+    .query("apiRateLimits")
+    .withIndex("by_ip", (q) => q.eq("ip", bucket))
+    .first();
+  if (!existing) {
+    await ctx.db.insert("apiRateLimits", {
+      ip: bucket,
+      windowStart,
+      count: 1,
+    });
+    return { allowed: true };
+  }
+  if (existing.windowStart !== windowStart) {
+    await ctx.db.patch(existing._id, { windowStart, count: 1 });
+    return { allowed: true };
+  }
+  if (existing.count >= limit) {
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.ceil(
+        (windowStart + windowMs - now) / 1000,
+      ),
+    };
+  }
+  await ctx.db.patch(existing._id, { count: existing.count + 1 });
+  return { allowed: true };
+}
+
+export const LOGIN_LIMITS = {
+  windowMs: LOGIN_WINDOW_MS,
+  perIp: LOGIN_LIMIT_PER_IP,
+};
+
+export const RESET_LIMITS = {
+  windowMs: RESET_WINDOW_MS,
+  perIp: RESET_LIMIT_PER_IP,
+  perEmail: RESET_LIMIT_PER_EMAIL,
+};
 
 /**
  * Token bucket per IP, 60-second window. Called from http.ts before

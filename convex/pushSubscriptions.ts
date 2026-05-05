@@ -45,14 +45,22 @@ export const subscribe = mutation({
       .withIndex("by_endpoint", (q) => q.eq("endpoint", args.endpoint))
       .first();
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        operatorId: operator._id,
-        workspaceId,
-        p256dh: args.p256dh,
-        auth: args.auth,
-        userAgent: args.userAgent,
-      });
-      return existing._id;
+      // Refuse to silently re-home an existing endpoint to a different
+      // operator. If the same endpoint comes back tied to the same
+      // operator (browser re-registered after a quota reset), patch
+      // the keys; otherwise this is either a collision or an attempted
+      // hijack — drop the row and let the caller re-subscribe fresh.
+      if (existing.operatorId !== operator._id) {
+        await ctx.db.delete(existing._id);
+      } else {
+        await ctx.db.patch(existing._id, {
+          workspaceId,
+          p256dh: args.p256dh,
+          auth: args.auth,
+          userAgent: args.userAgent,
+        });
+        return existing._id;
+      }
     }
     return await ctx.db.insert("pushSubscriptions", {
       workspaceId,

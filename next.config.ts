@@ -22,9 +22,16 @@ const SECURITY_HEADERS = [
       "camera=(), microphone=(), geolocation=(self), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
   },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-  // Strict-Transport-Security: includeSubDomains + preload added once
-  // every subdomain (app, api, status) is HTTPS-only — see audit S-07.
-  // For now the existing 2-year max-age stays as the platform default.
+  // HSTS — 2-year max-age, includeSubDomains, preload-eligible. Every
+  // subdomain we currently use (app/api are co-located on praxtalk.com,
+  // assets pull from Vercel's CDN over HTTPS, Convex is on
+  // *.convex.cloud which is HTTPS-only) is reachable over HTTPS, so
+  // we can include subdomains without bricking anything. Submit to
+  // hstspreload.org once this header lands in production.
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
 ];
 
 const CSP = [

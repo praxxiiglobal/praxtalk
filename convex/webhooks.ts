@@ -10,7 +10,34 @@ import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireOperator } from "./auth";
 import { generateWebhookSecret, hmacSha256 } from "./lib/auth";
+import { isPrivateHost } from "./lib/ssrf";
 import { pushActivity } from "./notifications";
+
+/**
+ * Validate a webhook subscription URL and reject anything pointing
+ * at a private/loopback/cloud-metadata host. Sync IP-literal check
+ * only — DNS-rebinding is mitigated separately by the `deliver`
+ * action which re-runs this against the URL's hostname before each
+ * dispatch (so a hostname that flips its A-record to a private IP
+ * after the subscription is created still gets blocked).
+ */
+function assertPublicWebhookUrl(url: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("URL is not a valid http(s) URL.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("URL must start with http:// or https://");
+  }
+  if (isPrivateHost(parsed.hostname)) {
+    throw new Error(
+      "URL points at a private/loopback/metadata host — pick a publicly reachable endpoint.",
+    );
+  }
+  return parsed;
+}
 
 // Allowed event types. Add to this list when you wire a new event.
 export const EVENT_TYPES = [
@@ -73,9 +100,7 @@ export const create = mutation({
       throw new Error("Only admins and owners can manage webhooks.");
     }
     const url = args.url.trim();
-    if (!/^https?:\/\//.test(url)) {
-      throw new Error("URL must start with http:// or https://");
-    }
+    assertPublicWebhookUrl(url);
     if (args.events.length === 0) {
       throw new Error("Pick at least one event to subscribe to.");
     }
@@ -392,6 +417,20 @@ export const deliver = internalAction({
         eventId,
         success: false,
         error: "Subscription disabled",
+      });
+      return null;
+    }
+
+    // Re-check the URL host at delivery time, in case the
+    // subscription was migrated (or the hostname now resolves
+    // somewhere private). Rejects with no fetch attempted.
+    try {
+      assertPublicWebhookUrl(sub.url);
+    } catch (err) {
+      await ctx.runMutation(internal.webhooks.recordDelivery, {
+        eventId,
+        success: false,
+        error: err instanceof Error ? err.message : "Invalid URL",
       });
       return null;
     }

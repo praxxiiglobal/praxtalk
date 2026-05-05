@@ -13,6 +13,7 @@ import {
   hashToken,
 } from "./lib/auth";
 import { pushActivity } from "./notifications";
+import { RESET_LIMITS, takeBucket } from "./rateLimits";
 
 const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -25,12 +26,44 @@ const RESET_TTL_MS = 60 * 60 * 1000; // 1 hour
  * If not, we silently no-op.
  */
 export const request = mutation({
-  args: { email: v.string() },
+  args: {
+    email: v.string(),
+    ipAddress: v.optional(v.string()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const email = args.email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new ConvexError("Please enter a valid email.");
+    }
+
+    // Rate-limit BEFORE the operator lookup so we don't reveal
+    // "is this email registered" via response timing. Per-email +
+    // per-IP buckets in parallel — either tripping rejects.
+    const checks: Promise<{ allowed: boolean; retryAfterSeconds?: number }>[] = [
+      takeBucket(
+        ctx,
+        `pwreset-email:${email}`,
+        RESET_LIMITS.perEmail,
+        RESET_LIMITS.windowMs,
+      ),
+    ];
+    if (args.ipAddress) {
+      checks.push(
+        takeBucket(
+          ctx,
+          `pwreset-ip:${args.ipAddress}`,
+          RESET_LIMITS.perIp,
+          RESET_LIMITS.windowMs,
+        ),
+      );
+    }
+    const results = await Promise.all(checks);
+    const blocked = results.find((r) => !r.allowed);
+    if (blocked) {
+      throw new ConvexError(
+        `Too many reset attempts. Try again in ${blocked.retryAfterSeconds ?? 60}s.`,
+      );
     }
 
     const operator = await ctx.db
@@ -84,7 +117,9 @@ export const lookup = query({
         q.eq("tokenPrefix", token.slice(0, 12)),
       )
       .collect();
-    const reset = candidates.find((r) => r.tokenHash === tokenHash);
+    const reset = candidates.find((r) =>
+      timingSafeEqualHex(r.tokenHash, tokenHash),
+    );
     if (!reset || reset.usedAt || reset.expiresAt < Date.now()) {
       return null;
     }
@@ -112,7 +147,9 @@ export const complete = mutation({
         q.eq("tokenPrefix", args.token.slice(0, 12)),
       )
       .collect();
-    const reset = candidates.find((r) => r.tokenHash === tokenHash);
+    const reset = candidates.find((r) =>
+      timingSafeEqualHex(r.tokenHash, tokenHash),
+    );
     if (!reset) throw new ConvexError("Reset link not found or already used.");
     if (reset.usedAt) throw new ConvexError("This reset link was already used.");
     if (reset.expiresAt < Date.now()) {
@@ -138,6 +175,17 @@ export const complete = mutation({
     return null;
   },
 });
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
 
 // ── Email delivery ────────────────────────────────────────────────────
 

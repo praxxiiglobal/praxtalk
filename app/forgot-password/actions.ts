@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import { convexServer } from "@/lib/convexServer";
@@ -18,8 +19,16 @@ export async function requestPasswordResetAction(
     return { status: "error", message: "Please enter your email." };
   }
 
+  const h = await headers();
+  const xff = h.get("x-forwarded-for") ?? "";
+  const ipAddress =
+    xff.split(",")[0]?.trim() || h.get("x-real-ip") || undefined;
+
   try {
-    await convexServer.mutation(api.passwordReset.request, { email });
+    await convexServer.mutation(api.passwordReset.request, {
+      email,
+      ipAddress,
+    });
   } catch (e) {
     if (e instanceof ConvexError) {
       return { status: "error", message: String(e.data) };

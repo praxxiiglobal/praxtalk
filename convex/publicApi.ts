@@ -177,14 +177,18 @@ export const listMessages = internalQuery({
       )
       .order("asc")
       .take(500);
-    return messages.map((m) => ({
-      id: m._id,
-      conversationId: m.conversationId,
-      brandId: m.brandId,
-      role: m.role,
-      body: m.body,
-      createdAt: m.createdAt,
-    }));
+    // Strip operator internal notes — those are team-only and must
+    // never leave the dashboard, even via a workspace-scoped API key.
+    return messages
+      .filter((m) => m.role !== "internal_note")
+      .map((m) => ({
+        id: m._id,
+        conversationId: m.conversationId,
+        brandId: m.brandId,
+        role: m.role,
+        body: m.body,
+        createdAt: m.createdAt,
+      }));
   },
 });
 

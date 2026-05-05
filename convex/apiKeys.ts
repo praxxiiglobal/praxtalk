@@ -141,7 +141,14 @@ export const verifyKey = internalQuery({
       .query("apiKeys")
       .withIndex("by_prefix", (q) => q.eq("prefix", secret.slice(0, 16)))
       .collect();
-    const match = found.find((k) => k.keyHash === keyHash && !k.revokedAt);
+    // Constant-time match — `=== keyHash` was leaking timing.
+    let match: (typeof found)[number] | undefined;
+    for (const k of found) {
+      if (!k.revokedAt && timingSafeEqualHex(k.keyHash, keyHash)) {
+        match = k;
+        break;
+      }
+    }
     if (!match) return null;
     return {
       _id: match._id,
@@ -172,7 +179,29 @@ export async function loadApiKey(
     .query("apiKeys")
     .withIndex("by_prefix", (q) => q.eq("prefix", prefix))
     .collect();
-  const match = found.find((k) => k.keyHash === keyHash && !k.revokedAt);
+  let match: (typeof found)[number] | undefined;
+  for (const k of found) {
+    if (!k.revokedAt && timingSafeEqualHex(k.keyHash, keyHash)) {
+      match = k;
+      break;
+    }
+  }
   if (!match) return null;
   return { doc: match, workspaceId: match.workspaceId };
+}
+
+/**
+ * Constant-time equality on two equal-length hex strings. We don't
+ * use `crypto.timingSafeEqual` because Convex's runtime exposes
+ * Web Crypto only — XOR-accumulate over the chars is the simple
+ * portable equivalent. Both keyHash columns are SHA-256 hex (64
+ * chars) so this is fixed-length per call.
+ */
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
 }

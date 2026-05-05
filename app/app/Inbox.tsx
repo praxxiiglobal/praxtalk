@@ -22,8 +22,6 @@ type ChannelFilter = Channel | "all";
 
 const tabs: { value: Status; label: string }[] = [
   { value: "open", label: "Open" },
-  { value: "snoozed", label: "Snoozed" },
-  { value: "resolved", label: "Resolved" },
   { value: "closed", label: "Closed" },
 ];
 
@@ -466,19 +464,19 @@ function ConversationPane({
             visitor={visitor}
             sessionToken={sessionToken}
           />
-          {convo.status !== "resolved" && (
+          {convo.status !== "closed" && (
             <button
               type="button"
               onClick={() =>
                 setStatus({
                   sessionToken,
                   conversationId,
-                  status: "resolved",
+                  status: "closed",
                 })
               }
               className="inline-flex h-7 items-center rounded-full border border-rule-2 px-3 text-[11px] font-medium transition hover:-translate-y-px"
             >
-              Mark resolved
+              Mark closed
             </button>
           )}
         </div>

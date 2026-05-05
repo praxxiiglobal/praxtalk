@@ -12,6 +12,7 @@ import { requireOperator } from "./auth";
 import { hasBrandAccess } from "./brands";
 import { pushActivity } from "./notifications";
 import { fireEvent } from "./webhooks";
+import { isPrivateHost } from "./lib/ssrf";
 
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const DEFAULT_MAX_TOKENS = 512;
@@ -1460,33 +1461,8 @@ function normaliseUrl(input: string): string | null {
  * the easy attacks (paste-a-private-IP, paste-the-metadata-host) and
  * is a reasonable default while we don't run our own resolver.
  */
-function isPrivateHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (h === "localhost") return true;
-  if (h === "metadata.google.internal") return true;
-  if (h === "metadata.azure.com") return true;
-  // IPv4 literal? Block private ranges + link-local + loopback + null.
-  const ipv4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4) {
-    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
-    if (a === 0) return true; // 0.0.0.0/8
-    if (a === 10) return true; // 10.0.0.0/8
-    if (a === 127) return true; // loopback
-    if (a === 169 && b === 254) return true; // link-local incl. AWS/GCP metadata
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-    return false;
-  }
-  // IPv6: refuse loopback, link-local, ULA. Easy literal forms only.
-  if (h.startsWith("[")) {
-    const inner = h.slice(1, h.lastIndexOf("]"));
-    if (inner === "::1") return true;
-    if (inner.startsWith("fe80:")) return true;
-    if (inner.startsWith("fc") || inner.startsWith("fd")) return true;
-  }
-  return false;
-}
+// `isPrivateHost` lives in convex/lib/ssrf.ts so the same matrix
+// is shared with outbound webhook delivery — see import below.
 
 function shouldSkipUrl(url: string): boolean {
   const lower = url.toLowerCase();

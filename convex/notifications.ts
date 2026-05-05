@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireOperator } from "./auth";
 import { hasBrandAccess } from "./brands";
@@ -44,8 +44,14 @@ const SeverityValidator = v.union(
 /**
  * Internal-only: insert a notification row. Use the `pushActivity`
  * helper from other Convex mutations rather than calling this directly.
+ *
+ * Was previously exposed as a public `mutation` — that allowed any
+ * caller with the public Convex URL to spam any tenant's notification
+ * feed (and inject arbitrary clickable `link` URLs as a phishing
+ * vector). Locked behind `internalMutation` so only server-side
+ * code with the deploy key can invoke it.
  */
-export const insertActivity = mutation({
+export const insertActivity = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     operatorId: v.optional(v.id("operators")),
