@@ -1,7 +1,7 @@
 "use client";
 
 import Script from "next/script";
-import { useActionState, useEffect, useMemo, useRef } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { createWorkspaceAction, type SetupState } from "./actions";
 
@@ -11,6 +11,28 @@ const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 export function SetupForm() {
   const [state, formAction] = useActionState(createWorkspaceAction, initial);
   const turnstileRef = useRef<HTMLDivElement | null>(null);
+  // FingerprintJS visitorId — Murmur3-derived hash of canvas / audio /
+  // font / screen signals, stable per browser without cookies. Never
+  // blocks a signup in real time; admin /admin/workspaces uses it to
+  // surface clusters (one fingerprint creating many workspaces).
+  const [fingerprint, setFingerprint] = useState<string>("");
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const FP = await import("@fingerprintjs/fingerprintjs");
+        const fp = await FP.load();
+        const result = await fp.get();
+        if (!cancelled) setFingerprint(result.visitorId);
+      } catch {
+        // FP load can fail on hostile browsers or strict CSP — leave
+        // the field blank; server treats missing as "no signal".
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // After a server-action error, the Turnstile token is single-use
   // and has already been spent — reset the widget so the next
   // submission has a fresh one.
@@ -59,6 +81,7 @@ export function SetupForm() {
         </label>
       </div>
       <input type="hidden" name="formStartedAt" value={formStartedAt} />
+      <input type="hidden" name="fingerprint" value={fingerprint} />
 
       <Field
         label="Workspace name"

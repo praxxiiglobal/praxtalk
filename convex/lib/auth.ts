@@ -185,6 +185,16 @@ export function generatePasswordResetToken(): string {
 }
 
 /**
+ * Signup verification token — 32 random bytes hex, prefixed `pst_`.
+ * Stored hashed; raw value goes in the verification email only.
+ * Distinct prefix from `pwr_` so a leaked-token check can tell which
+ * flow it came from at a glance.
+ */
+export function generateSignupVerificationToken(): string {
+  return "pst_" + bytesToHex(crypto.getRandomValues(new Uint8Array(24)));
+}
+
+/**
  * Webhook signing secret — 32 random bytes hex.
  */
 export function generateWebhookSecret(): string {

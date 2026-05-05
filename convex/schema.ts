@@ -92,11 +92,43 @@ export default defineSchema({
     // back to the cap. Use this to limit how many devices/browsers a
     // single operator account can be signed in on at once.
     maxSessionsPerOperator: v.optional(v.number()),
+    // Forensic fields captured at signup time. signupIp is the
+    // request IP; signupFingerprint is FingerprintJS's visitorId
+    // (Murmur3 hash of canvas/audio/font/screen/etc. — stable per
+    // browser without cookies). Both used by /admin/workspaces to
+    // surface cluster-signup abuse (one fingerprint or IP creating
+    // many workspaces).
+    signupIp: v.optional(v.string()),
+    signupFingerprint: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_slug", ["slug"])
     .index("by_paypal_subscription", ["paypalSubscriptionId"])
-    .index("by_razorpay_subscription", ["razorpaySubscriptionId"]),
+    .index("by_razorpay_subscription", ["razorpaySubscriptionId"])
+    .index("by_signup_fingerprint", ["signupFingerprint"])
+    .index("by_signup_ip", ["signupIp"]),
+
+  // Email-verification holding pen. When the platform-level Resend
+  // env is set, signups don't immediately materialise a workspace;
+  // they sit here behind a one-shot verification token until the
+  // owner clicks the email link. Cleaned up on consume or expiry.
+  pendingSignups: defineTable({
+    email: v.string(),
+    workspaceName: v.string(),
+    ownerName: v.string(),
+    // Password is hashed at intake — plaintext never sits in the
+    // pending-signup row, in case the table is ever exported.
+    passwordHash: v.string(),
+    tokenHash: v.string(),
+    tokenPrefix: v.string(), // first 12 chars; index lookup
+    ipAddress: v.optional(v.string()),
+    fingerprint: v.optional(v.string()),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    consumedAt: v.optional(v.number()),
+  })
+    .index("by_token_prefix", ["tokenPrefix"])
+    .index("by_email", ["email"]),
 
   // ── Brands ─────────────────────────────────────────────────────────
   // One workspace owns N brands. Each brand has its own widget snippet,
