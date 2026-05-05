@@ -545,6 +545,7 @@ function ConversationPane({
             key={m._id}
             role={m.role}
             body={m.body}
+            createdAt={m._creationTime}
             emailDelivery={
               m.role === "operator" || m.role === "atlas"
                 ? m.emailDelivery
@@ -780,11 +781,25 @@ function Bubble({
   role,
   body,
   emailDelivery,
+  createdAt,
 }: {
   role: "visitor" | "operator" | "atlas" | "system" | "internal_note";
   body: string;
   emailDelivery?: EmailDelivery;
+  createdAt: number;
 }) {
+  const stamp = formatMessageTime(createdAt);
+  const TimeStamp = ({ align }: { align: "left" | "right" }) => (
+    <span
+      className={cn(
+        "px-1 font-mono text-[10px] tracking-[0.04em] text-muted",
+        align === "right" ? "self-end" : "self-start",
+      )}
+      title={new Date(createdAt).toLocaleString()}
+    >
+      {stamp}
+    </span>
+  );
   if (role === "internal_note") {
     return (
       <div className="flex max-w-[78%] flex-col items-end self-end gap-1">
@@ -794,6 +809,7 @@ function Bubble({
         <span className="px-1 font-mono text-[10px] uppercase tracking-[0.08em] text-warn">
           ⓘ Internal note · only your team sees this
         </span>
+        <TimeStamp align="right" />
       </div>
     );
   }
@@ -806,6 +822,7 @@ function Bubble({
           {body}
         </div>
         {emailDelivery ? <EmailDeliveryStatus d={emailDelivery} /> : null}
+        <TimeStamp align="right" />
       </div>
     );
   }
@@ -821,10 +838,13 @@ function Bubble({
           {body}
         </div>
         {emailDelivery ? <EmailDeliveryStatus d={emailDelivery} /> : null}
+        <TimeStamp align="left" />
       </div>
     );
   }
   if (role === "system") {
+    // System pills are themselves chronological markers — skip the
+    // explicit timestamp to avoid visual redundancy.
     return (
       <div className="self-center rounded-full bg-paper-2 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
         {body}
@@ -832,10 +852,43 @@ function Bubble({
     );
   }
   return (
-    <div className={cn(base, "self-start rounded-tl-[4px] bg-paper-2")}>
-      {body}
+    <div className="flex max-w-[78%] flex-col items-start self-start gap-1">
+      <div className={cn(base, "max-w-full rounded-tl-[4px] bg-paper-2")}>
+        {body}
+      </div>
+      <TimeStamp align="left" />
     </div>
   );
+}
+
+/**
+ * Compact per-message timestamp. Same day → just the clock time;
+ * yesterday → "Yesterday, 3:34 PM"; same year → "May 5, 3:34 PM";
+ * older → with year. Uses the operator's browser locale + timezone.
+ */
+function formatMessageTime(ms: number): string {
+  const d = new Date(ms);
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  const isYesterday =
+    d.getFullYear() === yest.getFullYear() &&
+    d.getMonth() === yest.getMonth() &&
+    d.getDate() === yest.getDate();
+  const time = d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  if (sameDay) return time;
+  if (isYesterday) return `Yesterday, ${time}`;
+  if (d.getFullYear() === now.getFullYear()) {
+    return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time}`;
+  }
+  return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}, ${time}`;
 }
 
 function Avatar({ name }: { name: string }) {
