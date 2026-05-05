@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { isWithinBusinessHours } from "./lib/businessHours";
 import { fireEvent } from "./webhooks";
 
 const locationValidator = v.object({
@@ -201,6 +202,36 @@ export const sendVisitorMessage = mutation({
       body,
       createdAt: now,
     });
+
+    // Off-hours auto-responder. When the brand has businessHoursConfig
+    // and we're outside the open window, drop a one-time templated
+    // reply into the conversation so visitors don't sit waiting for
+    // a human who isn't online. Only one auto-reply per conversation
+    // (offHoursAutoRepliedAt is the lock). Fires before Atlas so the
+    // visitor sees the off-hours notice immediately, not after Atlas
+    // potentially auto-replies on top.
+    if (
+      brand.businessHoursConfig &&
+      !convo.offHoursAutoRepliedAt &&
+      !isWithinBusinessHours(brand.businessHoursConfig, now)
+    ) {
+      const visitorName = visitor.name ?? "";
+      const offHoursBody = brand.businessHoursConfig.offHoursMessage
+        .replace(/\{\{\s*visitor\.name\s*\}\}/gi, visitorName || "there")
+        .replace(/\{\{\s*workspace\.name\s*\}\}/gi, brand.name);
+      await ctx.db.insert("messages", {
+        conversationId: args.conversationId,
+        workspaceId: brand.workspaceId,
+        brandId: convo.brandId ?? brand._id,
+        channel: convo.channel ?? "web_chat",
+        role: "atlas",
+        body: offHoursBody,
+        createdAt: now + 1, // sit immediately after the visitor message
+      });
+      await ctx.db.patch(args.conversationId, {
+        offHoursAutoRepliedAt: now,
+      });
+    }
 
     // Atlas evaluates every visitor message. The action checks whether
     // the workspace has a configured key; if not it logs a "skipped"

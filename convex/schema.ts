@@ -144,6 +144,33 @@ export default defineSchema({
     position: v.union(v.literal("br"), v.literal("bl")),
     avatarUrl: v.optional(v.string()),
     businessHours: v.optional(v.string()),
+    // Structured business-hours config used by the off-hours auto-
+    // responder. Free-text `businessHours` above stays as a human-
+    // readable description; this field drives enforcement.
+    //
+    // weeklySchedule is monday=0..sunday=6. Each day is either null
+    // (closed all day) or { open, close } in MINUTES SINCE MIDNIGHT
+    // local to `timezone` (e.g. 9:00 = 540, 17:30 = 1050). Multiple
+    // ranges per day are explicitly NOT supported here — keep the
+    // shape narrow until the second-window need is real.
+    //
+    // offHoursMessage is the templated body sent automatically when
+    // a visitor messages outside business hours and no operator has
+    // replied yet. Uses the same {{visitor.name}} substitutions as
+    // saved replies. Only one auto-reply per conversation lifetime
+    // (conversation.offHoursAutoRepliedAt is the lock).
+    businessHoursConfig: v.optional(
+      v.object({
+        timezone: v.string(),
+        weeklySchedule: v.array(
+          v.union(
+            v.null(),
+            v.object({ open: v.number(), close: v.number() }),
+          ),
+        ),
+        offHoursMessage: v.string(),
+      }),
+    ),
     // Click-to-chat WhatsApp ("wa.me lite") — phone in
     // international E.164 without "+", e.g. "919876543210". When set,
     // the widget can render a "Chat on WhatsApp" button that opens
@@ -327,6 +354,11 @@ export default defineSchema({
     // first-response latency that goes into median + p95 metrics
     // on the analytics page.
     firstOperatorResponseAt: v.optional(v.number()),
+    // Lock for the off-hours auto-responder. Set once when the brand
+    // sends its first auto-reply on this conversation; we never send
+    // a second one (visitors don't need 'we're closed' twice in the
+    // same thread).
+    offHoursAutoRepliedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_workspace_status_lastmsg", [
@@ -835,6 +867,7 @@ export default defineSchema({
       v.literal("operator_added"),
       v.literal("api_key_created"),
       v.literal("human_requested"),
+      v.literal("mention"),
       v.literal("system"),
     ),
     severity: v.union(

@@ -108,6 +108,56 @@ export const send = mutation({
       if (convo.status === "snoozed") {
         await ctx.db.patch(args.conversationId, { status: "open" });
       }
+
+      // @-mention detection. Match `@word` against operator
+      // email-prefix OR first-word-of-name (case-insensitive). Each
+      // matched operator gets a targeted notification + push, except
+      // the author (don't ping yourself by mentioning your own name).
+      const mentions = body.match(/@[a-z0-9._-]{2,40}/gi) ?? [];
+      if (mentions.length > 0) {
+        const tokens = [
+          ...new Set(mentions.map((m) => m.slice(1).toLowerCase())),
+        ];
+        const allOperators = await ctx.db
+          .query("operators")
+          .withIndex("by_workspace_email", (q) =>
+            q.eq("workspaceId", workspaceId),
+          )
+          .collect();
+        const notified = new Set<string>();
+        for (const token of tokens) {
+          const target = allOperators.find((op) => {
+            if (op._id === operator._id) return false; // ignore self-mentions
+            const emailPrefix = op.email.split("@")[0]?.toLowerCase() ?? "";
+            const firstName = op.name.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+            return emailPrefix === token || firstName === token;
+          });
+          if (!target) continue;
+          if (notified.has(String(target._id))) continue;
+          notified.add(String(target._id));
+          await ctx.db.insert("notifications", {
+            workspaceId,
+            operatorId: target._id,
+            kind: "mention",
+            severity: "info",
+            title: `${operator.name} mentioned you`,
+            body: body.slice(0, 200),
+            link: `/app?conversation=${args.conversationId}`,
+            createdAt: now,
+          });
+          // Browser push fan-out to that operator's devices.
+          await ctx.scheduler.runAfter(
+            0,
+            internal.pushNotifications.sendToOperator,
+            {
+              operatorId: target._id,
+              title: `${operator.name} mentioned you`,
+              body: body.slice(0, 140),
+              url: `/app?conversation=${args.conversationId}`,
+            },
+          );
+        }
+      }
     } else {
       // Stamp first-operator-response time once, never overwrite —
       // gives us a stable visitor-visible response-latency metric
