@@ -39,10 +39,18 @@ export const login = mutation({
     // IP. We deliberately don't gate per-email so a malicious actor
     // can't lock out a victim's account by spamming bad guesses
     // against their email.
-    if (args.ipAddress) {
+    //
+    // Fail-CLOSED-style: if the caller didn't supply an IP (request
+    // bypassed the edge proxy, or local dev), bucket those requests
+    // against a single shared key so they share one limit pool. An
+    // attacker hitting an unproxied function URL still gets capped.
+    const ipBucket = args.ipAddress
+      ? `login-ip:${args.ipAddress}`
+      : "login-ip:unknown";
+    {
       const limit = await takeBucket(
         ctx,
-        `login-ip:${args.ipAddress}`,
+        ipBucket,
         LOGIN_LIMITS.perIp,
         LOGIN_LIMITS.windowMs,
       );

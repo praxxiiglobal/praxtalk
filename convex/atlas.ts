@@ -12,7 +12,7 @@ import { requireOperator } from "./auth";
 import { hasBrandAccess } from "./brands";
 import { pushActivity } from "./notifications";
 import { fireEvent } from "./webhooks";
-import { isPrivateHost } from "./lib/ssrf";
+import { isDohSafe, isPrivateHost } from "./lib/ssrf";
 
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const DEFAULT_MAX_TOKENS = 512;
@@ -1496,7 +1496,7 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
     console.warn("[atlas-fetch] private host blocked", parsed.hostname);
     return null;
   }
-  const dohSafe = await isDohSafe(parsed.hostname);
+  const dohSafe = await isDohSafe(parsed.hostname, dohCache);
   if (!dohSafe) {
     console.warn("[atlas-fetch] DoH refused", parsed.hostname);
     return null;
@@ -1524,7 +1524,7 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
         const next = new URL(loc, current).toString();
         const nextHost = new URL(next).hostname;
         if (isPrivateHost(nextHost)) return null;
-        if (!(await isDohSafe(nextHost))) return null;
+        if (!(await isDohSafe(nextHost, dohCache))) return null;
         current = next;
         continue;
       }
@@ -1541,104 +1541,14 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
 /**
  * Per-host DoH resolution cache. Crawls hit dozens of URLs against
  * the same host; resolving once per crawl is plenty. Map lives for
- * the action's lifetime, no need for a TTL — each crawl gets a
- * fresh action invocation.
+ * the action's lifetime — each crawl gets a fresh action invocation.
+ *
+ * The actual DoH logic moved to convex/lib/ssrf.ts so webhook
+ * delivery can share it; we keep the cache here because the
+ * webhook path doesn't want one (each delivery resolves fresh for
+ * tighter rebind defence).
  */
 const dohCache = new Map<string, boolean>();
-
-/**
- * Resolve `hostname` via Cloudflare DNS-over-HTTPS (1.1.1.1 JSON
- * API) and refuse if any A/AAAA record points at a private range.
- * This is the second leg of SSRF defence — isPrivateHost catches
- * literals, this catches DNS-rebinding (a public name pointed at a
- * private IP). Failures are logged and DEFAULT TO FALSE so a
- * resolver outage doesn't accidentally allow unsafe fetches.
- */
-async function isDohSafe(hostname: string): Promise<boolean> {
-  // IP literals are already filtered by isPrivateHost; skip DoH for
-  // those (Cloudflare DoH refuses non-name queries anyway).
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
-  if (hostname.startsWith("[")) return true;
-  const cached = dohCache.get(hostname);
-  if (cached !== undefined) return cached;
-
-  // Track whether each leg succeeded — we need to distinguish
-  // "definitively no records" from "resolver couldn't tell us".
-  let aOk = false;
-  let aaaaOk = false;
-  type DnsAnswer = { type?: number; data?: string };
-  let aAnswers: DnsAnswer[] = [];
-  let aaaaAnswers: DnsAnswer[] = [];
-  try {
-    const [aRes, aaaaRes] = await Promise.all([
-      fetch(
-        `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`,
-        {
-          headers: { accept: "application/dns-json" },
-          signal: AbortSignal.timeout(5_000),
-        },
-      ),
-      fetch(
-        `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=AAAA`,
-        {
-          headers: { accept: "application/dns-json" },
-          signal: AbortSignal.timeout(5_000),
-        },
-      ),
-    ]);
-    if (aRes.ok) {
-      aOk = true;
-      const j = (await aRes.json()) as { Answer?: DnsAnswer[] };
-      aAnswers = j.Answer ?? [];
-    }
-    if (aaaaRes.ok) {
-      aaaaOk = true;
-      const j = (await aaaaRes.json()) as { Answer?: DnsAnswer[] };
-      aaaaAnswers = j.Answer ?? [];
-    }
-  } catch (err) {
-    // Resolver itself failed (timeout, network error). Previously we
-    // failed OPEN here on the assumption isPrivateHost on the literal
-    // hostname covers most attacker tricks. The audit pushed back —
-    // a hostname whose authoritative server returns SERVFAIL to
-    // Cloudflare while the actual A-record points at a private IP
-    // (DNS-rebind variant) would slip through. Fail CLOSED instead.
-    // The positive cache below means a previously-cleared host stays
-    // cleared for an hour, so transient resolver blips don't kill
-    // legitimate ongoing crawls.
-    console.warn("[atlas-ssrf] DoH transient error for", hostname, "— refusing", err);
-    return false;
-  }
-
-  // If neither resolver leg responded ok, also fail CLOSED.
-  if (!aOk && !aaaaOk) {
-    console.warn("[atlas-ssrf] DoH non-ok for both A+AAAA on", hostname, "— refusing");
-    return false;
-  }
-
-  const ips: string[] = [];
-  for (const ans of [...aAnswers, ...aaaaAnswers]) {
-    if (typeof ans.data === "string") ips.push(ans.data);
-  }
-
-  // We got a confident answer from at least one leg — check IPs.
-  if (ips.length === 0) {
-    // Resolver said "no records" definitively. Host doesn't resolve;
-    // the fetch would 404/connection-refuse anyway. Don't cache
-    // — DNS records can change.
-    console.warn("[atlas-ssrf] no DNS records for", hostname);
-    return false;
-  }
-  for (const ip of ips) {
-    if (isPrivateHost(ip) || isPrivateHost(`[${ip}]`)) {
-      console.warn("[atlas-ssrf] refused", hostname, "→", ip);
-      dohCache.set(hostname, false);
-      return false;
-    }
-  }
-  dohCache.set(hostname, true);
-  return true;
-}
 
 /**
  * Try the site's sitemap.xml first; fall back to a same-origin BFS

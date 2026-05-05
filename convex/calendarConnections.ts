@@ -243,12 +243,17 @@ export const finalizeOauthCallback = action({
       return { ok: false, error: `Token exchange ${tokenRes.status}` };
     }
     const tokens = (await tokenRes.json()) as {
-      access_token: string;
+      access_token?: string;
       refresh_token?: string;
       expires_in?: number;
       scope?: string;
       token_type?: string;
     };
+    if (!tokens.access_token) {
+      // Provider returned 200 but no access_token — refuse rather
+      // than write a junk row with empty credentials.
+      return { ok: false, error: "Token exchange returned no access_token." };
+    }
 
     let accountEmail = "";
     try {

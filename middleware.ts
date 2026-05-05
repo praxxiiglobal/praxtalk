@@ -96,21 +96,19 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Skip prefetches — they don't render and forcing a unique nonce
-  // there inflates edge cache misses.
-  const isPrefetch =
-    req.headers.get("next-router-prefetch") === "1" ||
-    req.headers.get("purpose") === "prefetch";
-
-  const nonce = isPrefetch
-    ? ""
-    : Buffer.from(crypto.randomUUID()).toString("base64");
+  // CSP nonce is generated for EVERY request — even prefetches and
+  // never-rendered ones. Skipping prefetches was an early caching
+  // optimisation, but it relied on Next.js never serving a
+  // prefetched response as a render. The nonce is cheap to compute,
+  // and the alternative (a prefetch promoted to render with no CSP)
+  // is a real defence-in-depth gap.
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
 
   const requestHeaders = new Headers(req.headers);
-  if (nonce) requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("x-nonce", nonce);
 
   const res = NextResponse.next({ request: { headers: requestHeaders } });
-  if (nonce) res.headers.set("Content-Security-Policy", buildCsp(nonce));
+  res.headers.set("Content-Security-Policy", buildCsp(nonce));
   for (const h of STRIP_HEADERS) res.headers.delete(h);
   return res;
 }

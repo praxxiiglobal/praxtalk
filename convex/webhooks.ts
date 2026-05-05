@@ -10,16 +10,14 @@ import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireOperator } from "./auth";
 import { generateWebhookSecret, hmacSha256 } from "./lib/auth";
-import { isPrivateHost } from "./lib/ssrf";
+import { isDohSafe, isPrivateHost } from "./lib/ssrf";
 import { pushActivity } from "./notifications";
 
 /**
- * Validate a webhook subscription URL and reject anything pointing
- * at a private/loopback/cloud-metadata host. Sync IP-literal check
- * only — DNS-rebinding is mitigated separately by the `deliver`
- * action which re-runs this against the URL's hostname before each
- * dispatch (so a hostname that flips its A-record to a private IP
- * after the subscription is created still gets blocked).
+ * Sync URL validation: scheme + IP-literal/known-metadata-hostname
+ * filter. Used at create-time. The async DoH leg (asyncDohSafeUrl
+ * below) runs at delivery-time to catch DNS-rebinding — a hostname
+ * whose A-record flips to a private IP between create and deliver.
  */
 function assertPublicWebhookUrl(url: string): URL {
   let parsed: URL;
@@ -37,6 +35,25 @@ function assertPublicWebhookUrl(url: string): URL {
     );
   }
   return parsed;
+}
+
+/**
+ * Async second leg — resolve the URL's hostname through Cloudflare
+ * DoH and refuse if any A/AAAA record points at a private range.
+ * Required at delivery time because DNS can change between
+ * subscription creation and dispatch (DNS rebinding).
+ *
+ * Throws on rejection so the calling action can record the failure
+ * the same way it records HTTP-error rejections.
+ */
+async function assertDohSafeWebhookUrl(url: string): Promise<void> {
+  const parsed = assertPublicWebhookUrl(url);
+  const dohOk = await isDohSafe(parsed.hostname);
+  if (!dohOk) {
+    throw new Error(
+      `Refused to deliver — ${parsed.hostname} resolves to a private IP or DNS lookup failed.`,
+    );
+  }
 }
 
 // Allowed event types. Add to this list when you wire a new event.
@@ -421,11 +438,12 @@ export const deliver = internalAction({
       return null;
     }
 
-    // Re-check the URL host at delivery time, in case the
-    // subscription was migrated (or the hostname now resolves
-    // somewhere private). Rejects with no fetch attempted.
+    // Re-check the URL host at delivery time. Sync filter catches
+    // IP-literal / metadata-hostname subscriptions; the async DoH
+    // leg catches DNS-rebinding (a public name now pointing at a
+    // private IP). Either failing rejects with no fetch attempted.
     try {
-      assertPublicWebhookUrl(sub.url);
+      await assertDohSafeWebhookUrl(sub.url);
     } catch (err) {
       await ctx.runMutation(internal.webhooks.recordDelivery, {
         eventId,
