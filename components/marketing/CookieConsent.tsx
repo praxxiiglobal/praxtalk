@@ -1,6 +1,5 @@
 "use client";
 
-import Script from "next/script";
 import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "praxtalk_cookie_consent";
@@ -41,7 +40,7 @@ type GeoCoords = {
  *     "Try again" button. Browser permission can only be re-granted
  *     via browser site settings — we explain that path.
  */
-export function CookieConsent({ nonce }: { nonce?: string }) {
+export function CookieConsent() {
   const [cookieConsent, setCookieConsent] = useState<Consent>(null);
   const [geoConsent, setGeoConsent] = useState<GeoConsent>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -135,19 +134,28 @@ export function CookieConsent({ nonce }: { nonce?: string }) {
           on the cookie side; the geo gate is the new gate. */}
       {cookieConsent === "granted" && (
         <>
-          <Script
+          {/* gtag.js loader — external, allowlisted via
+              googletagmanager.com in CSP. */}
+          <script
+            async
             src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
-            strategy="afterInteractive"
-            nonce={nonce}
           />
-          <Script id="ga-init" strategy="afterInteractive" nonce={nonce}>
-            {`
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){dataLayer.push(arguments);}
-              gtag('js', new Date());
-              gtag('config', '${GA_MEASUREMENT_ID}', { anonymize_ip: true });
-            `}
-          </Script>
+          {/* gtag-init — pinned by sha256 hash in next.config.ts. The
+              dangerouslySetInnerHTML content below MUST stay byte-
+              identical to scripts/compute-csp-hashes.mjs gtagInit
+              constant; otherwise CSP refuses to execute it and GA
+              stops reporting. The leading + trailing newline are
+              intentional (they're part of the hashed string). */}
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${GA_MEASUREMENT_ID}', { anonymize_ip: true });
+`,
+            }}
+          />
         </>
       )}
 
