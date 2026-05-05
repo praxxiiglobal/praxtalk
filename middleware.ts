@@ -49,7 +49,53 @@ function buildCsp(nonce: string): string {
   ].join("; ");
 }
 
+/**
+ * Defense-in-depth auth gate for /app and /admin. Each layout
+ * already does its own check, but a missed page (or a future route
+ * added without re-reading the SessionGuard pattern) would expose
+ * data. This middleware redirects to /login if the session cookie
+ * is absent — it deliberately does NOT call Convex (Edge runtime
+ * can't), so it's a presence check only. Real validation still
+ * happens in the layout with `api.auth.me`.
+ */
+const SESSION_COOKIE_PROD = "__Host-praxtalk_session";
+const SESSION_COOKIE_DEV = "praxtalk_session";
+
+function hasSessionCookie(req: NextRequest): boolean {
+  // Match the dev-vs-prod cookie name picked in lib/session.ts.
+  // `__Host-` cookies require HTTPS so dev (next dev over HTTP)
+  // uses the unprefixed name. Both checks here keep the middleware
+  // single-binary across environments.
+  return Boolean(
+    req.cookies.get(SESSION_COOKIE_PROD)?.value ||
+      req.cookies.get(SESSION_COOKIE_DEV)?.value,
+  );
+}
+
+function isAuthGatedPath(pathname: string): boolean {
+  if (pathname === "/app" || pathname.startsWith("/app/")) return true;
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) return true;
+  return false;
+}
+
 export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // Cookie presence gate (defense-in-depth). Does NOT short-circuit
+  // for prefetches because Next.js fires prefetches without cookies
+  // sometimes — letting the layout handle that case keeps behaviour
+  // identical to current.
+  if (isAuthGatedPath(pathname) && !hasSessionCookie(req)) {
+    const target = pathname.startsWith("/admin")
+      ? `/login?next=${encodeURIComponent(pathname)}`
+      : "/login";
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = `?next=${encodeURIComponent(pathname)}`;
+    void target; // referenced for clarity above; final URL set on the cloned NextURL.
+    return NextResponse.redirect(url);
+  }
+
   // Skip prefetches — they don't render and forcing a unique nonce
   // there inflates edge cache misses.
   const isPrefetch =

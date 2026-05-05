@@ -93,11 +93,11 @@ export const providerConfig = query({
  * we re-present the cookie value and verify it hashes to what we
  * stashed here.
  *
- * The third leg `useFinalize` is true when the caller can present
- * a binding cookie on callback (the praxtalk.com server-action path).
- * Legacy flows that still hit convex.site directly pass false and
- * skip the binding check — kept so already-issued OAuth registrations
- * don't break on cutover.
+ * The legacy `useFinalize: false` branch (which routed to the
+ * convex.site callback that couldn't read the binding cookie) is
+ * gone now that the convex.site http handler was deleted. The arg
+ * is kept for one deploy cycle so a stale client bundle calling
+ * with the old shape doesn't break — value is ignored.
  */
 export const startOauth = action({
   args: {
@@ -150,9 +150,10 @@ export const startOauth = action({
       bindingNonceHash,
     });
 
-    const redirectUri = args.useFinalize
-      ? finalizeRedirectUriFor(args.provider)
-      : redirectUriFor(args.provider);
+    // useFinalize is ignored — every flow finalises through
+    // praxtalk.com now. See doc comment above.
+    void args.useFinalize;
+    const redirectUri = finalizeRedirectUriFor(args.provider);
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -377,42 +378,10 @@ export const _consumeOauthStateBound = internalMutation({
   },
 });
 
-/**
- * Look up the pending OAuth state — used by the callback handler to
- * verify the state nonce + recover which operator/workspace started
- * the flow. Returns null if state is missing or older than 10 min.
- */
-export const _consumeOauthState = internalMutation({
-  args: { state: v.string() },
-  returns: v.union(
-    v.null(),
-    v.object({
-      workspaceId: v.id("workspaces"),
-      operatorId: v.id("operators"),
-      provider: oauthProviderValidator,
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("calendarOauthStates")
-      .withIndex("by_state", (q) => q.eq("state", args.state))
-      .first();
-    if (!row) return null;
-    // 3-min TTL (was 10) — collapses the window in which a leaked
-    // state value could be replayed by an attacker. The proper fix
-    // is to bind the state to the operator's session via a praxtalk.com
-    // finalize handshake, but that requires moving OAuth callback off
-    // convex.site (where cookies aren't reachable) — TODO follow-up.
-    const fresh = Date.now() - row.createdAt < 3 * 60 * 1000;
-    await ctx.db.delete(row._id);
-    if (!fresh) return null;
-    return {
-      workspaceId: row.workspaceId,
-      operatorId: row.operatorId,
-      provider: row.provider,
-    };
-  },
-});
+// _consumeOauthState (unbound consume — used by the legacy convex.site
+// callback) was removed alongside the http handler. The bound variant
+// _consumeOauthStateBound below is the only consume entrypoint now;
+// every callback path goes through the binding-cookie handshake.
 
 /**
  * Persist a successful OAuth connection. Called by the http callback
@@ -470,17 +439,7 @@ export const _upsertConnection = internalMutation({
   },
 });
 
-// ── Helpers (also used by the http callback handler) ──────────────────
-
-export function redirectUriFor(provider: "google" | "microsoft"): string {
-  // Legacy convex.site callback. New flows route through
-  // finalizeRedirectUriFor (praxtalk.com) instead. Kept for any in-
-  // flight OAuth registrations still pointing here.
-  const base =
-    process.env.PRAXTALK_OAUTH_REDIRECT_BASE ??
-    "https://industrious-moose-892.convex.site";
-  return `${base}/api/oauth/calendar/${provider}/callback`;
-}
+// ── Helpers ───────────────────────────────────────────────────────────
 
 /**
  * praxtalk.com-side callback URI used by the binding-cookie flow.

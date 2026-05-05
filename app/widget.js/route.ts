@@ -325,19 +325,25 @@ const SOURCE = /* javascript */ `(() => {
   }
 
   // Anonymous visitor key — stable per browser via localStorage.
+  // crypto.randomUUID is available in every browser PraxTalk
+  // supports (Chrome 92+, Firefox 95+, Safari 15.4+ — all 2022+).
+  // The previous Math.random fallback was a leftover from when we
+  // shipped to older browsers; non-crypto randomness is predictable
+  // enough that two visitors loading the widget within the same ms
+  // could collide on visitorKey.
   let visitorKey;
   try {
     visitorKey = localStorage.getItem(VISITOR_KEY_STORAGE);
     if (!visitorKey) {
-      visitorKey =
-        "v_" +
-        (crypto.randomUUID
-          ? crypto.randomUUID().replace(/-/g, "")
-          : Math.random().toString(36).slice(2) + Date.now().toString(36));
+      visitorKey = "v_" + crypto.randomUUID().replace(/-/g, "");
       localStorage.setItem(VISITOR_KEY_STORAGE, visitorKey);
     }
   } catch {
-    visitorKey = "v_anon_" + Math.random().toString(36).slice(2);
+    // localStorage might be disabled (incognito + cookies disabled,
+    // some browsers' iframe sandboxing). Fall through with a fresh
+    // ephemeral crypto-grade key per page load — chat works for
+    // this session, identity won't persist across reloads.
+    visitorKey = "v_anon_" + crypto.randomUUID().replace(/-/g, "");
   }
 
   // Cached profile (Name/Email/Phone) per browser. If present, the form

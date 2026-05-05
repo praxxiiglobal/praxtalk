@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
+import { readClientIp } from "@/lib/clientIp";
 import { convexServer } from "@/lib/convexServer";
 import { setSessionCookie } from "@/lib/session";
 
@@ -14,15 +15,12 @@ export type LoginState =
 /**
  * Pull the device + location metadata Vercel injects into request
  * headers (and standard XFF). Used purely for admin session
- * visibility — never for auth decisions.
+ * visibility — never for auth decisions. IP extraction goes
+ * through readClientIp so the policy stays consistent with REST +
+ * password-reset + OAuth callbacks.
  */
 async function readClientMeta() {
   const h = await headers();
-  const xff = h.get("x-forwarded-for") ?? "";
-  // x-forwarded-for can be a CSV like "1.2.3.4, 10.0.0.1" — left-most
-  // entry is the original client.
-  const ipAddress =
-    xff.split(",")[0]?.trim() || h.get("x-real-ip") || undefined;
   const decode = (v: string | null) => {
     if (!v) return undefined;
     try {
@@ -33,7 +31,7 @@ async function readClientMeta() {
   };
   return {
     userAgent: h.get("user-agent") ?? undefined,
-    ipAddress: ipAddress || undefined,
+    ipAddress: readClientIp(h),
     ipCountry: h.get("x-vercel-ip-country") ?? undefined,
     ipRegion: decode(h.get("x-vercel-ip-country-region")),
     ipCity: decode(h.get("x-vercel-ip-city")),

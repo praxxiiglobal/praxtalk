@@ -47,11 +47,20 @@ function errorResponse(status: number, message: string): Response {
 }
 
 function clientIp(req: Request): string {
-  // Convex sits behind a proxy; the originating IP is in
-  // X-Forwarded-For (first entry of the comma-separated list).
+  // Prefer Vercel/proxy-injected x-real-ip — it's the function-
+  // ingress signal and isn't a CSV that downstream code has to
+  // split. Fall back to the leftmost x-forwarded-for entry. Both
+  // headers are spoofable if a request bypasses the edge proxy
+  // (off-Vercel deploys, direct function URL hits) — that's a
+  // known limitation documented in the audit notes.
+  const real = req.headers.get("x-real-ip");
+  if (real && real.trim()) return real.trim();
   const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
-  return req.headers.get("x-real-ip") ?? "unknown";
+  if (xff) {
+    const left = xff.split(",")[0]?.trim();
+    if (left) return left;
+  }
+  return "unknown";
 }
 
 async function checkRateLimit(
@@ -1210,158 +1219,19 @@ async function verifyTwilioSignature(args: {
   return mismatch === 0;
 }
 
-// ── Calendar OAuth callbacks ──────────────────────────────────────────
-// Provider redirects here with ?code=... after the user grants
-// access. We exchange the code for tokens via the provider's token
-// endpoint, then persist a calendarConnections row.
-//
-// On success: redirect back to /app/settings#calendars with ?ok=...
-// On failure: redirect with ?error=...
+// Calendar OAuth callbacks moved to praxtalk.com:
+//   app/api/oauth/calendar/[provider]/callback/route.ts
+// The legacy convex.site http handlers were removed once the new
+// binding-cookie flow shipped — they couldn't read the binding
+// cookie (different origin) so leaving them up would have been an
+// unsafe fallback path. Existing OAuth registrations on Google /
+// Azure must point at the praxtalk.com URI.
 
-http.route({
-  path: "/api/oauth/calendar/google/callback",
-  method: "GET",
-  handler: httpAction(async (ctx, req) => {
-    return handleOauthCallback(ctx, req, "google");
-  }),
-});
-
-http.route({
-  path: "/api/oauth/calendar/microsoft/callback",
-  method: "GET",
-  handler: httpAction(async (ctx, req) => {
-    return handleOauthCallback(ctx, req, "microsoft");
-  }),
-});
-
-async function handleOauthCallback(
-  ctx: Parameters<Parameters<typeof httpAction>[0]>[0],
-  req: Request,
-  provider: "google" | "microsoft",
-): Promise<Response> {
-  const url = new URL(req.url);
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const errorParam = url.searchParams.get("error");
-  const settingsUrl = `${process.env.PRAXTALK_DASHBOARD_BASE ?? "https://www.praxtalk.com"}/app/settings`;
-
-  if (errorParam || !code || !state) {
-    return Response.redirect(
-      `${settingsUrl}?calendar_error=${encodeURIComponent(
-        errorParam ?? "missing code or state",
-      )}`,
-      302,
-    );
-  }
-
-  const consumed = await ctx.runMutation(
-    internal.calendarConnections._consumeOauthState,
-    { state },
-  );
-  if (!consumed || consumed.provider !== provider) {
-    return Response.redirect(
-      `${settingsUrl}?calendar_error=${encodeURIComponent("Invalid or expired state")}`,
-      302,
-    );
-  }
-
-  let clientId: string | undefined;
-  let clientSecret: string | undefined;
-  let tokenUrl: string;
-  let userInfoUrl: string;
-  if (provider === "google") {
-    clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-    clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-    tokenUrl = "https://oauth2.googleapis.com/token";
-    userInfoUrl = "https://www.googleapis.com/oauth2/v2/userinfo";
-  } else {
-    clientId = process.env.MICROSOFT_OAUTH_CLIENT_ID;
-    clientSecret = process.env.MICROSOFT_OAUTH_CLIENT_SECRET;
-    tokenUrl =
-      "https://login.microsoftonline.com/common/oauth2/v2.0/token";
-    userInfoUrl = "https://graph.microsoft.com/v1.0/me";
-  }
-  if (!clientId || !clientSecret) {
-    return Response.redirect(
-      `${settingsUrl}?calendar_error=${encodeURIComponent("OAuth not configured")}`,
-      302,
-    );
-  }
-
-  const redirectUri = `${
-    process.env.PRAXTALK_OAUTH_REDIRECT_BASE ??
-    "https://industrious-moose-892.convex.site"
-  }/api/oauth/calendar/${provider}/callback`;
-
-  // Exchange code for tokens.
-  const tokenForm = new URLSearchParams({
-    code,
-    client_id: clientId,
-    client_secret: clientSecret,
-    redirect_uri: redirectUri,
-    grant_type: "authorization_code",
-  });
-  const tokenRes = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: tokenForm.toString(),
-  });
-  if (!tokenRes.ok) {
-    return Response.redirect(
-      `${settingsUrl}?calendar_error=${encodeURIComponent(
-        `Token exchange ${tokenRes.status}`,
-      )}`,
-      302,
-    );
-  }
-  const tokens = (await tokenRes.json()) as {
-    access_token: string;
-    refresh_token?: string;
-    expires_in?: number;
-    scope?: string;
-    token_type?: string;
-  };
-
-  // Fetch the connected user's email so the dashboard can show
-  // "Connected to sarah@acme.com" instead of an opaque connection id.
-  let accountEmail = "";
-  try {
-    const userRes = await fetch(userInfoUrl, {
-      headers: { authorization: `Bearer ${tokens.access_token}` },
-    });
-    if (userRes.ok) {
-      const u = (await userRes.json()) as {
-        email?: string;
-        mail?: string;
-        userPrincipalName?: string;
-      };
-      accountEmail = u.email ?? u.mail ?? u.userPrincipalName ?? "";
-    }
-  } catch {
-    // Non-fatal — just leave accountEmail blank.
-  }
-
-  await ctx.runMutation(
-    internal.calendarConnections._upsertConnection,
-    {
-      workspaceId: consumed.workspaceId,
-      operatorId: consumed.operatorId,
-      provider,
-      accountEmail,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      tokenExpiresAt: tokens.expires_in
-        ? Date.now() + tokens.expires_in * 1000
-        : undefined,
-      scopes: tokens.scope,
-    },
-  );
-
-  return Response.redirect(
-    `${settingsUrl}?calendar_ok=${provider}`,
-    302,
-  );
-}
+// handleOauthCallback was removed alongside the legacy convex.site
+// http routes — see app/api/oauth/calendar/[provider]/callback/route.ts
+// for the replacement that runs on praxtalk.com (where the binding
+// cookie is reachable). The previous implementation is preserved in
+// the git history (d5700ed → 51ec60c) if a rollback is ever needed.
 
 function stripHtml(s: string): string {
   return s

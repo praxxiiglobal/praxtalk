@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
+import { readClientIp } from "@/lib/clientIp";
 import { convexServer } from "@/lib/convexServer";
 
 export type ForgotPasswordState =
@@ -19,10 +20,7 @@ export async function requestPasswordResetAction(
     return { status: "error", message: "Please enter your email." };
   }
 
-  const h = await headers();
-  const xff = h.get("x-forwarded-for") ?? "";
-  const ipAddress =
-    xff.split(",")[0]?.trim() || h.get("x-real-ip") || undefined;
+  const ipAddress = readClientIp(await headers());
 
   try {
     await convexServer.mutation(api.passwordReset.request, {

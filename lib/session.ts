@@ -15,10 +15,10 @@ import { cookies } from "next/headers";
  * `__Host-` requires Secure + HTTPS, which `next dev` doesn't serve
  * by default. Production / Vercel always uses the prefixed form.
  *
- * Migration note: switching the cookie name invalidates every active
- * dashboard session on first deploy — operators land on /login. This
- * is intentional (it's the audit-mandated forced-rotation that comes
- * with hardening cookie flags) and was acknowledged by the owner.
+ * The transitional fallback that read the legacy `praxtalk_session`
+ * cookie was removed once everyone had re-cookied — anyone still
+ * carrying the legacy cookie now gets bounced to /login (one-time
+ * re-login, then they're on the prefixed cookie permanently).
  */
 const isProd = process.env.NODE_ENV === "production";
 export const SESSION_COOKIE = isProd
@@ -40,19 +40,12 @@ export async function setSessionCookie(token: string) {
 export async function clearSessionCookie() {
   const store = await cookies();
   store.delete(SESSION_COOKIE);
-  // Also clear the legacy unprefixed name so a deploy that flipped to
-  // the __Host- prefix doesn't leave a stale cookie around.
+  // Defensively also clear the legacy name in prod, in case any
+  // browser still carries it from before the rename.
   if (isProd) store.delete("praxtalk_session");
 }
 
 export async function readSessionToken(): Promise<string | undefined> {
   const store = await cookies();
-  return (
-    store.get(SESSION_COOKIE)?.value ??
-    // Fall back to the legacy name for one deploy cycle so already-
-    // signed-in operators don't get bounced the moment this lands.
-    // Remove this fallback in the next release once everyone's
-    // re-cookied.
-    (isProd ? store.get("praxtalk_session")?.value : undefined)
-  );
+  return store.get(SESSION_COOKIE)?.value;
 }

@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { requireOperator } from "./auth";
+import { loadSession, requireOperator } from "./auth";
 import {
   generateSessionToken,
   hashPassword,
@@ -448,10 +448,20 @@ export const updateMyPassword = mutation({
 
     const passwordHash = await hashPassword(args.newPassword);
     await ctx.db.patch(operator._id, { passwordHash });
-    // Note: existing sessions stay valid — that's the standard pattern
-    // (Slack, Linear, etc. don't auto-logout on password change). If
-    // we ever need to nuke them, walk the sessions index by operatorId
-    // and delete them all here.
+
+    // Rotate: invalidate every OTHER active session for this operator
+    // so a stolen cookie doesn't outlive the password change. The
+    // current session (the one that submitted the change) is kept
+    // alive so the operator isn't bounced out of the UI mid-flow.
+    const currentSession = await loadSession(ctx, args.sessionToken);
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_operator", (q) => q.eq("operatorId", operator._id))
+      .collect();
+    for (const s of sessions) {
+      if (currentSession && s._id === currentSession._id) continue;
+      await ctx.db.delete(s._id);
+    }
     return null;
   },
 });
