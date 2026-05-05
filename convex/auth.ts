@@ -13,7 +13,18 @@ import {
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export const login = mutation({
-  args: { email: v.string(), password: v.string() },
+  args: {
+    email: v.string(),
+    password: v.string(),
+    // Optional metadata captured by the server action that calls this
+    // mutation. Used to populate the admin Sessions panel — never sent
+    // back to the client and never used for auth decisions.
+    userAgent: v.optional(v.string()),
+    ipAddress: v.optional(v.string()),
+    ipCountry: v.optional(v.string()),
+    ipRegion: v.optional(v.string()),
+    ipCity: v.optional(v.string()),
+  },
   returns: v.object({
     operatorId: v.id("operators"),
     workspaceId: v.id("workspaces"),
@@ -57,6 +68,11 @@ export const login = mutation({
       workspaceId: operator.workspaceId,
       tokenHash: await hashToken(sessionToken),
       expiresAt: Date.now() + SESSION_TTL_MS,
+      userAgent: args.userAgent,
+      ipAddress: args.ipAddress,
+      ipCountry: args.ipCountry,
+      ipRegion: args.ipRegion,
+      ipCity: args.ipCity,
     });
 
     // Per-workspace cap on concurrent active sessions per operator. When

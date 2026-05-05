@@ -716,6 +716,11 @@ export const listWorkspaceSessions = query({
               _id: s._id,
               startedAt: s._creationTime,
               expiresAt: s.expiresAt,
+              userAgent: s.userAgent ?? null,
+              ipAddress: s.ipAddress ?? null,
+              ipCountry: s.ipCountry ?? null,
+              ipRegion: s.ipRegion ?? null,
+              ipCity: s.ipCity ?? null,
             })),
           };
         })

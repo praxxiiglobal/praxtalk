@@ -178,6 +178,15 @@ export default defineSchema({
     workspaceId: v.id("workspaces"),
     tokenHash: v.string(),
     expiresAt: v.number(),
+    // Device + location captured at login time. All optional so legacy
+    // sessions stay valid; the admin Sessions panel parses userAgent
+    // client-side into a device/OS/browser label and shows ipCity /
+    // ipRegion / ipCountry as the location string.
+    userAgent: v.optional(v.string()),
+    ipAddress: v.optional(v.string()),
+    ipCountry: v.optional(v.string()),
+    ipRegion: v.optional(v.string()),
+    ipCity: v.optional(v.string()),
   })
     .index("by_token_hash", ["tokenHash"])
     .index("by_operator", ["operatorId"])

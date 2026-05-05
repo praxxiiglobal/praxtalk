@@ -133,6 +133,8 @@ export function Sessions({ sessionToken, workspaceId, initialCap }: Props) {
             <tr>
               <th className="px-3 py-2.5">Operator</th>
               <th className="px-3 py-2.5">Sessions</th>
+              <th className="px-3 py-2.5">Device</th>
+              <th className="px-3 py-2.5">Location · IP</th>
               <th className="px-3 py-2.5">Newest started</th>
               <th className="px-3 py-2.5"></th>
             </tr>
@@ -154,7 +156,7 @@ export function Sessions({ sessionToken, workspaceId, initialCap }: Props) {
             {data.operators.length === 0 && (
               <tr>
                 <td
-                  colSpan={4}
+                  colSpan={6}
                   className="px-3 py-4 text-center text-[12.5px] text-muted"
                 >
                   No operators in this workspace.
@@ -168,6 +170,17 @@ export function Sessions({ sessionToken, workspaceId, initialCap }: Props) {
   );
 }
 
+type SessionRow = {
+  _id: Id<"sessions">;
+  startedAt: number;
+  expiresAt: number;
+  userAgent: string | null;
+  ipAddress: string | null;
+  ipCountry: string | null;
+  ipRegion: string | null;
+  ipCity: string | null;
+};
+
 function OperatorRow({
   op,
   onRevokeSession,
@@ -178,7 +191,7 @@ function OperatorRow({
     email: string;
     name: string;
     role: string;
-    sessions: { _id: Id<"sessions">; startedAt: number; expiresAt: number }[];
+    sessions: SessionRow[];
   };
   sessionToken: string;
   onRevokeSession: (id: Id<"sessions">) => Promise<unknown>;
@@ -187,7 +200,7 @@ function OperatorRow({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<Id<"sessions"> | "all" | null>(null);
 
-  const newest = op.sessions[0]?.startedAt;
+  const newest = op.sessions[0];
   const handleRevoke = async (id: Id<"sessions">) => {
     setBusy(id);
     try {
@@ -232,7 +245,13 @@ function OperatorRow({
           )}
         </td>
         <td className="px-3 py-2.5 font-mono text-[11px] text-muted">
-          {newest ? formatRelative(newest) : "—"}
+          {newest ? describeDevice(newest.userAgent) : "—"}
+        </td>
+        <td className="px-3 py-2.5 font-mono text-[11px] text-muted">
+          {newest ? describeLocation(newest) : "—"}
+        </td>
+        <td className="px-3 py-2.5 font-mono text-[11px] text-muted">
+          {newest ? formatRelative(newest.startedAt) : "—"}
         </td>
         <td className="px-3 py-2.5 text-right">
           {op.sessions.length > 0 && (
@@ -254,10 +273,16 @@ function OperatorRow({
               session
             </td>
             <td className="px-3 py-2 font-mono text-[11px] text-muted">
-              started {formatRelative(s.startedAt)}
+              expires {formatRelative(s.expiresAt)}
             </td>
             <td className="px-3 py-2 font-mono text-[11px] text-muted">
-              expires {formatRelative(s.expiresAt)}
+              {describeDevice(s.userAgent)}
+            </td>
+            <td className="px-3 py-2 font-mono text-[11px] text-muted">
+              {describeLocation(s)}
+            </td>
+            <td className="px-3 py-2 font-mono text-[11px] text-muted">
+              started {formatRelative(s.startedAt)}
             </td>
             <td className="px-3 py-2 text-right">
               <button
@@ -273,6 +298,55 @@ function OperatorRow({
         ))}
     </>
   );
+}
+
+/**
+ * Lightweight user-agent → "OS · device · browser" parser. We
+ * intentionally avoid pulling in a UA library — the standard tokens
+ * iOS / Android / Macintosh / Windows / Linux + the browser banners
+ * are stable enough for an admin readout. Returns "Unknown device"
+ * if the UA is missing (legacy session pre-capture).
+ */
+function describeDevice(ua: string | null): string {
+  if (!ua) return "Unknown device";
+  const isiPad = /iPad/.test(ua);
+  const isiPhone = /iPhone/.test(ua);
+  const isAndroid = /Android/.test(ua);
+  const isMobile = /Mobile/.test(ua) || isiPhone || (isAndroid && /Mobile/.test(ua));
+  const isMac = /Macintosh|Mac OS X/.test(ua) && !isiPhone && !isiPad;
+  const isWindows = /Windows NT/.test(ua);
+  const isLinux = /Linux/.test(ua) && !isAndroid;
+
+  let os = "Unknown OS";
+  if (isiPad) os = "iPadOS";
+  else if (isiPhone) os = "iOS";
+  else if (isAndroid) os = "Android";
+  else if (isMac) os = "macOS";
+  else if (isWindows) os = "Windows";
+  else if (isLinux) os = "Linux";
+
+  let device = "Desktop";
+  if (isiPad) device = "Tablet";
+  else if (isAndroid && !isMobile) device = "Tablet";
+  else if (isMobile) device = "Mobile";
+
+  let browser = "Browser";
+  if (/Edg\//.test(ua)) browser = "Edge";
+  else if (/OPR\/|Opera/.test(ua)) browser = "Opera";
+  else if (/Chrome\//.test(ua) && !/Edg\//.test(ua)) browser = "Chrome";
+  else if (/Firefox\//.test(ua)) browser = "Firefox";
+  else if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) browser = "Safari";
+
+  return `${os} · ${device} · ${browser}`;
+}
+
+function describeLocation(s: SessionRow): string {
+  const parts = [s.ipCity, s.ipRegion, s.ipCountry].filter(Boolean);
+  const place = parts.length > 0 ? parts.join(", ") : null;
+  if (place && s.ipAddress) return `${place} · ${s.ipAddress}`;
+  if (place) return place;
+  if (s.ipAddress) return s.ipAddress;
+  return "—";
 }
 
 function formatRelative(ts: number): string {
