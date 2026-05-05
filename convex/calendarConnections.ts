@@ -214,8 +214,12 @@ export const _consumeOauthState = internalMutation({
       .withIndex("by_state", (q) => q.eq("state", args.state))
       .first();
     if (!row) return null;
-    // 10-min TTL — anything older is treated as expired.
-    const fresh = Date.now() - row.createdAt < 10 * 60 * 1000;
+    // 3-min TTL (was 10) — collapses the window in which a leaked
+    // state value could be replayed by an attacker. The proper fix
+    // is to bind the state to the operator's session via a praxtalk.com
+    // finalize handshake, but that requires moving OAuth callback off
+    // convex.site (where cookies aren't reachable) — TODO follow-up.
+    const fresh = Date.now() - row.createdAt < 3 * 60 * 1000;
     await ctx.db.delete(row._id);
     if (!fresh) return null;
     return {

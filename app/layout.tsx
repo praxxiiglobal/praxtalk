@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Inter_Tight, JetBrains_Mono, Instrument_Serif } from "next/font/google";
 import { CookieConsent } from "@/components/marketing/CookieConsent";
 import "./globals.css";
@@ -108,9 +109,13 @@ const structuredData = [
   },
 ];
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // Read the per-request nonce that middleware.ts set so we can
+  // attach it to every inline script. Without this the strict CSP
+  // would block the JSON-LD blob below + GA's gtag-init script.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html
       lang="en"
@@ -122,7 +127,7 @@ export default function RootLayout({
             renders on first visit and writes the decision to
             localStorage; /privacy exposes the same controls so the
             decision can be revoked later. */}
-        <CookieConsent />
+        <CookieConsent nonce={nonce} />
         {/* WCAG 2.1 AA — skip link for keyboard / screen-reader users.
             Visually hidden until focused. Marketing pages should
             wrap their main content in <main id="main">. */}
@@ -134,6 +139,7 @@ export default function RootLayout({
         </a>
         <script
           type="application/ld+json"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: JSON.stringify(structuredData),
           }}

@@ -34,31 +34,10 @@ const SECURITY_HEADERS = [
   },
 ];
 
-const CSP = [
-  "default-src 'self'",
-  // Next.js inlines a small bootstrap script per page; 'unsafe-inline'
-  // covers it. Vercel scripts include analytics + insights. Google
-  // Analytics gtag.js loads from googletagmanager.com.
-  "script-src 'self' 'unsafe-inline' https://*.vercel-scripts.com https://www.googletagmanager.com",
-  // Google Fonts (Roboto) loads CSS from fonts.googleapis.com and the
-  // actual woff2 files from fonts.gstatic.com. Both must be allowed
-  // explicitly or the dashboard renders in fallback fonts and the
-  // console fills with 50+ CSP errors per page load.
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "img-src 'self' data: https:",
-  "font-src 'self' data: https://fonts.gstatic.com",
-  // Convex subdomains for the live socket + REST. ipinfo/ipapi for the
-  // widget's geo lookup. GA beacon endpoints (google-analytics.com +
-  // analytics.google.com + googletagmanager.com) for outbound events.
-  // Razorpay/PayPal callbacks land at our own backend so don't need
-  // outbound entries.
-  "connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://*.convex.site https://ipinfo.io https://ipapi.co https://*.vercel-insights.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com",
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "upgrade-insecure-requests",
-  "report-uri /api/csp-report",
-].join("; ");
+// CSP is now built per-request inside `middleware.ts` so it can carry
+// a fresh nonce. Static fallback CSP (used only when middleware
+// doesn't run, e.g. matched-path edge cases) is intentionally absent
+// — the middleware matcher covers everything that returns HTML.
 
 const nextConfig: NextConfig = {
   // Pin Turbopack root to this project so the warning about
@@ -80,7 +59,8 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: [
           ...SECURITY_HEADERS,
-          { key: "Content-Security-Policy", value: CSP },
+          // CSP is set in middleware.ts so it can include a per-request
+          // nonce. See `buildCsp` there.
         ],
       },
       {

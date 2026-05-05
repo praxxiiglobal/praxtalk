@@ -1597,20 +1597,23 @@ async function isDohSafe(hostname: string): Promise<boolean> {
       aaaaAnswers = j.Answer ?? [];
     }
   } catch (err) {
-    // Resolver itself failed (timeout, network error). DoH is the
-    // SECOND leg of SSRF defence — isPrivateHost on the literal
-    // hostname is the first, and it already passed. A transient
-    // resolver outage shouldn't kill every legitimate crawl on the
-    // platform. Fail OPEN here, but don't cache so the next call
-    // gets a fresh chance.
-    console.warn("[atlas-ssrf] DoH transient error for", hostname, "— allowing", err);
-    return true;
+    // Resolver itself failed (timeout, network error). Previously we
+    // failed OPEN here on the assumption isPrivateHost on the literal
+    // hostname covers most attacker tricks. The audit pushed back —
+    // a hostname whose authoritative server returns SERVFAIL to
+    // Cloudflare while the actual A-record points at a private IP
+    // (DNS-rebind variant) would slip through. Fail CLOSED instead.
+    // The positive cache below means a previously-cleared host stays
+    // cleared for an hour, so transient resolver blips don't kill
+    // legitimate ongoing crawls.
+    console.warn("[atlas-ssrf] DoH transient error for", hostname, "— refusing", err);
+    return false;
   }
 
-  // If neither resolver leg responded ok, treat as transient.
+  // If neither resolver leg responded ok, also fail CLOSED.
   if (!aOk && !aaaaOk) {
-    console.warn("[atlas-ssrf] DoH non-ok for both A+AAAA on", hostname, "— allowing");
-    return true;
+    console.warn("[atlas-ssrf] DoH non-ok for both A+AAAA on", hostname, "— refusing");
+    return false;
   }
 
   const ips: string[] = [];

@@ -41,7 +41,7 @@ type GeoCoords = {
  *     "Try again" button. Browser permission can only be re-granted
  *     via browser site settings — we explain that path.
  */
-export function CookieConsent() {
+export function CookieConsent({ nonce }: { nonce?: string }) {
   const [cookieConsent, setCookieConsent] = useState<Consent>(null);
   const [geoConsent, setGeoConsent] = useState<GeoConsent>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -138,8 +138,9 @@ export function CookieConsent() {
           <Script
             src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
             strategy="afterInteractive"
+            nonce={nonce}
           />
-          <Script id="ga-init" strategy="afterInteractive">
+          <Script id="ga-init" strategy="afterInteractive" nonce={nonce}>
             {`
               window.dataLayer = window.dataLayer || [];
               function gtag(){dataLayer.push(arguments);}
