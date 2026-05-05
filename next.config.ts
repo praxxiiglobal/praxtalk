@@ -35,32 +35,22 @@ const SECURITY_HEADERS = [
 ];
 
 /**
- * CSP — static, hash-based allowlist for the two inline scripts we
- * control. No 'unsafe-inline', no per-request nonce. The trade-off
- * is brittleness: editing the JSON-LD blob in app/layout.tsx or the
- * gtag-init template in components/marketing/CookieConsent.tsx
- * REQUIRES re-running scripts/compute-csp-hashes.mjs and updating
- * the hashes below. CSP report-uri /api/csp-report will surface any
- * mismatch immediately.
+ * CSP — static, with 'unsafe-inline' allowed for script-src.
  *
- * Why static (next.config.ts) instead of per-request (middleware):
- * static lets Vercel's edge cache the response, so marketing-page
- * TTFB stays in the ~50-200ms range instead of the 700ms we measured
- * with the nonce-based policy.
+ * We tried hash-based pinning (commit 3cc37d7) but Next.js emits
+ * its own per-page inline bootstrap scripts at runtime that we
+ * can't enumerate statically — every one of them was rejected by
+ * the browser and hydration died, breaking dashboard live queries.
+ *
+ * The proper hardening is per-request nonce in middleware (which
+ * Next.js auto-attaches to its bootstrap scripts when it sees the
+ * x-nonce request header), at the cost of forcing dynamic
+ * rendering on every HTML response. That's a separate commit when
+ * we're ready to accept the TTFB cost.
  */
-const INLINE_SCRIPT_HASHES = [
-  "'sha256-XVQoKFkKtanB8ZS3NfZJBJO6uTpIoFyYU1sQHf5so4k='", // JSON-LD structured data (app/layout.tsx)
-  "'sha256-MC9bmPH8b7L7Ny14Kkxs1eH5dwlmoTScHMZnOUbdrQs='", // gtag-init (CookieConsent.tsx)
-].join(" ");
-
 const CSP = [
   "default-src 'self'",
-  // Hashes pin the two inline scripts we render; everything else
-  // must come from 'self' or the explicit external allowlist.
-  `script-src 'self' ${INLINE_SCRIPT_HASHES} https://*.vercel-scripts.com https://www.googletagmanager.com`,
-  // Tailwind + CSS-in-JS still inline styles; switching style-src
-  // to nonce/hash would require a much wider sweep and Tailwind
-  // doesn't take user input so XSS-via-style isn't a real vector.
+  "script-src 'self' 'unsafe-inline' https://*.vercel-scripts.com https://www.googletagmanager.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: https:",
   "font-src 'self' data: https://fonts.gstatic.com",
