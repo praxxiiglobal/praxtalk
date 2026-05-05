@@ -296,6 +296,7 @@ function ConversationPane({
   conversationId: Id<"conversations">;
   sessionToken: string;
 }) {
+  const { operator, workspace } = useDashboardAuth();
   const convo = useQuery(api.conversations.getById, {
     sessionToken,
     conversationId,
@@ -422,7 +423,20 @@ function ConversationPane({
   };
 
   const insertReply = (text: string) => {
-    setBody((cur) => (cur ? cur + (cur.endsWith("\n") ? "" : "\n") + text : text));
+    // Lightweight {{var}} templating before insertion. Substitutes
+    // visitor / operator / workspace fields so saved replies can
+    // include "Hi {{visitor.name}}" without each operator hand-
+    // editing every send.
+    const expanded = expandSavedReply(text, {
+      visitorName: convo?.visitor?.name,
+      visitorEmail: convo?.visitor?.email,
+      visitorPhone: convo?.visitor?.phone,
+      operatorName: operator.name,
+      workspaceName: workspace.name,
+    });
+    setBody((cur) =>
+      cur ? cur + (cur.endsWith("\n") ? "" : "\n") + expanded : expanded,
+    );
     setShowReplies(false);
   };
 
@@ -864,6 +878,38 @@ function Bubble({
  * yesterday → "Yesterday, 3:34 PM"; same year → "May 5, 3:34 PM";
  * older → with year. Uses the operator's browser locale + timezone.
  */
+/**
+ * Replace `{{var}}` placeholders in a saved-reply body with values
+ * from the active conversation + signed-in operator. Unknown vars
+ * are left as-is so a typo doesn't silently turn into an empty
+ * string (which would look wrong in the message). Whitespace inside
+ * the braces is tolerated: `{{ visitor.name }}` works the same as
+ * `{{visitor.name}}`.
+ */
+function expandSavedReply(
+  body: string,
+  ctx: {
+    visitorName?: string;
+    visitorEmail?: string;
+    visitorPhone?: string;
+    operatorName: string;
+    workspaceName: string;
+  },
+): string {
+  const dict: Record<string, string | undefined> = {
+    "visitor.name": ctx.visitorName,
+    "visitor.email": ctx.visitorEmail,
+    "visitor.phone": ctx.visitorPhone,
+    "operator.name": ctx.operatorName,
+    "workspace.name": ctx.workspaceName,
+  };
+  return body.replace(/\{\{\s*([a-z]+\.[a-z]+)\s*\}\}/gi, (match, key) => {
+    const lower = String(key).toLowerCase();
+    const value = dict[lower];
+    return value && value.length > 0 ? value : match;
+  });
+}
+
 function formatMessageTime(ms: number): string {
   const d = new Date(ms);
   const now = new Date();

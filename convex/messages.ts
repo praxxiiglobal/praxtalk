@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireOperator } from "./auth";
@@ -67,6 +67,28 @@ export const send = mutation({
     const channel = convo.channel ?? "web_chat";
     const isInternal = Boolean(args.internal);
     const role = isInternal ? "internal_note" : "operator";
+
+    // Outbound channels (email / whatsapp / voice / sms) reach the
+    // public internet from PraxTalk's egress (or the workspace's
+    // own provider). New signups still in pending_review can't use
+    // them — abuse vector is using PraxTalk as a spam launchpad
+    // before staff has vetted the workspace. Web-chat replies and
+    // internal notes stay open since they're internal to the
+    // dashboard / widget tenant.
+    const isOutbound =
+      !isInternal &&
+      (channel === "email" ||
+        channel === "whatsapp" ||
+        channel === "voice" ||
+        channel === "sms");
+    if (isOutbound) {
+      const ws = await ctx.db.get(workspaceId);
+      if (ws?.platformStatus === "pending_review") {
+        throw new ConvexError(
+          "Outbound replies unlock once your workspace passes staff review.",
+        );
+      }
+    }
     const now = Date.now();
     const messageId = await ctx.db.insert("messages", {
       conversationId: args.conversationId,

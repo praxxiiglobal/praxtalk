@@ -192,6 +192,41 @@ export const listMessages = internalQuery({
   },
 });
 
+// ── Saved replies ─────────────────────────────────────────────────────
+
+export const listSavedReplies = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    brandId: v.union(v.null(), v.id("brands")),
+  },
+  handler: async (ctx, args) => {
+    const all = await ctx.db
+      .query("savedReplies")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    return all
+      .filter((r) => {
+        // Filter pattern matches the dashboard query: workspace-global
+        // rows (no brandId) are always returned; brand-scoped rows
+        // are returned only when the API caller scoped to that brand
+        // (or asked for everything).
+        if (!r.brandId) return true;
+        if (args.brandId && r.brandId !== args.brandId) return false;
+        return true;
+      })
+      .map((r) => ({
+        id: r._id,
+        brandId: r.brandId ?? null,
+        title: r.title,
+        body: r.body,
+        shortcut: r.shortcut ?? null,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      }))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  },
+});
+
 // ── Brands ────────────────────────────────────────────────────────────
 
 export const listBrands = internalQuery({

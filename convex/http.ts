@@ -234,6 +234,24 @@ http.route({
   }),
 });
 
+// ── GET /api/v1/saved-replies ────────────────────────────────────────
+// Returns the workspace's saved replies. When the API key is brand-
+// scoped, only that brand's replies + the workspace-global ones come
+// back. Otherwise every reply is returned.
+http.route({
+  path: "/api/v1/saved-replies",
+  method: "GET",
+  handler: httpAction(async (ctx, req) => {
+    const auth = await authenticate(ctx, req);
+    if ("error" in auth) return auth.error;
+    const replies = await ctx.runQuery(
+      internal.publicApi.listSavedReplies,
+      { workspaceId: auth.workspaceId, brandId: auth.brandId ?? null },
+    );
+    return jsonResponse({ replies });
+  }),
+});
+
 // ── GET /api/v1/conversations ─────────────────────────────────────────
 http.route({
   path: "/api/v1/conversations",
