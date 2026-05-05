@@ -1045,20 +1045,41 @@ export const listAllLeads = query({
     await requirePlatformAdmin(ctx, args.sessionToken);
     const limit = Math.min(Math.max(args.limit ?? 1000, 1), 5000);
 
-    let leadsQuery = ctx.db.query("leads");
-    if (args.status) {
+    // Pick the best index for the supplied filter combination.
+    // Filterless walk → newest-first by creation time.
+    // status only → by_status_updated.
+    // workspaceId + status → by_workspace_status_updated.
+    // workspaceId only → walk by_workspace_status_updated across statuses.
+    let leads: Doc<"leads">[];
+    if (args.workspaceId && args.status) {
       const status = args.status;
-      leadsQuery = leadsQuery.filter((q) =>
-        q.eq(q.field("status"), status),
-      );
-    }
-    if (args.workspaceId) {
       const wid = args.workspaceId;
-      leadsQuery = leadsQuery.filter((q) =>
-        q.eq(q.field("workspaceId"), wid),
-      );
+      leads = await ctx.db
+        .query("leads")
+        .withIndex("by_workspace_status_updated", (q) =>
+          q.eq("workspaceId", wid).eq("status", status),
+        )
+        .order("desc")
+        .take(limit);
+    } else if (args.workspaceId) {
+      const wid = args.workspaceId;
+      leads = await ctx.db
+        .query("leads")
+        .withIndex("by_workspace_status_updated", (q) =>
+          q.eq("workspaceId", wid),
+        )
+        .order("desc")
+        .take(limit);
+    } else if (args.status) {
+      const status = args.status;
+      leads = await ctx.db
+        .query("leads")
+        .withIndex("by_status_updated", (q) => q.eq("status", status))
+        .order("desc")
+        .take(limit);
+    } else {
+      leads = await ctx.db.query("leads").order("desc").take(limit);
     }
-    const leads = await leadsQuery.order("desc").take(limit);
 
     // Hydrate workspace + brand + operator names for the table.
     // Caching workspaces/brands/operators in Maps means we hit each

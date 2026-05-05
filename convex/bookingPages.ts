@@ -562,10 +562,12 @@ export const book = mutation({
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new ConvexError("Enter a valid email.");
     }
-    const allVisitors = await ctx.db.query("visitors").collect();
-    let visitor = allVisitors.find(
-      (v) => v.workspaceId === p.workspaceId && v.email === email,
-    );
+    let visitor = await ctx.db
+      .query("visitors")
+      .withIndex("by_workspace_email", (q) =>
+        q.eq("workspaceId", p.workspaceId).eq("email", email),
+      )
+      .first();
     const now = Date.now();
     if (!visitor) {
       const id = await ctx.db.insert("visitors", {

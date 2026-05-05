@@ -242,7 +242,12 @@ export default defineSchema({
     lastSeenAt: v.number(),
   })
     .index("by_workspace_visitor_key", ["workspaceId", "visitorKey"])
-    .index("by_brand_visitor_key", ["brandId", "visitorKey"]),
+    .index("by_brand_visitor_key", ["brandId", "visitorKey"])
+    // Lookup by email used by booking-page submissions to dedupe an
+    // existing visitor without scanning the whole table. Sparse
+    // because email is optional — rows without an email simply don't
+    // appear in this index, which is the desired behaviour.
+    .index("by_workspace_email", ["workspaceId", "email"]),
 
   // ── Conversations + messages ──────────────────────────────────────
   conversations: defineTable({
@@ -833,7 +838,12 @@ export default defineSchema({
       "workspaceId",
       "assignedToOperatorId",
       "updatedAt",
-    ]),
+    ])
+    // Cross-workspace lookup for the platform-admin /admin/leads page —
+    // walks newest-first by status without scanning every workspace's
+    // leads. Without this index the admin query was a full table scan
+    // with a filter predicate.
+    .index("by_status_updated", ["status", "updatedAt"]),
 
   // ── Lead remarks (thread of notes per lead) ─────────────────────────
   // Each agent who works a lead can add their own remark. Older flat
