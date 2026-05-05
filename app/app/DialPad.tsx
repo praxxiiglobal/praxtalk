@@ -9,6 +9,8 @@ import { cn } from "@/lib/cn";
 
 export function DialPadButton() {
   const [open, setOpen] = useState(false);
+  const { workspace } = useDashboardAuth();
+  if (!workspace.features.channels.voice) return null;
   return (
     <>
       <button
