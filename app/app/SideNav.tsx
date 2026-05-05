@@ -37,11 +37,6 @@ export const navGroups: NavGroup[] = [
       { href: "/app/schedules", label: "Schedules", icon: "calendar" },
       { href: "/app/atlas", label: "Atlas AI", icon: "atlas" },
       { href: "/app/analytics", label: "Analytics", icon: "chart" },
-    ],
-  },
-  {
-    label: null,
-    items: [
       { href: "/app/settings", label: "Settings", icon: "settings" },
     ],
   },
@@ -115,17 +110,9 @@ export function SideNav() {
 
   return (
     <aside className="hidden w-56 shrink-0 border-r border-rule bg-paper-2/40 md:flex md:flex-col">
-      <nav className="flex flex-1 flex-col gap-1 p-3">
-        {groups.map((group, gi) => {
-          const isLast = gi === groups.length - 1;
-          return (
-          <div
-            key={gi}
-            className={cn(
-              "flex flex-col gap-0.5",
-              gi > 0 && (isLast ? "mt-auto" : "mt-3"),
-            )}
-          >
+      <nav className="flex flex-col gap-1 p-3">
+        {groups.map((group, gi) => (
+          <div key={gi} className={cn("flex flex-col gap-0.5", gi > 0 && "mt-3")}>
             {group.label && (
               <div className="mb-1 px-3 font-mono text-[9.5px] uppercase tracking-[0.08em] text-muted">
                 {group.label}
@@ -164,8 +151,7 @@ export function SideNav() {
               );
             })}
           </div>
-          );
-        })}
+        ))}
       </nav>
     </aside>
   );
