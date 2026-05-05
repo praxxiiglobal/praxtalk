@@ -8,7 +8,7 @@ import {
 } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { requireOperator } from "./auth";
+import { requireMatureWorkspace, requireOperator } from "./auth";
 import { hasBrandAccess } from "./brands";
 import { pushActivity } from "./notifications";
 import { fireEvent } from "./webhooks";
@@ -1199,7 +1199,11 @@ export const startKbWebsiteIngest = mutation({
       hasUrl: typeof args.url === "string" && args.url.length > 0,
     });
     try {
-      const { operator, workspaceId } = await requireOperator(
+      // requireMatureWorkspace blocks pending_review signups from
+      // hitting the outbound crawl path — abuse vector is using
+      // PraxTalk's egress to probe internal networks (mostly
+      // mitigated by SSRF guards already, but defence-in-depth).
+      const { operator, workspaceId } = await requireMatureWorkspace(
         ctx,
         args.sessionToken,
       );

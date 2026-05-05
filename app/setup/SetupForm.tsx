@@ -1,13 +1,26 @@
 "use client";
 
-import { useActionState, useMemo } from "react";
+import Script from "next/script";
+import { useActionState, useEffect, useMemo, useRef } from "react";
 import { useFormStatus } from "react-dom";
 import { createWorkspaceAction, type SetupState } from "./actions";
 
 const initial: SetupState = { status: "idle" };
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
 export function SetupForm() {
   const [state, formAction] = useActionState(createWorkspaceAction, initial);
+  const turnstileRef = useRef<HTMLDivElement | null>(null);
+  // After a server-action error, the Turnstile token is single-use
+  // and has already been spent — reset the widget so the next
+  // submission has a fresh one.
+  useEffect(() => {
+    if (state.status !== "error") return;
+    const w = (window as unknown as {
+      turnstile?: { reset?: (el: HTMLElement) => void };
+    }).turnstile;
+    if (turnstileRef.current && w?.reset) w.reset(turnstileRef.current);
+  }, [state.status]);
   // Stamp form-mount time so the server can refuse <1.5s submissions.
   // useMemo with [] runs once per mount (client-side), the resulting
   // ms timestamp is sent as a hidden field at submit. Bots that POST
@@ -79,6 +92,23 @@ export function SetupForm() {
         required
         minLength={8}
       />
+
+      {TURNSTILE_SITE_KEY ? (
+        <>
+          <Script
+            src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+            strategy="afterInteractive"
+            async
+            defer
+          />
+          <div
+            ref={turnstileRef}
+            className="cf-turnstile"
+            data-sitekey={TURNSTILE_SITE_KEY}
+            data-theme="light"
+          />
+        </>
+      ) : null}
 
       {state.status === "error" && (
         <div

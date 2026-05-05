@@ -272,3 +272,36 @@ export async function requireOperator(
   }
   return { operator, workspaceId: session.workspaceId };
 }
+
+/**
+ * Stricter gate for high-cost outbound features: refuses if the
+ * workspace is in pending_review (staff hasn't approved this signup
+ * yet). The dashboard layout already redirects pending_review
+ * workspaces to PendingReviewScreen, but the redirect is UI-only —
+ * a bot with a session token can still call Convex mutations
+ * directly. Use this at the entry point of any mutation that
+ * touches outbound networks (Atlas KB crawl, email send, voice
+ * call, webhook fan-out triggers, paid-API hits) so the bot can't
+ * bypass the UI gate.
+ *
+ * Returns the same shape as requireOperator + the workspace doc
+ * so callers don't have to re-load it.
+ */
+export async function requireMatureWorkspace(
+  ctx: QueryCtx,
+  sessionToken: string | undefined,
+): Promise<{
+  operator: Doc<"operators">;
+  workspaceId: Id<"workspaces">;
+  workspace: Doc<"workspaces">;
+}> {
+  const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+  const workspace = await ctx.db.get(workspaceId);
+  if (!workspace) throw new ConvexError("Workspace not found.");
+  if (workspace.platformStatus === "pending_review") {
+    throw new ConvexError(
+      "Your workspace is awaiting staff review — outbound features unlock once you're approved.",
+    );
+  }
+  return { operator, workspaceId, workspace };
+}

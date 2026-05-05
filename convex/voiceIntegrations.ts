@@ -9,7 +9,7 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { requireOperator } from "./auth";
+import { requireMatureWorkspace, requireOperator } from "./auth";
 import { getDefaultBrandId } from "./brands";
 import { canAccessIntegration } from "./integrationGrants";
 import { generateWebhookSecret } from "./lib/auth";
@@ -797,7 +797,13 @@ export const listCallHistory = query({
 export const loadOriginateContext = internalQuery({
   args: { sessionToken: v.string() },
   handler: async (ctx, { sessionToken }) => {
-    const { operator, workspaceId } = await requireOperator(ctx, sessionToken);
+    // requireMatureWorkspace blocks pending_review signups from
+    // dialing out (toll fraud surface, even though billing's on
+    // the customer's voice provider — abuse damages the ecosystem).
+    const { operator, workspaceId } = await requireMatureWorkspace(
+      ctx,
+      sessionToken,
+    );
     // Personal integration for this operator wins over workspace shared.
     // Lets each team member dial out from their own number when they
     // have one, falling back to the team line otherwise.

@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { readClientIp } from "@/lib/clientIp";
 import { convexServer } from "@/lib/convexServer";
 import { setSessionCookie } from "@/lib/session";
+import { verifyTurnstile } from "@/lib/turnstile";
 
 export type SetupState =
   | { status: "idle" }
@@ -27,6 +28,11 @@ export async function createWorkspaceAction(
   const honeypot = String(formData.get("website") ?? "");
   const formStartedAtRaw = String(formData.get("formStartedAt") ?? "");
   const formStartedAt = Number(formStartedAtRaw);
+  // Cloudflare Turnstile token (only set when the widget rendered;
+  // i.e. NEXT_PUBLIC_TURNSTILE_SITE_KEY is configured). Server-side
+  // verifyTurnstile no-ops when TURNSTILE_SECRET_KEY isn't set, so
+  // the env can be wired progressively.
+  const turnstileToken = String(formData.get("cf-turnstile-response") ?? "");
 
   if (!workspaceName || !ownerName || !ownerEmail || !ownerPassword) {
     return { status: "error", message: "All fields are required." };
@@ -39,6 +45,17 @@ export async function createWorkspaceAction(
   }
 
   const ipAddress = readClientIp(await headers());
+
+  const turnstile = await verifyTurnstile({
+    token: turnstileToken,
+    remoteIp: ipAddress,
+  });
+  if (!turnstile.ok) {
+    return {
+      status: "error",
+      message: "Couldn't verify you're human — refresh and try again.",
+    };
+  }
 
   try {
     const result = await convexServer.mutation(api.workspaces.create, {
