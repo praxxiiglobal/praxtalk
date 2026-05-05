@@ -39,6 +39,12 @@ export const overview = query({
       operatorReplied: v.number(),
       atlasResolutionRate: v.number(), // 0..1
       medianFirstResponseSeconds: v.union(v.number(), v.null()),
+      // Operator-only SLA — counts only human (non-Atlas) replies.
+      // Different from medianFirstResponseSeconds, which includes
+      // Atlas auto-replies that visitors see immediately. p95 catches
+      // long-tail outliers that the median would mask.
+      medianFirstHumanResponseSeconds: v.union(v.number(), v.null()),
+      p95FirstHumanResponseSeconds: v.union(v.number(), v.null()),
     }),
     volumePerDay: v.array(
       v.object({ day: v.number(), conversations: v.number() }),
@@ -171,6 +177,23 @@ export const overview = query({
         ? null
         : median(firstResponseSeconds);
 
+    // Operator-only SLA — uses the conversation.firstOperatorResponseAt
+    // field stamped at messages.send time. Cheaper than walking
+    // messages, and honest about Atlas vs human replies.
+    const humanResponseSeconds = inWindow
+      .filter((c) => c.firstOperatorResponseAt)
+      .map((c) =>
+        Math.max(0, Math.round((c.firstOperatorResponseAt! - c.createdAt) / 1000)),
+      );
+    const medianFirstHumanResponseSeconds =
+      humanResponseSeconds.length === 0
+        ? null
+        : median(humanResponseSeconds);
+    const p95FirstHumanResponseSeconds =
+      humanResponseSeconds.length === 0
+        ? null
+        : percentile(humanResponseSeconds, 0.95);
+
     // Atlas runs breakdown — easier: query atlasRuns directly.
     const atlasRuns = await ctx.db
       .query("atlasRuns")
@@ -198,6 +221,8 @@ export const overview = query({
         operatorReplied,
         atlasResolutionRate,
         medianFirstResponseSeconds,
+        medianFirstHumanResponseSeconds,
+        p95FirstHumanResponseSeconds,
       },
       volumePerDay: volume,
       channelMix,
@@ -231,6 +256,16 @@ function median(values: number[]): number {
     : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(
+    sorted.length - 1,
+    Math.floor(p * (sorted.length - 1)),
+  );
+  return sorted[idx];
+}
+
 function emptyOverview(start: number, end: number, days: number) {
   return {
     range: { start, end, days },
@@ -241,6 +276,8 @@ function emptyOverview(start: number, end: number, days: number) {
       operatorReplied: 0,
       atlasResolutionRate: 0,
       medianFirstResponseSeconds: null,
+      medianFirstHumanResponseSeconds: null,
+      p95FirstHumanResponseSeconds: null,
     },
     volumePerDay: [] as { day: number; conversations: number }[],
     channelMix: (["web_chat", "email", "whatsapp", "voice"] as const).map(

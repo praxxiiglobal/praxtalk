@@ -109,11 +109,23 @@ export const send = mutation({
         await ctx.db.patch(args.conversationId, { status: "open" });
       }
     } else {
-      await ctx.db.patch(args.conversationId, {
+      // Stamp first-operator-response time once, never overwrite —
+      // gives us a stable visitor-visible response-latency metric
+      // for the SLA analytics surface.
+      const patch: {
+        lastMessageAt: number;
+        assignedOperatorId: typeof convo.assignedOperatorId;
+        status: typeof convo.status;
+        firstOperatorResponseAt?: number;
+      } = {
         lastMessageAt: now,
         assignedOperatorId: convo.assignedOperatorId ?? operator._id,
         status: convo.status === "snoozed" ? "open" : convo.status,
-      });
+      };
+      if (!convo.firstOperatorResponseAt) {
+        patch.firstOperatorResponseAt = now;
+      }
+      await ctx.db.patch(args.conversationId, patch);
     }
 
     // Public message events for webhooks; skip for internal notes.

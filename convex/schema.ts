@@ -321,6 +321,12 @@ export default defineSchema({
     // the most recent message came from the visitor).
     lastOperatorReadAt: v.optional(v.number()),
     lastMessageAt: v.number(),
+    // SLA — wall-clock time of the first non-internal operator
+    // message in this conversation. Set once, never overwritten.
+    // The duration since `_creationTime` is the visitor-visible
+    // first-response latency that goes into median + p95 metrics
+    // on the analytics page.
+    firstOperatorResponseAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_workspace_status_lastmsg", [
@@ -337,6 +343,27 @@ export default defineSchema({
     .index("by_workspace_visitor", ["workspaceId", "visitorId"])
     .index("by_brand_status_lastmsg", ["brandId", "status", "lastMessageAt"])
     .index("by_email_thread", ["emailThreadId"]),
+
+  // ── Conversation tags ─────────────────────────────────────────────
+  // Many-to-many between conversations and a free-form tag string.
+  // Normalised (rather than an array column on conversations) so
+  // "all conversations tagged X" is an indexed lookup rather than a
+  // table scan with a predicate. Tag strings are the source of truth
+  // — workspace-scoped, lower-cased before insert.
+  conversationTags: defineTable({
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    tag: v.string(),
+    createdBy: v.id("operators"),
+    createdAt: v.number(),
+  })
+    .index("by_conversation", ["conversationId"])
+    .index("by_workspace_tag", ["workspaceId", "tag"])
+    .index("by_workspace_conversation_tag", [
+      "workspaceId",
+      "conversationId",
+      "tag",
+    ]),
 
   // ── Public API ─────────────────────────────────────────────────────
   // Workspace-scoped API keys for headless integrations (e.g. customer

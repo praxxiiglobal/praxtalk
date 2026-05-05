@@ -473,6 +473,10 @@ function ConversationPane({
         </div>
         <div className="ml-auto flex items-center gap-2">
           <StatusPill status={convo.status} />
+          <ConversationTags
+            conversationId={conversationId}
+            sessionToken={sessionToken}
+          />
           <SaveAsLeadButton
             conversationId={conversationId}
             visitor={visitor}
@@ -1318,6 +1322,118 @@ function ChannelGlyph({ channel }: { channel: Channel }) {
     >
       {info.icon}
     </span>
+  );
+}
+
+function ConversationTags({
+  conversationId,
+  sessionToken,
+}: {
+  conversationId: Id<"conversations">;
+  sessionToken: string;
+}) {
+  const tags = useQuery(api.conversationTags.listForConversation, {
+    sessionToken,
+    conversationId,
+  });
+  const suggestions = useQuery(api.conversationTags.listForWorkspace, {
+    sessionToken,
+  });
+  const addTag = useMutation(api.conversationTags.addTag);
+  const removeTag = useMutation(api.conversationTags.removeTag);
+
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (raw: string) => {
+    const tag = raw.trim().toLowerCase();
+    if (!tag) return;
+    setBusy(true);
+    try {
+      await addTag({ sessionToken, conversationId, tag });
+      setDraft("");
+    } catch (e) {
+      // Show error inline; common case is "Tag too long" or "Conversation
+      // has too many tags". A toast would be nicer but the alert keeps
+      // this picker scoped to one component.
+      alert(e instanceof Error ? e.message : "Couldn't add tag.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const visibleSuggestions = (suggestions ?? [])
+    .filter((s) => !tags?.includes(s))
+    .filter((s) =>
+      draft ? s.toLowerCase().includes(draft.toLowerCase()) : true,
+    )
+    .slice(0, 6);
+
+  return (
+    <div className="relative flex items-center gap-1.5">
+      {(tags ?? []).map((tag) => (
+        <button
+          key={tag}
+          type="button"
+          onClick={() => void removeTag({ sessionToken, conversationId, tag })}
+          className="group inline-flex h-7 items-center gap-1 rounded-full bg-paper-2 px-2.5 font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted transition hover:text-ink"
+          title="Click to remove"
+        >
+          {tag}
+          <span className="text-[12px] leading-none text-muted/60 transition group-hover:text-ink">
+            ×
+          </span>
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex h-7 items-center rounded-full border border-rule-2 px-2.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted transition hover:border-ink hover:text-ink"
+      >
+        + Tag
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          className="absolute right-0 top-9 z-30 w-64 rounded-xl border border-rule bg-paper p-2 shadow-2xl"
+        >
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void submit(draft);
+              }
+              if (e.key === "Escape") setOpen(false);
+            }}
+            placeholder="New tag — Enter to add"
+            disabled={busy}
+            autoFocus
+            className="h-9 w-full rounded-lg border border-rule bg-paper px-2.5 text-[13px] outline-none focus:border-ink"
+          />
+          {visibleSuggestions.length > 0 && (
+            <div className="mt-2 flex flex-col gap-1">
+              <div className="px-1 font-mono text-[9.5px] uppercase tracking-[0.06em] text-muted">
+                Existing tags
+              </div>
+              {visibleSuggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => void submit(s)}
+                  className="rounded-lg px-2.5 py-1.5 text-left font-mono text-[11px] uppercase tracking-[0.06em] text-ink transition hover:bg-paper-2"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

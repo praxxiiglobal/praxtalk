@@ -89,6 +89,15 @@ export function AnalyticsView() {
       positive: true,
     },
     {
+      label: "Median human response",
+      value: formatDuration(totals.medianFirstHumanResponseSeconds),
+      delta:
+        totals.medianFirstHumanResponseSeconds === null
+          ? "no human replies"
+          : `p95 ${formatDuration(totals.p95FirstHumanResponseSeconds)}`,
+      positive: true,
+    },
+    {
       label: "Atlas auto-replies",
       value: totals.atlasAutoReplied.toLocaleString(),
       delta:
