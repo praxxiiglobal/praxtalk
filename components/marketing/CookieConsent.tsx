@@ -40,7 +40,7 @@ type GeoCoords = {
  *     "Try again" button. Browser permission can only be re-granted
  *     via browser site settings — we explain that path.
  */
-export function CookieConsent() {
+export function CookieConsent({ nonce }: { nonce?: string }) {
   const [cookieConsent, setCookieConsent] = useState<Consent>(null);
   const [geoConsent, setGeoConsent] = useState<GeoConsent>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -134,19 +134,17 @@ export function CookieConsent() {
           on the cookie side; the geo gate is the new gate. */}
       {cookieConsent === "granted" && (
         <>
-          {/* gtag.js loader — external, allowlisted via
-              googletagmanager.com in CSP. */}
+          {/* gtag.js loader — external script, allowlisted via
+              googletagmanager.com in CSP. The nonce isn't strictly
+              needed for src= scripts but doesn't hurt. */}
           <script
             async
             src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
+            nonce={nonce}
           />
-          {/* gtag-init — pinned by sha256 hash in next.config.ts. The
-              dangerouslySetInnerHTML content below MUST stay byte-
-              identical to scripts/compute-csp-hashes.mjs gtagInit
-              constant; otherwise CSP refuses to execute it and GA
-              stops reporting. The leading + trailing newline are
-              intentional (they're part of the hashed string). */}
+          {/* gtag-init — inline, gated through CSP via the nonce. */}
           <script
+            nonce={nonce}
             dangerouslySetInnerHTML={{
               __html: `
 window.dataLayer = window.dataLayer || [];
