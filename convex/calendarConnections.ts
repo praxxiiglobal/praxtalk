@@ -86,15 +86,33 @@ export const providerConfig = query({
 });
 
 /**
- * Start the OAuth dance — returns the provider's authorize URL with
- * a state nonce we'll verify on callback. The browser navigates to
- * this URL; provider redirects back to /api/oauth/calendar/<provider>/callback
- * with a code we exchange in the http handler.
+ * Start the OAuth dance — returns the provider's authorize URL plus
+ * a binding nonce. The Next.js server action that calls this sets
+ * the binding nonce as an httpOnly `__Host-praxtalk_oauth_binding`
+ * cookie before the browser navigates to the OAuth URL. On callback
+ * we re-present the cookie value and verify it hashes to what we
+ * stashed here.
+ *
+ * The third leg `useFinalize` is true when the caller can present
+ * a binding cookie on callback (the praxtalk.com server-action path).
+ * Legacy flows that still hit convex.site directly pass false and
+ * skip the binding check — kept so already-issued OAuth registrations
+ * don't break on cutover.
  */
 export const startOauth = action({
-  args: { sessionToken: v.string(), provider: oauthProviderValidator },
-  returns: v.object({ url: v.string() }),
-  handler: async (ctx, args): Promise<{ url: string }> => {
+  args: {
+    sessionToken: v.string(),
+    provider: oauthProviderValidator,
+    useFinalize: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    url: v.string(),
+    bindingNonce: v.string(),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ url: string; bindingNonce: string }> => {
     const ctxData: {
       workspaceId: Id<"workspaces">;
       operatorId: Id<"operators">;
@@ -122,14 +140,19 @@ export const startOauth = action({
     }
 
     const state = randomState();
+    const bindingNonce = randomState();
+    const bindingNonceHash = await sha256Hex(bindingNonce);
     await ctx.runMutation(internal.calendarConnections._stashOauthState, {
       workspaceId: ctxData.workspaceId,
       operatorId: ctxData.operatorId,
       provider: args.provider,
       state,
+      bindingNonceHash,
     });
 
-    const redirectUri = redirectUriFor(args.provider);
+    const redirectUri = args.useFinalize
+      ? finalizeRedirectUriFor(args.provider)
+      : redirectUriFor(args.provider);
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -139,7 +162,126 @@ export const startOauth = action({
       access_type: "offline", // Google: returns a refresh_token
       prompt: "consent",
     });
-    return { url: `${authorizeBase}?${params.toString()}` };
+    return {
+      url: `${authorizeBase}?${params.toString()}`,
+      bindingNonce,
+    };
+  },
+});
+
+/**
+ * Praxtalk.com-side finalize: consumes state + bindingNonce, exchanges
+ * the OAuth code for tokens, and writes the calendarConnection row
+ * — all atomically gated on the binding cookie matching the stashed
+ * hash. Called by the Next.js route handler that owns the binding
+ * cookie.
+ */
+export const finalizeOauthCallback = action({
+  args: {
+    state: v.string(),
+    code: v.string(),
+    bindingNonce: v.string(),
+    provider: oauthProviderValidator,
+  },
+  returns: v.object({
+    ok: v.boolean(),
+    error: v.optional(v.string()),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const bindingNonceHash = await sha256Hex(args.bindingNonce);
+    const consumed: {
+      workspaceId: Id<"workspaces">;
+      operatorId: Id<"operators">;
+      provider: "google" | "microsoft";
+    } | null = await ctx.runMutation(
+      internal.calendarConnections._consumeOauthStateBound,
+      { state: args.state, bindingNonceHash },
+    );
+    if (!consumed) return { ok: false, error: "Invalid or expired state" };
+    if (consumed.provider !== args.provider) {
+      return { ok: false, error: "Provider mismatch" };
+    }
+
+    let clientId: string | undefined;
+    let clientSecret: string | undefined;
+    let tokenUrl: string;
+    let userInfoUrl: string;
+    if (args.provider === "google") {
+      clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+      clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+      tokenUrl = "https://oauth2.googleapis.com/token";
+      userInfoUrl = "https://www.googleapis.com/oauth2/v2/userinfo";
+    } else {
+      clientId = process.env.MICROSOFT_OAUTH_CLIENT_ID;
+      clientSecret = process.env.MICROSOFT_OAUTH_CLIENT_SECRET;
+      tokenUrl =
+        "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+      userInfoUrl = "https://graph.microsoft.com/v1.0/me";
+    }
+    if (!clientId || !clientSecret) {
+      return { ok: false, error: "OAuth not configured" };
+    }
+
+    const redirectUri = finalizeRedirectUriFor(args.provider);
+    const tokenForm = new URLSearchParams({
+      code: args.code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    });
+    const tokenRes = await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: tokenForm.toString(),
+    });
+    if (!tokenRes.ok) {
+      return { ok: false, error: `Token exchange ${tokenRes.status}` };
+    }
+    const tokens = (await tokenRes.json()) as {
+      access_token: string;
+      refresh_token?: string;
+      expires_in?: number;
+      scope?: string;
+      token_type?: string;
+    };
+
+    let accountEmail = "";
+    try {
+      const userRes = await fetch(userInfoUrl, {
+        headers: { authorization: `Bearer ${tokens.access_token}` },
+      });
+      if (userRes.ok) {
+        const u = (await userRes.json()) as {
+          email?: string;
+          mail?: string;
+          userPrincipalName?: string;
+        };
+        accountEmail = u.email ?? u.mail ?? u.userPrincipalName ?? "";
+      }
+    } catch {
+      // Non-fatal — operator can re-connect to refresh the email.
+    }
+
+    await ctx.runMutation(
+      internal.calendarConnections._upsertConnection,
+      {
+        workspaceId: consumed.workspaceId,
+        operatorId: consumed.operatorId,
+        provider: args.provider,
+        accountEmail,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        tokenExpiresAt: tokens.expires_in
+          ? Date.now() + tokens.expires_in * 1000
+          : undefined,
+        scopes: tokens.scope,
+      },
+    );
+    return { ok: true };
   },
 });
 
@@ -179,6 +321,7 @@ export const _stashOauthState = internalMutation({
     operatorId: v.id("operators"),
     provider: oauthProviderValidator,
     state: v.string(),
+    bindingNonceHash: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -187,9 +330,50 @@ export const _stashOauthState = internalMutation({
       operatorId: args.operatorId,
       provider: args.provider,
       state: args.state,
+      bindingNonceHash: args.bindingNonceHash,
       createdAt: Date.now(),
     });
     return null;
+  },
+});
+
+/**
+ * Bound consume — used by the praxtalk.com finalize flow. Refuses
+ * unless the row's bindingNonceHash matches the supplied value (so
+ * the attacker who only has the URL state can't complete the flow).
+ */
+export const _consumeOauthStateBound = internalMutation({
+  args: { state: v.string(), bindingNonceHash: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      operatorId: v.id("operators"),
+      provider: oauthProviderValidator,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("calendarOauthStates")
+      .withIndex("by_state", (q) => q.eq("state", args.state))
+      .first();
+    if (!row) return null;
+    const fresh = Date.now() - row.createdAt < 3 * 60 * 1000;
+    await ctx.db.delete(row._id);
+    if (!fresh) return null;
+    // Refuse if the row was created without a binding (legacy path
+    // can't use this entry point) or if the hashes differ.
+    if (!row.bindingNonceHash) return null;
+    if (
+      !timingSafeEqualHex(row.bindingNonceHash, args.bindingNonceHash)
+    ) {
+      return null;
+    }
+    return {
+      workspaceId: row.workspaceId,
+      operatorId: row.operatorId,
+      provider: row.provider,
+    };
   },
 });
 
@@ -289,21 +473,55 @@ export const _upsertConnection = internalMutation({
 // ── Helpers (also used by the http callback handler) ──────────────────
 
 export function redirectUriFor(provider: "google" | "microsoft"): string {
-  // Convex http actions live at <deployment>.convex.site. We pin the
-  // redirect URI to the prod deployment via env so OAuth registrations
-  // don't need to change between dev and prod (and so dev can test
-  // with the prod redirect via local tunneling).
+  // Legacy convex.site callback. New flows route through
+  // finalizeRedirectUriFor (praxtalk.com) instead. Kept for any in-
+  // flight OAuth registrations still pointing here.
   const base =
     process.env.PRAXTALK_OAUTH_REDIRECT_BASE ??
     "https://industrious-moose-892.convex.site";
   return `${base}/api/oauth/calendar/${provider}/callback`;
 }
 
+/**
+ * praxtalk.com-side callback URI used by the binding-cookie flow.
+ * Operator clicks Connect → server action sets binding cookie + sends
+ * browser to provider → provider redirects here → Next.js route
+ * handler reads cookie + finalizes via Convex action.
+ *
+ * REGISTER THIS URI in Google Cloud Console + Azure AD before the
+ * deploy lands or new connect attempts will fail with redirect_uri
+ * mismatch. Old convex.site URIs can stay registered alongside.
+ */
+export function finalizeRedirectUriFor(
+  provider: "google" | "microsoft",
+): string {
+  const base =
+    process.env.PRAXTALK_DASHBOARD_BASE ?? "https://www.praxtalk.com";
+  return `${base}/api/oauth/calendar/${provider}/callback`;
+}
+
 function randomState(): string {
-  // 24 bytes of entropy → 32-char base64-ish string. Plenty for CSRF.
+  // 24 bytes of entropy → 48-char hex string. Plenty for CSRF + binding.
   const arr = new Uint8Array(24);
   crypto.getRandomValues(arr);
   return Array.from(arr)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const buf = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
 }

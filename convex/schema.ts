@@ -392,6 +392,13 @@ export default defineSchema({
     operatorId: v.id("operators"),
     provider: v.union(v.literal("google"), v.literal("microsoft")),
     state: v.string(), // random nonce
+    // SHA-256(bindingNonce). The binding nonce is set as an httpOnly
+    // cookie on praxtalk.com when the operator clicks Connect, and
+    // re-presented on callback. Without the cookie, an attacker who
+    // observes only the URL `state` parameter cannot complete the
+    // flow. Optional for backwards compat with the legacy convex.site
+    // callback path which doesn't have access to the cookie.
+    bindingNonceHash: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_state", ["state"]),
 

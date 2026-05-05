@@ -1,10 +1,11 @@
 "use client";
 
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import { useDashboardAuth } from "../DashboardShell";
 import { cn } from "@/lib/cn";
+import { startCalendarConnect } from "./calendar-actions";
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Google Calendar",
@@ -24,18 +25,21 @@ export function CalendarsSection() {
   const config = useQuery(api.calendarConnections.providerConfig, {
     sessionToken,
   });
-  const startOauth = useAction(api.calendarConnections.startOauth);
   const disconnect = useMutation(api.calendarConnections.disconnect);
 
   const [busy, setBusy] = useState<"google" | "microsoft" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // We rely on a server action so the binding cookie can be set on
+  // praxtalk.com before the browser navigates to the OAuth URL. The
+  // action `redirect()`s — control never returns here on the happy
+  // path. If it throws synchronously (server-side), Next.js bubbles
+  // the error and the catch block fires.
   const connect = async (provider: "google" | "microsoft") => {
     setBusy(provider);
     setError(null);
     try {
-      const { url } = await startOauth({ sessionToken, provider });
-      window.location.href = url;
+      await startCalendarConnect(provider);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't start OAuth.");
       setBusy(null);
