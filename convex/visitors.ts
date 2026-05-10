@@ -436,9 +436,16 @@ export const listMessagesForVisitor = query({
         role: m.role,
         body: m.body,
         createdAt: m.createdAt,
+        // Two paths to a visitor-visible name:
+        //   1. senderDisplayName — set by the REST API (e.g. CRM
+        //      External Conversations passes the agent's alias).
+        //   2. operator-id lookup — for native-PraxTalk messages
+        //      where an operator row exists.
+        // Prefer #1 because it's exact; fall back to #2.
         senderName:
           m.role === "operator"
-            ? await resolveName(m.senderOperatorId)
+            ? ((m as { senderDisplayName?: string }).senderDisplayName ??
+                (await resolveName(m.senderOperatorId)))
             : null,
       })),
     );

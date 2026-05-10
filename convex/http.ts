@@ -325,15 +325,25 @@ http.route({
     }
     const conversationId = segments[3] as Id<"conversations">;
 
-    let body: { body?: unknown };
+    let body: { body?: unknown; senderName?: unknown };
     try {
-      body = (await req.json()) as { body?: unknown };
+      body = (await req.json()) as {
+        body?: unknown;
+        senderName?: unknown;
+      };
     } catch {
       return errorResponse(400, "Invalid JSON body.");
     }
     if (typeof body.body !== "string" || !body.body.trim()) {
       return errorResponse(400, "Field `body` is required.");
     }
+    // senderName is optional; when present, it's the display name shown
+    // to the visitor (typically the agent's alias from the calling
+    // CRM). Defensive: refuse non-string types so a malformed payload
+    // doesn't end up serialized as "[object Object]" on the visitor's
+    // chat bubble.
+    const senderDisplayName =
+      typeof body.senderName === "string" ? body.senderName : undefined;
 
     if (auth.brandId) {
       const convo = await ctx.runQuery(internal.publicApi.getConversation, {
@@ -355,6 +365,7 @@ http.route({
           workspaceId: auth.workspaceId,
           conversationId,
           body: body.body,
+          ...(senderDisplayName ? { senderDisplayName } : {}),
         },
       );
       return jsonResponse({ messageId }, 201);

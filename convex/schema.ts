@@ -989,6 +989,14 @@ export default defineSchema({
       v.literal("internal_note"),
     ),
     senderOperatorId: v.optional(v.id("operators")),
+    // Free-text sender name shown to the visitor in the widget. Set
+    // when an external caller (e.g. the Prax CRM External Conversations
+    // tab) sends an operator reply via the REST API and wants the
+    // visitor to see a specific person's name (typically the agent's
+    // alias) without provisioning a PraxTalk operators row.
+    // Internal/native-operator messages set senderOperatorId instead;
+    // the widget query prefers senderDisplayName when present.
+    senderDisplayName: v.optional(v.string()),
     body: v.string(),
     // Email-specific metadata. Used to thread inbound replies and to
     // build outbound Message-IDs.

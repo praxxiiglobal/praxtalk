@@ -88,6 +88,10 @@ export const sendOperatorMessage = internalMutation({
     workspaceId: v.id("workspaces"),
     conversationId: v.id("conversations"),
     body: v.string(),
+    // Free-text agent name shown to the visitor in the widget.
+    // Optional — when omitted, the widget falls back to whatever
+    // the operator-id resolves to (or just "operator").
+    senderDisplayName: v.optional(v.string()),
   },
   returns: v.id("messages"),
   handler: async (ctx, args) => {
@@ -98,6 +102,11 @@ export const sendOperatorMessage = internalMutation({
     const body = args.body.trim();
     if (!body) throw new Error("Message body required.");
 
+    // Trim and length-cap the display name so a sloppy caller can't
+    // push a 10KB string into our messages stream. 80 chars covers
+    // any realistic person's name.
+    const displayName = (args.senderDisplayName ?? "").trim().slice(0, 80);
+
     const now = Date.now();
     const messageId = await ctx.db.insert("messages", {
       conversationId: args.conversationId,
@@ -106,6 +115,7 @@ export const sendOperatorMessage = internalMutation({
       channel: convo.channel,
       role: "operator",
       body,
+      ...(displayName ? { senderDisplayName: displayName } : {}),
       createdAt: now,
     });
     await ctx.db.patch(args.conversationId, {
