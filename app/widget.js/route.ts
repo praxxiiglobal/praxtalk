@@ -180,6 +180,42 @@ const WIDGET_SHELL = `
   .geo:disabled { opacity: 0.5; cursor: progress; }
   .geo svg { width: 18px; height: 18px; }
   .geo.hidden { display: none; }
+  /* Inline identity card — appears between message list and composer
+     after the visitor's first message, asking for name/email/phone.
+     All optional; visitor can skip. Once submitted or skipped, we
+     don't show it again on this browser. */
+  .identity-card {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    border-top: 1px solid rgba(0,0,0,0.06);
+    background: rgba(0,0,0,0.025);
+  }
+  .identity-card.show { display: flex; }
+  .identity-card-title { font-size: 13px; font-weight: 600; color: var(--praxtalk-ink); margin: 0; }
+  .identity-card-sub { font-size: 11.5px; color: #6b6b5d; margin: 0 0 2px; line-height: 1.35; }
+  .identity-card input {
+    border: 1px solid rgba(0,0,0,0.12); border-radius: 8px;
+    padding: 7px 10px; font-size: 13px; outline: none;
+    font-family: inherit; background: #fff; color: var(--praxtalk-ink);
+  }
+  .identity-card input:focus { border-color: var(--praxtalk-accent); }
+  .identity-card-error { font-size: 11px; color: #c0392b; min-height: 14px; }
+  .identity-card-actions { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
+  .identity-card-skip {
+    background: transparent; border: none; color: #777;
+    font-size: 12px; cursor: pointer; font-family: inherit; padding: 0;
+  }
+  .identity-card-skip:hover { color: var(--praxtalk-ink); }
+  .identity-card-submit {
+    flex: 1; background: var(--praxtalk-accent); color: #fff; border: none;
+    height: 34px; border-radius: 8px; cursor: pointer;
+    font-size: 13px; font-weight: 500; font-family: inherit;
+    transition: opacity 0.15s ease;
+  }
+  .identity-card-submit:hover { opacity: 0.92; }
+  .identity-card-submit:disabled { opacity: 0.6; cursor: not-allowed; }
   .footer { padding: 6px 12px; font-size: 10px; color: #999; text-align: center; background: #fff; }
   .footer a { color: inherit; text-decoration: none; }
 </style>
@@ -269,6 +305,18 @@ const WIDGET_SHELL = `
 
     <div class="chat-view hidden">
       <div class="list"></div>
+      <div class="identity-card" role="region" aria-label="Tell us about you">
+        <p class="identity-card-title">Mind sharing your details?</p>
+        <p class="identity-card-sub">All optional — helps us follow up if we get disconnected.</p>
+        <input class="identity-name" type="text" placeholder="Your name" autocomplete="name" />
+        <input class="identity-email" type="email" placeholder="Email (optional)" autocomplete="email" />
+        <input class="identity-phone" type="tel" placeholder="Phone (optional)" autocomplete="tel" />
+        <div class="identity-card-error" role="alert"></div>
+        <div class="identity-card-actions">
+          <button class="identity-card-skip" type="button">Skip for now</button>
+          <button class="identity-card-submit" type="button">Share</button>
+        </div>
+      </div>
       <div class="composer">
         <button class="geo" type="button" aria-label="Share my location" title="Share my location">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -402,7 +450,27 @@ const SOURCE = /* javascript */ `(() => {
     geoBtn: root.querySelector(".geo"),
     humanBtn: root.querySelector(".human"),
     closeBtn: root.querySelector(".close"),
+    identityCard: root.querySelector(".identity-card"),
+    identityName: root.querySelector(".identity-name"),
+    identityEmail: root.querySelector(".identity-email"),
+    identityPhone: root.querySelector(".identity-phone"),
+    identityError: root.querySelector(".identity-card-error"),
+    identitySkip: root.querySelector(".identity-card-skip"),
+    identitySubmit: root.querySelector(".identity-card-submit"),
   };
+
+  // Local "we already asked" flag, keyed per widget so visiting two
+  // brand sites from one browser doesn't suppress both prompts.
+  function identityAskedKey(wid) {
+    return "praxtalk_identity_asked_" + wid;
+  }
+  function isIdentityAsked() {
+    try { return localStorage.getItem(identityAskedKey(widgetId)) === "1"; }
+    catch { return false; }
+  }
+  function markIdentityAsked() {
+    try { localStorage.setItem(identityAskedKey(widgetId), "1"); } catch {}
+  }
 
   // If the browser doesn't expose Geolocation (very old / locked-down
   // contexts) hide the share-location button entirely.
@@ -606,17 +674,23 @@ const SOURCE = /* javascript */ `(() => {
 
       const cachedProfile = loadProfile();
       let conversationId = null;
+      // Track how many messages the visitor has sent this session.
+      // Used to trigger the inline identity card after the first send.
+      let visitorMessageCount = 0;
 
-      async function startConversation(profile, firstMessage) {
+      async function startConversation(profile) {
         const geo = await fetchVisitorGeo();
         const result = await client.mutation(
           "visitors:identifyAndStartConversation",
           {
             widgetId,
             visitorKey,
-            name: profile.name,
-            email: profile.email,
-            phone: profile.phone,
+            // All identity fields are optional — for anonymous chat
+            // (the new default flow) we pass undefined for everything
+            // and the visitor row gets created empty.
+            name: profile?.name,
+            email: profile?.email,
+            phone: profile?.phone,
             ip: geo ? geo.ip : undefined,
             location: geo ? geo.location : undefined,
           },
@@ -630,15 +704,22 @@ const SOURCE = /* javascript */ `(() => {
           renderMessages,
           (err) => console.error("[PraxTalk] message subscription failed", err),
         );
+      }
 
-        // Send the first message from the form.
-        if (firstMessage && firstMessage.trim()) {
-          await client.mutation("visitors:sendVisitorMessage", {
-            widgetId,
-            visitorKey,
-            conversationId,
-            body: firstMessage,
-          });
+      // The "drop straight to chat" path (no pre-chat form). Used for
+      // brand-new anonymous visitors and for the chooser's "chat here"
+      // button. After this lands, the visitor sees an empty chat view
+      // and can start typing; the identity card prompt comes after
+      // their first send (unless the brand turned it off).
+      async function enterChatAnonymous() {
+        try {
+          await startConversation(undefined);
+          showChat();
+        } catch (err) {
+          console.error("[PraxTalk] anon start failed", err);
+          // Fall back to the legacy form view — better than a stuck
+          // widget. Form HTML is still in the DOM for this reason.
+          showForm();
         }
       }
 
@@ -655,15 +736,12 @@ const SOURCE = /* javascript */ `(() => {
       // skipped the chooser this load can land here next visit.
       els.chooserChat.addEventListener("click", () => {
         saveChannelChoice("chat");
-        // Fall back into the same logic the bypass path uses below,
-        // by re-running the resume check or showing the form.
         if (hasResumeableSession) {
-          // Just show the chat shell; subscription was already wired
-          // up if we got here through the resume path. If not, click
-          // through form is simpler than re-implementing the resume.
-          showForm();
+          // Cached profile path — resume already wired the
+          // subscription if we hit this in the same load.
+          showChat();
         } else {
-          showForm();
+          enterChatAnonymous();
         }
       });
       els.chooserWa.addEventListener("click", (e) => {
@@ -694,7 +772,8 @@ const SOURCE = /* javascript */ `(() => {
       if (showChooserFirst) {
         showChooser();
       } else if (hasResumeableSession) {
-        // Subscribe / start a conversation without the form re-prompt.
+        // Resume path — visitor has a cached profile from a prior
+        // session. Re-identify and drop them straight into chat.
         try {
           const geo = await fetchVisitorGeo();
           const result = await client.mutation(
@@ -716,12 +795,17 @@ const SOURCE = /* javascript */ `(() => {
             renderMessages,
           );
           showChat();
+          // Resumed visitor already has identity — never ask again.
+          markIdentityAsked();
         } catch (err) {
-          console.error("[PraxTalk] resume failed, falling back to form", err);
-          showForm();
+          console.error("[PraxTalk] resume failed, going anon", err);
+          await enterChatAnonymous();
         }
       } else {
-        showForm();
+        // Brand-new visitor — straight into anonymous chat. The pre-
+        // chat form is no longer the default entry point; the inline
+        // identity card (after first message) replaces it.
+        await enterChatAnonymous();
       }
 
       // Form submission flow.
@@ -764,6 +848,65 @@ const SOURCE = /* javascript */ `(() => {
         }
       });
 
+      // ── Inline identity card ───────────────────────────────────────
+      // Triggered after the visitor's first send (when the brand has
+      // askIdentityInChat = true and we haven't already asked on this
+      // browser). Sit between the message list and composer.
+
+      function showIdentityCard() {
+        els.identityCard.classList.add("show");
+        setTimeout(() => els.identityName.focus(), 50);
+      }
+      function hideIdentityCard() {
+        els.identityCard.classList.remove("show");
+        els.identityError.textContent = "";
+      }
+
+      els.identitySkip.addEventListener("click", () => {
+        markIdentityAsked();
+        hideIdentityCard();
+      });
+
+      els.identitySubmit.addEventListener("click", async () => {
+        els.identityError.textContent = "";
+        const name = els.identityName.value.trim();
+        const email = els.identityEmail.value.trim();
+        const phone = els.identityPhone.value.trim();
+        if (!name && !email && !phone) {
+          // Treat empty submit as a skip — friendlier than a hard error.
+          markIdentityAsked();
+          hideIdentityCard();
+          return;
+        }
+        if (email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+          els.identityError.textContent = "Please enter a valid email.";
+          return;
+        }
+        els.identitySubmit.disabled = true;
+        const original = els.identitySubmit.textContent;
+        els.identitySubmit.textContent = "Saving…";
+        try {
+          await client.mutation("visitors:updateIdentity", {
+            widgetId,
+            visitorKey,
+            name: name || undefined,
+            email: email || undefined,
+            phone: phone || undefined,
+          });
+          // Cache locally so future page loads resume cleanly.
+          saveProfile({ name, email, phone });
+          markIdentityAsked();
+          hideIdentityCard();
+        } catch (err) {
+          console.error("[PraxTalk] updateIdentity failed", err);
+          els.identityError.textContent =
+            err && err.data ? String(err.data) : "Couldn't save — try again.";
+        } finally {
+          els.identitySubmit.disabled = false;
+          els.identitySubmit.textContent = original;
+        }
+      });
+
       async function send() {
         if (!conversationId) return;
         const text = els.input.value.trim();
@@ -771,6 +914,7 @@ const SOURCE = /* javascript */ `(() => {
         els.input.value = "";
         els.list.appendChild(bubble("visitor", text));
         els.list.scrollTop = els.list.scrollHeight;
+        visitorMessageCount++;
         try {
           await client.mutation("visitors:sendVisitorMessage", {
             widgetId,
@@ -780,6 +924,16 @@ const SOURCE = /* javascript */ `(() => {
           });
         } catch (err) {
           console.error("[PraxTalk] send failed", err);
+        }
+        // After the very first visitor message: if the brand wants
+        // inline identity capture and we haven't asked yet, surface
+        // the card. Subsequent sends don't re-trigger.
+        if (
+          visitorMessageCount === 1 &&
+          config.askIdentityInChat &&
+          !isIdentityAsked()
+        ) {
+          showIdentityCard();
         }
       }
       els.sendBtn.addEventListener("click", send);

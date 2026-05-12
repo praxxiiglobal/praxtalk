@@ -178,6 +178,16 @@ export default defineSchema({
     // integration — just a deep-link.
     waMePhone: v.optional(v.string()),
     waMePrefilledMessage: v.optional(v.string()),
+    // When true (default if unset), the widget skips the pre-chat
+    // form and drops the visitor straight into chat. After the
+    // visitor sends their first message, an inline identity card
+    // appears asking for name + email + phone (all optional). The
+    // visitor can fill or skip; either way the card disappears and
+    // we never ask again on that browser.
+    //
+    // When false, the visitor stays fully anonymous unless an
+    // operator/Atlas asks for identity in chat.
+    askIdentityInChat: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])

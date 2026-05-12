@@ -380,6 +380,64 @@ export const setPreciseLocation = mutation({
 });
 
 /**
+ * Public — visitor patches their own identity from the in-chat
+ * identity card that the widget shows after their first message. All
+ * three fields are optional; we only overwrite what the visitor
+ * actually provided. Doesn't clobber existing values with empty ones.
+ *
+ * Validates email + phone shapes loosely (just non-empty + valid-ish
+ * format) — same level of trust as the pre-chat form had.
+ */
+export const updateIdentity = mutation({
+  args: {
+    widgetId: v.string(),
+    visitorKey: v.string(),
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const brand = await ctx.db
+      .query("brands")
+      .withIndex("by_widget_id", (q) => q.eq("widgetId", args.widgetId))
+      .unique();
+    if (!brand) throw new ConvexError("Unknown widget.");
+
+    const visitor = await ctx.db
+      .query("visitors")
+      .withIndex("by_brand_visitor_key", (q) =>
+        q.eq("brandId", brand._id).eq("visitorKey", args.visitorKey),
+      )
+      .unique();
+    if (!visitor) throw new ConvexError("Visitor not found.");
+
+    const patch: Record<string, unknown> = { lastSeenAt: Date.now() };
+    const name = args.name?.trim();
+    const email = args.email?.trim();
+    const phone = args.phone?.trim();
+    if (name) patch.name = name;
+    if (email) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new ConvexError("Please enter a valid email.");
+      }
+      patch.email = email;
+    }
+    if (phone) {
+      // Same loose check the pre-chat form used: digits-only after
+      // stripping non-digits, min length 6.
+      const digits = phone.replace(/[^0-9+]/g, "");
+      if (digits.replace(/[^0-9]/g, "").length < 6) {
+        throw new ConvexError("Please enter a valid phone number.");
+      }
+      patch.phone = digits;
+    }
+    await ctx.db.patch(visitor._id, patch);
+    return null;
+  },
+});
+
+/**
  * Public — reactive message stream for the visitor's own conversation.
  * Authenticated by (widgetId, visitorKey, conversationId) all matching
  * the conversation's stored brand + visitor.

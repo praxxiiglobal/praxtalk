@@ -118,6 +118,7 @@ export const update = mutation({
     businessHours: v.optional(v.string()),
     waMePhone: v.optional(v.string()),
     waMePrefilledMessage: v.optional(v.string()),
+    askIdentityInChat: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -156,6 +157,9 @@ export const update = mutation({
     if (args.waMePrefilledMessage !== undefined) {
       const trimmed = args.waMePrefilledMessage.trim();
       patch.waMePrefilledMessage = trimmed.length === 0 ? undefined : trimmed;
+    }
+    if (args.askIdentityInChat !== undefined) {
+      patch.askIdentityInChat = args.askIdentityInChat;
     }
 
     await ctx.db.patch(args.brandId, patch);
@@ -263,6 +267,7 @@ function toPublicBrand(b: Doc<"brands">) {
     businessHours: b.businessHours,
     waMePhone: b.waMePhone,
     waMePrefilledMessage: b.waMePrefilledMessage,
+    askIdentityInChat: b.askIdentityInChat,
     createdAt: b.createdAt,
   };
 }

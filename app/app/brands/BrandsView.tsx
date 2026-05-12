@@ -15,6 +15,7 @@ type Brand = {
   primaryColor: string;
   welcomeMessage: string;
   position: "br" | "bl";
+  askIdentityInChat?: boolean;
 };
 
 export function BrandsView() {
@@ -136,6 +137,10 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
   const [primaryColor, setPrimaryColor] = useState(brand.primaryColor);
   const [welcomeMessage, setWelcomeMessage] = useState(brand.welcomeMessage);
   const [position, setPosition] = useState<"br" | "bl">(brand.position);
+  // Default-on: when the brand row has no value yet, treat as enabled.
+  const [askIdentityInChat, setAskIdentityInChat] = useState<boolean>(
+    brand.askIdentityInChat ?? true,
+  );
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -166,6 +171,7 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
         primaryColor,
         welcomeMessage,
         position,
+        askIdentityInChat,
       });
       setEditing(false);
     } finally {
@@ -274,6 +280,24 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
               <option value="br">Bottom right</option>
               <option value="bl">Bottom left</option>
             </select>
+          </label>
+          <label className="flex items-start gap-2 sm:col-span-2 rounded-lg border border-rule-2 bg-paper p-3">
+            <input
+              type="checkbox"
+              checked={askIdentityInChat}
+              onChange={(e) => setAskIdentityInChat(e.target.checked)}
+              className="mt-0.5 h-4 w-4"
+            />
+            <span className="flex flex-col gap-0.5 text-sm">
+              <span className="font-medium text-ink">
+                Ask for visitor identity in chat
+              </span>
+              <span className="text-[12px] leading-[1.4] text-muted">
+                After the visitor sends their first message, drop in a card
+                asking for name + email + phone (all optional, dismissable).
+                Turn off for fully anonymous chat.
+              </span>
+            </span>
           </label>
           <div className="flex items-end justify-end gap-2 sm:col-span-2">
             <button

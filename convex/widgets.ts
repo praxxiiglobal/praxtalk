@@ -26,6 +26,9 @@ export const getConfigByWidgetId = query({
       // WhatsApp" link in the welcome strip when set; null otherwise.
       waMePhone: v.union(v.string(), v.null()),
       waMePrefilledMessage: v.union(v.string(), v.null()),
+      // True (default) = drop the inline identity card after the
+      // visitor's first message. False = stay fully anonymous.
+      askIdentityInChat: v.boolean(),
     }),
   ),
   handler: async (ctx, { widgetId }) => {
@@ -45,6 +48,8 @@ export const getConfigByWidgetId = query({
       avatarUrl: brand.avatarUrl,
       waMePhone: brand.waMePhone ?? null,
       waMePrefilledMessage: brand.waMePrefilledMessage ?? null,
+      // Unset = default-on (most brands want to capture identity).
+      askIdentityInChat: brand.askIdentityInChat ?? true,
     };
   },
 });
