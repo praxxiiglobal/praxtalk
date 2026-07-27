@@ -165,7 +165,9 @@ async function authenticate(
 function resolveBrandFilter(
   auth: { brandId: Id<"brands"> | null },
   requested: string | null | undefined,
-): { ok: true; brandId: Id<"brands"> | null } | { ok: false; response: Response } {
+):
+  | { ok: true; brandId: Id<"brands"> | null }
+  | { ok: false; response: Response } {
   if (auth.brandId) {
     if (requested && requested !== String(auth.brandId)) {
       return {
@@ -244,10 +246,10 @@ http.route({
   handler: httpAction(async (ctx, req) => {
     const auth = await authenticate(ctx, req);
     if ("error" in auth) return auth.error;
-    const replies = await ctx.runQuery(
-      internal.publicApi.listSavedReplies,
-      { workspaceId: auth.workspaceId, brandId: auth.brandId ?? null },
-    );
+    const replies = await ctx.runQuery(internal.publicApi.listSavedReplies, {
+      workspaceId: auth.workspaceId,
+      brandId: auth.brandId ?? null,
+    });
     return jsonResponse({ replies });
   }),
 });
@@ -304,6 +306,60 @@ http.route({
     );
     if (denied) return denied;
     return jsonResponse({ conversation: convo });
+  }),
+});
+
+// ── POST /api/v1/typing ───────────────────────────────────────────────
+// Operator (CRM) signals "I'm typing" on a conversation, debounced by
+// the caller to ~every 2s. Body: { conversationId }. Fire-and-forget —
+// returns 200 even on a stale/closed conversation (the mutation no-ops)
+// so the CRM's typing pings never surface as errors to the operator.
+http.route({
+  path: "/api/v1/typing",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const auth = await authenticate(ctx, req);
+    if ("error" in auth) return auth.error;
+    const denied = requireWriteScope(auth.scope);
+    if (denied) return denied;
+    let body: { conversationId?: unknown };
+    try {
+      body = (await req.json()) as { conversationId?: unknown };
+    } catch {
+      return errorResponse(400, "Invalid JSON body.");
+    }
+    if (typeof body.conversationId !== "string") {
+      return errorResponse(400, "conversationId is required.");
+    }
+    await ctx.runMutation(internal.typing.setOperatorTyping, {
+      workspaceId: auth.workspaceId,
+      conversationId: body.conversationId as Id<"conversations">,
+    });
+    return jsonResponse({ ok: true });
+  }),
+});
+
+// ── GET /api/v1/typing?conversationId=... ─────────────────────────────
+// CRM polls this (~every 2s while a thread is open) to learn whether
+// the VISITOR is currently typing. Returns both timestamps; the caller
+// applies its own freshness window.
+http.route({
+  path: "/api/v1/typing",
+  method: "GET",
+  handler: httpAction(async (ctx, req) => {
+    const auth = await authenticate(ctx, req);
+    if ("error" in auth) return auth.error;
+    const url = new URL(req.url);
+    const conversationId = url.searchParams.get("conversationId");
+    if (!conversationId) {
+      return errorResponse(400, "conversationId is required.");
+    }
+    const state = await ctx.runQuery(internal.typing.getTypingState, {
+      workspaceId: auth.workspaceId,
+      conversationId: conversationId as Id<"conversations">,
+    });
+    if (!state) return errorResponse(404, "Conversation not found.");
+    return jsonResponse(state);
   }),
 });
 
@@ -654,20 +710,17 @@ http.route({
     }
 
     try {
-      await ctx.runMutation(
-        internal.emailIntegrations.recordInboundEmail,
-        {
-          workspaceId: workspace.workspaceId,
-          assignToOperatorId: workspace.operatorId ?? undefined,
-          fromEmail: parsed.fromEmail,
-          fromName: parsed.fromName,
-          subject: parsed.subject,
-          body: parsed.body,
-          messageId: parsed.messageId,
-          inReplyTo: parsed.inReplyTo,
-          references: parsed.references,
-        },
-      );
+      await ctx.runMutation(internal.emailIntegrations.recordInboundEmail, {
+        workspaceId: workspace.workspaceId,
+        assignToOperatorId: workspace.operatorId ?? undefined,
+        fromEmail: parsed.fromEmail,
+        fromName: parsed.fromName,
+        subject: parsed.subject,
+        body: parsed.body,
+        messageId: parsed.messageId,
+        inReplyTo: parsed.inReplyTo,
+        references: parsed.references,
+      });
       return jsonResponse({ ok: true }, 200);
     } catch (err) {
       // Log internally; return the same 200 shape so failures don't
@@ -863,14 +916,11 @@ http.route({
     }
 
     try {
-      await ctx.runMutation(
-        internal.voiceIntegrations.recordInboundCall,
-        {
-          workspaceId: integration.workspaceId,
-          assignToOperatorId: integration.operatorId ?? undefined,
-          ...normalised,
-        },
-      );
+      await ctx.runMutation(internal.voiceIntegrations.recordInboundCall, {
+        workspaceId: integration.workspaceId,
+        assignToOperatorId: integration.operatorId ?? undefined,
+        ...normalised,
+      });
       return jsonResponse({ ok: true });
     } catch (err) {
       return errorResponse(
@@ -894,7 +944,12 @@ function parseTwilioSms(params: URLSearchParams): NormalisedSmsHttp | null {
 }
 
 function parseCallHippoSms(payload: unknown): NormalisedSmsHttp | null {
-  const p = payload as { from?: string; sender?: string; message?: string; body?: string };
+  const p = payload as {
+    from?: string;
+    sender?: string;
+    message?: string;
+    body?: string;
+  };
   const fromPhone = p.from ?? p.sender;
   const body = p.message ?? p.body;
   if (!fromPhone || !body) return null;
@@ -949,15 +1004,12 @@ http.route({
     }
 
     try {
-      await ctx.runMutation(
-        internal.voiceIntegrations.recordInboundSms,
-        {
-          workspaceId: integration.workspaceId,
-          assignToOperatorId: integration.operatorId ?? undefined,
-          fromPhone: normalised.fromPhone,
-          body: normalised.body,
-        },
-      );
+      await ctx.runMutation(internal.voiceIntegrations.recordInboundSms, {
+        workspaceId: integration.workspaceId,
+        assignToOperatorId: integration.operatorId ?? undefined,
+        fromPhone: normalised.fromPhone,
+        body: normalised.body,
+      });
       return jsonResponse({ ok: true });
     } catch (err) {
       return errorResponse(
@@ -1054,7 +1106,9 @@ function parseTwilioCallback(params: URLSearchParams): NormalisedCall | null {
     durationSec: duration ? Number(duration) : undefined,
     recordingUrl: params.get("RecordingUrl") ?? undefined,
     callType:
-      CallStatus === "no-answer" || CallStatus === "busy" || CallStatus === "failed"
+      CallStatus === "no-answer" ||
+      CallStatus === "busy" ||
+      CallStatus === "failed"
         ? "missed"
         : isOutbound
           ? "outbound"
@@ -1106,7 +1160,10 @@ function normaliseInboundEmail(payload: unknown): {
       body:
         (typeof p.TextBody === "string" && p.TextBody) ||
         (typeof p.HtmlBody === "string" ? stripHtml(p.HtmlBody) : ""),
-      messageId: typeof p.MessageID === "string" ? p.MessageID : findHeader("Message-ID"),
+      messageId:
+        typeof p.MessageID === "string"
+          ? p.MessageID
+          : findHeader("Message-ID"),
       inReplyTo: findHeader("In-Reply-To"),
       references: refHeader
         ? refHeader
@@ -1177,10 +1234,10 @@ http.route({
     if (!authToken) {
       // No token configured — refuse outright. Better to fail closed
       // than silently accept unsigned calls.
-      return new Response(
-        JSON.stringify({ error: "twilio not configured" }),
-        { status: 401, headers: { "content-type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ error: "twilio not configured" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
     }
     const verified = await verifyTwilioSignature({
       authToken,
@@ -1189,18 +1246,21 @@ http.route({
       signature,
     });
     if (!verified) {
-      return new Response(
-        JSON.stringify({ error: "invalid signature" }),
-        { status: 401, headers: { "content-type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ error: "invalid signature" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
     }
     const callSid = params.get("CallSid");
     const callStatus = params.get("CallStatus");
     if (!callSid || !callStatus) {
-      return new Response(JSON.stringify({ ok: true, dropped: "missing fields" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ ok: true, dropped: "missing fields" }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }
     await ctx.runMutation(internal.voiceIntegrations._applyTwilioStatus, {
       externalCallId: callSid,
@@ -1329,10 +1389,9 @@ http.route({
     // PayPal retries every failed webhook up to 25 times over 3 days;
     // dedupe by event id so retries become no-ops.
     if (evt.id) {
-      const fresh = await ctx.runMutation(
-        internal.webhookDedup.markIfFresh,
-        { key: `paypal:${evt.id}` },
-      );
+      const fresh = await ctx.runMutation(internal.webhookDedup.markIfFresh, {
+        key: `paypal:${evt.id}`,
+      });
       if (!fresh) {
         return new Response(JSON.stringify({ ok: true, replay: true }), {
           status: 200,
@@ -1416,10 +1475,9 @@ http.route({
     // subscription and re-apply the same plan-flip event. With the
     // dedup we ack the replay and no-op.
     if (evt.id) {
-      const fresh = await ctx.runMutation(
-        internal.webhookDedup.markIfFresh,
-        { key: `razorpay:${evt.id}` },
-      );
+      const fresh = await ctx.runMutation(internal.webhookDedup.markIfFresh, {
+        key: `razorpay:${evt.id}`,
+      });
       if (!fresh) {
         return new Response(JSON.stringify({ ok: true, replay: true }), {
           status: 200,

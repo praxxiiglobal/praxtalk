@@ -152,6 +152,15 @@ const WIDGET_SHELL = `
   .chat-view.hidden { display: none; }
   .list { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
   .empty { color: #6b6b5d; font-size: 13px; text-align: center; margin: auto 0; padding: 24px; }
+  /* "Agent is typing…" row — sits between the message list and the
+     composer. Hidden via the [hidden] attribute when nobody's typing. */
+  .typing-row { display: flex; align-items: center; gap: 8px; padding: 4px 16px 6px; color: #6b6b5d; font-size: 12px; }
+  .typing-row[hidden] { display: none; }
+  .typing-dots { display: inline-flex; gap: 3px; }
+  .typing-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--praxtalk-accent, #6b6b5d); opacity: 0.4; animation: praxtalk-typing 1.2s infinite ease-in-out; }
+  .typing-dots i:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dots i:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes praxtalk-typing { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
   .msg {
     max-width: 80%; padding: 9px 12px; border-radius: 14px;
     font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word;
@@ -317,6 +326,10 @@ const WIDGET_SHELL = `
           <button class="identity-card-submit" type="button">Share</button>
         </div>
       </div>
+      <div class="typing-row" hidden>
+        <span class="typing-dots"><i></i><i></i><i></i></span>
+        <span class="typing-text">Agent is typing…</span>
+      </div>
       <div class="composer">
         <button class="geo" type="button" aria-label="Share my location" title="Share my location">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -447,6 +460,7 @@ const SOURCE = /* javascript */ `(() => {
     list: root.querySelector(".list"),
     input: root.querySelector(".input"),
     sendBtn: root.querySelector(".send"),
+    typingRow: root.querySelector(".typing-row"),
     geoBtn: root.querySelector(".geo"),
     humanBtn: root.querySelector(".human"),
     closeBtn: root.querySelector(".close"),
@@ -678,6 +692,51 @@ const SOURCE = /* javascript */ `(() => {
       // Used to trigger the inline identity card after the first send.
       let visitorMessageCount = 0;
 
+      // ── Typing indicators ─────────────────────────────────────────
+      // Show "Agent is typing…" while the operator's last ping is
+      // fresh; auto-hide after the TTL since no update fires when they
+      // stop. And ping PraxTalk (debounced) while the visitor types so
+      // the operator sees dots on the CRM side.
+      const TYPING_TTL_MS = 6000;
+      let operatorTypingTimer = null;
+      function showOperatorTyping(ts) {
+        if (operatorTypingTimer) {
+          clearTimeout(operatorTypingTimer);
+          operatorTypingTimer = null;
+        }
+        const age = ts ? Date.now() - ts : Infinity;
+        const fresh = age < TYPING_TTL_MS;
+        els.typingRow.hidden = !fresh;
+        if (fresh) {
+          els.list.scrollTop = els.list.scrollHeight;
+          operatorTypingTimer = setTimeout(() => {
+            els.typingRow.hidden = true;
+          }, TYPING_TTL_MS - age);
+        }
+      }
+      function subscribeToTyping(convoId) {
+        client.onUpdate(
+          "typing:getTypingForVisitor",
+          { widgetId, visitorKey, conversationId: convoId },
+          (state) => showOperatorTyping(state && state.operatorTypingAt),
+          (err) => console.error("[PraxTalk] typing subscription failed", err),
+        );
+      }
+      let lastTypingPingAt = 0;
+      function pingVisitorTyping() {
+        if (!conversationId) return;
+        const now = Date.now();
+        if (now - lastTypingPingAt < 2000) return; // ~1 ping / 2s
+        lastTypingPingAt = now;
+        client
+          .mutation("typing:setVisitorTyping", {
+            widgetId,
+            visitorKey,
+            conversationId,
+          })
+          .catch(() => {});
+      }
+
       async function startConversation(profile) {
         const geo = await fetchVisitorGeo();
         const result = await client.mutation(
@@ -704,6 +763,7 @@ const SOURCE = /* javascript */ `(() => {
           renderMessages,
           (err) => console.error("[PraxTalk] message subscription failed", err),
         );
+        subscribeToTyping(conversationId);
       }
 
       // The "drop straight to chat" path (no pre-chat form). Used for
@@ -794,6 +854,7 @@ const SOURCE = /* javascript */ `(() => {
             { widgetId, visitorKey, conversationId },
             renderMessages,
           );
+          subscribeToTyping(conversationId);
           showChat();
           // Resumed visitor already has identity — never ask again.
           markIdentityAsked();
@@ -943,6 +1004,8 @@ const SOURCE = /* javascript */ `(() => {
           send();
         }
       });
+      // Ping "visitor is typing" as they write (debounced inside).
+      els.input.addEventListener("input", pingVisitorTyping);
 
       // Share-location button. Triggers the browser's native geolocation
       // permission prompt directly — no custom rationale card. On allow,

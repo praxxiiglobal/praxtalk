@@ -49,6 +49,7 @@ import type * as pushSubscriptions from "../pushSubscriptions.js";
 import type * as rateLimits from "../rateLimits.js";
 import type * as reminders from "../reminders.js";
 import type * as savedReplies from "../savedReplies.js";
+import type * as typing from "../typing.js";
 import type * as usage from "../usage.js";
 import type * as visitors from "../visitors.js";
 import type * as voiceIntegrations from "../voiceIntegrations.js";
@@ -106,6 +107,7 @@ declare const fullApi: ApiFromModules<{
   rateLimits: typeof rateLimits;
   reminders: typeof reminders;
   savedReplies: typeof savedReplies;
+  typing: typeof typing;
   usage: typeof usage;
   visitors: typeof visitors;
   voiceIntegrations: typeof voiceIntegrations;

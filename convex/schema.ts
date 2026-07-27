@@ -163,10 +163,7 @@ export default defineSchema({
       v.object({
         timezone: v.string(),
         weeklySchedule: v.array(
-          v.union(
-            v.null(),
-            v.object({ open: v.number(), close: v.number() }),
-          ),
+          v.union(v.null(), v.object({ open: v.number(), close: v.number() })),
         ),
         offHoursMessage: v.string(),
       }),
@@ -199,17 +196,11 @@ export default defineSchema({
     workspaceId: v.id("workspaces"),
     email: v.string(),
     name: v.string(),
-    role: v.union(
-      v.literal("owner"),
-      v.literal("admin"),
-      v.literal("agent"),
-    ),
+    role: v.union(v.literal("owner"), v.literal("admin"), v.literal("agent")),
     // Brand access scope. "all" = sees every brand in the workspace
     // (default for owners/admins). Array = scoped agents.
     // Optional during Phase 1 migration; required in Phase 3.
-    brandAccess: v.optional(
-      v.union(v.literal("all"), v.array(v.id("brands"))),
-    ),
+    brandAccess: v.optional(v.union(v.literal("all"), v.array(v.id("brands")))),
     passwordHash: v.string(), // PBKDF2 — see convex/lib/auth.ts
     createdAt: v.number(),
   })
@@ -226,9 +217,7 @@ export default defineSchema({
     email: v.string(),
     name: v.optional(v.string()),
     role: v.union(v.literal("admin"), v.literal("agent")),
-    brandAccess: v.optional(
-      v.union(v.literal("all"), v.array(v.id("brands"))),
-    ),
+    brandAccess: v.optional(v.union(v.literal("all"), v.array(v.id("brands")))),
     tokenHash: v.string(), // SHA-256 of the random invite token
     tokenPrefix: v.string(), // first 12 chars of token; UI lookup
     invitedBy: v.id("operators"),
@@ -340,9 +329,7 @@ export default defineSchema({
       v.literal("resolved"),
       v.literal("closed"),
     ),
-    resolvedBy: v.optional(
-      v.union(v.literal("atlas"), v.literal("operator")),
-    ),
+    resolvedBy: v.optional(v.union(v.literal("atlas"), v.literal("operator"))),
     confidence: v.optional(v.number()),
     // Visitor explicitly asked to talk to a human. Atlas stops
     // evaluating new messages on this conversation; the inbox badges
@@ -385,6 +372,22 @@ export default defineSchema({
     .index("by_workspace_visitor", ["workspaceId", "visitorId"])
     .index("by_brand_status_lastmsg", ["brandId", "status", "lastMessageAt"])
     .index("by_email_thread", ["emailThreadId"]),
+
+  // ── Typing indicators ─────────────────────────────────────────────
+  // High-churn, ephemeral "who's typing right now" state. Kept in its
+  // own table (not on the conversations doc) so the ~every-2s typing
+  // writes don't contend with reads of the conversation row — per the
+  // Convex guideline on separating heartbeat-style data. One row per
+  // conversation, upserted. Each field is the wall-clock ms of the
+  // last "still typing" ping from that party; readers treat a value
+  // older than a few seconds as "stopped". Nothing prunes these rows
+  // (one per conversation, tiny) — they're overwritten in place.
+  typingStates: defineTable({
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+    visitorTypingAt: v.optional(v.number()),
+    operatorTypingAt: v.optional(v.number()),
+  }).index("by_conversation", ["conversationId"]),
 
   // ── Conversation tags ─────────────────────────────────────────────
   // Many-to-many between conversations and a free-form tag string.
@@ -552,10 +555,7 @@ export default defineSchema({
     grantedByOperatorId: v.id("operators"),
     grantedAt: v.number(),
   })
-    .index("by_owner_type", [
-      "integrationOwnerOperatorId",
-      "integrationType",
-    ])
+    .index("by_owner_type", ["integrationOwnerOperatorId", "integrationType"])
     .index("by_grantee_type", ["grantedToOperatorId", "integrationType"])
     .index("by_owner_grantee_type", [
       "integrationOwnerOperatorId",
@@ -712,9 +712,7 @@ export default defineSchema({
     // approve vs unanimous; approvalTimeoutHours auto-declines
     // anything still pending after the deadline.
     requiresApproval: v.optional(v.boolean()),
-    approvalMode: v.optional(
-      v.union(v.literal("any"), v.literal("all")),
-    ),
+    approvalMode: v.optional(v.union(v.literal("any"), v.literal("all"))),
     approvalOperatorIds: v.optional(v.array(v.id("operators"))),
     approvalTimeoutHours: v.optional(v.number()),
     // Phase 2: send a "still waiting on you" escalation to all
@@ -1139,7 +1137,7 @@ export default defineSchema({
     .index("by_conversation_created", ["conversationId", "createdAt"])
     .index("by_workspace_created", ["workspaceId", "createdAt"]),
 
-// ── Saved replies ──────────────────────────────────────────────────
+  // ── Saved replies ──────────────────────────────────────────────────
   // Operator boilerplate. Optionally brand-scoped (visible only on a
   // particular brand's conversations) or global to the workspace.
   savedReplies: defineTable({
@@ -1231,7 +1229,7 @@ export default defineSchema({
     .index("by_workspace_operator", ["workspaceId", "operatorId"])
     .index("by_webhook_secret", ["webhookSecret"]),
 
-// ── Email integration ─────────────────────────────────────────────
+  // ── Email integration ─────────────────────────────────────────────
   // Per-workspace email provider config. Drives both inbound parsing
   // (which workspace owns mail to a given inbox alias) and outbound
   // sending (which API key + from address to use).
