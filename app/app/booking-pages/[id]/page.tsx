@@ -1,5 +1,5 @@
 import { BookingPageEditor } from "./BookingPageEditor";
-import { PageHeader, PageBody } from "../../PageHeader";
+import { PageHeader, PageBody } from "../../_components/PageHeader";
 import type { Id } from "@/convex/_generated/dataModel";
 
 export const metadata = {

@@ -1,5 +1,5 @@
 import { BookingPagesView } from "./BookingPagesView";
-import { PageHeader, PageBody } from "../PageHeader";
+import { PageHeader, PageBody } from "../_components/PageHeader";
 
 export const metadata = {
   title: "Booking pages · PraxTalk",

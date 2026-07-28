@@ -4,8 +4,8 @@ import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/convex/_generated/api";
-import { useDashboardAuth } from "../DashboardShell";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { Card } from "../_components/PageHeader";
 import { cn } from "@/lib/cn";
 
 const STATUSES = ["pending", "sent", "failed", "cancelled"] as const;

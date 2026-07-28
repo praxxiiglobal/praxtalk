@@ -1,5 +1,5 @@
 import { BillingView } from "./BillingView";
-import { PageHeader, PageBody } from "../PageHeader";
+import { PageHeader, PageBody } from "../_components/PageHeader";
 
 export const metadata = {
   title: "Billing · PraxTalk",

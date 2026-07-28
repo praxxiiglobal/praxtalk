@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useMutation } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { useDashboardAuth } from "../DashboardShell";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { Card } from "../_components/PageHeader";
 import { DashboardThemeSection } from "./DashboardThemeSection";
 
 const WORKSPACE_LINKS: { href: string; label: string; description: string }[] = [

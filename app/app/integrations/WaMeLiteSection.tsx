@@ -4,8 +4,8 @@ import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useDashboardAuth } from "../DashboardShell";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { Card } from "../_components/PageHeader";
 
 /**
  * WhatsApp click-to-chat ("wa.me lite") — for workspaces that just

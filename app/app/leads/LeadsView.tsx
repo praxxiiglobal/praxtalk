@@ -4,9 +4,9 @@ import { useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useDashboardAuth } from "../DashboardShell";
-import { useSelectedBrand } from "../useSelectedBrand";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { useSelectedBrand } from "../_components/useSelectedBrand";
+import { Card } from "../_components/PageHeader";
 import { cn } from "@/lib/cn";
 
 type Status = "new" | "contacted" | "qualified" | "won" | "lost";

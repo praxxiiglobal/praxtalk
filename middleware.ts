@@ -89,13 +89,9 @@ export function middleware(req: NextRequest) {
   // sometimes — letting the layout handle that case keeps behaviour
   // identical to current.
   if (isAuthGatedPath(pathname) && !hasSessionCookie(req)) {
-    const target = pathname.startsWith("/admin")
-      ? `/login?next=${encodeURIComponent(pathname)}`
-      : "/login";
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.search = `?next=${encodeURIComponent(pathname)}`;
-    void target; // referenced for clarity above; final URL set on the cloned NextURL.
     return NextResponse.redirect(url);
   }
 

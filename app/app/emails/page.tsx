@@ -1,5 +1,5 @@
 import { EmailsView } from "./EmailsView";
-import { PageHeader, PageBody } from "../PageHeader";
+import { PageHeader, PageBody } from "../_components/PageHeader";
 
 export const metadata = {
   title: "Emails · PraxTalk",

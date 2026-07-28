@@ -3,8 +3,8 @@
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "@/convex/_generated/api";
-import { useDashboardAuth } from "../DashboardShell";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { Card } from "../_components/PageHeader";
 
 const MODELS = [
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 (fast, cheap)" },

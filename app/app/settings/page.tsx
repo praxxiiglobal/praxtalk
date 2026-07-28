@@ -3,8 +3,8 @@ import { CalendarsSection } from "./CalendarsSection";
 import { DataExportSection } from "./DataExportSection";
 import { WorkspaceSettings } from "./WorkspaceSettings";
 import { WidgetSnippet } from "./WidgetSnippet";
-import { PageHeader, PageBody, Card } from "../PageHeader";
-import { PushToggle } from "../PushToggle";
+import { PageHeader, PageBody, Card } from "../_components/PageHeader";
+import { PushToggle } from "../_components/PushToggle";
 
 export const metadata = {
   title: "Settings · PraxTalk",

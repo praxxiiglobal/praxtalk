@@ -2,8 +2,8 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useDashboardAuth } from "../DashboardShell";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { Card } from "../_components/PageHeader";
 import {
   startCheckoutAction,
   startRazorpayCheckoutAction,

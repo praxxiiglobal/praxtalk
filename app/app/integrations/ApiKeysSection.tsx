@@ -4,8 +4,8 @@ import { useMutation, useQuery } from "convex/react";
 import { useState, type FormEvent } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useDashboardAuth } from "../DashboardShell";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { Card } from "../_components/PageHeader";
 import { cn } from "@/lib/cn";
 type _IdHint = Id<"apiKeys">; // re-export to silence unused-import lint when present
 void (null as unknown as _IdHint);

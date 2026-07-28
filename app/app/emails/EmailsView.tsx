@@ -4,8 +4,8 @@ import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { useDashboardAuth } from "../DashboardShell";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { Card } from "../_components/PageHeader";
 import { cn } from "@/lib/cn";
 
 type Folder = "inbox" | "sent" | "drafts" | "all";

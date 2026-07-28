@@ -8,7 +8,7 @@ import { BrandSwitcher } from "./BrandSwitcher";
 import { useDashboardAuth } from "./DashboardShell";
 import { NotificationsBell } from "./Notifications";
 import { MobileNavList } from "./SideNav";
-import { logoutAction } from "./actions";
+import { logoutAction } from "../actions";
 
 export function Topbar() {
   const { operator, workspace } = useDashboardAuth();

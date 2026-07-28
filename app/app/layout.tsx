@@ -6,13 +6,13 @@ import {
   clearSessionCookie,
   readSessionToken,
 } from "@/lib/session";
-import { ActiveCallOverlay } from "./ActiveCallOverlay";
-import { DashboardShell } from "./DashboardShell";
-import { DialPadButton } from "./DialPad";
-import { PendingReviewScreen } from "./PendingReviewScreen";
-import { SessionGuard } from "./SessionGuard";
-import { SideNav } from "./SideNav";
-import { Topbar } from "./Topbar";
+import { ActiveCallOverlay } from "./_components/ActiveCallOverlay";
+import { DashboardShell } from "./_components/DashboardShell";
+import { DialPadButton } from "./_components/DialPad";
+import { PendingReviewScreen } from "./_components/PendingReviewScreen";
+import { SessionGuard } from "./_components/SessionGuard";
+import { SideNav } from "./_components/SideNav";
+import { Topbar } from "./_components/Topbar";
 
 export const metadata = {
   title: "Inbox · PraxTalk",

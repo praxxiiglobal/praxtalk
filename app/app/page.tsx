@@ -1,5 +1,5 @@
-import { Inbox } from "./Inbox";
-import { OnboardingChecklist } from "./OnboardingChecklist";
+import { Inbox } from "./_components/Inbox";
+import { OnboardingChecklist } from "./_components/OnboardingChecklist";
 
 export default function AppPage() {
   return (

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Card } from "../PageHeader";
+import { Card } from "../_components/PageHeader";
 
 /**
  * Widget snippet now lives per-brand at `/app/brands` — each brand has

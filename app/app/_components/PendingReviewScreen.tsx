@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { logoutAction } from "./actions";
+import { logoutAction } from "../actions";
 
 /**
  * Shown to operators of workspaces still in `platformStatus = pending_review`.

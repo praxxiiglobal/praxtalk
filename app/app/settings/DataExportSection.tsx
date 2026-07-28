@@ -1,6 +1,6 @@
 "use client";
 
-import { useDashboardAuth } from "../DashboardShell";
+import { useDashboardAuth } from "../_components/DashboardShell";
 
 /**
  * Self-serve export — workspace owners + admins can download their

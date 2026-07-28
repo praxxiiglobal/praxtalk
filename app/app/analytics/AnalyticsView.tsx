@@ -2,9 +2,9 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useDashboardAuth } from "../DashboardShell";
-import { useSelectedBrand } from "../useSelectedBrand";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { useSelectedBrand } from "../_components/useSelectedBrand";
+import { Card } from "../_components/PageHeader";
 
 type Channel = "web_chat" | "email" | "whatsapp" | "voice";
 

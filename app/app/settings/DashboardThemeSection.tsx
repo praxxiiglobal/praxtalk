@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { useDashboardAuth } from "../DashboardShell";
+import { useDashboardAuth } from "../_components/DashboardShell";
 
 const PRESETS: { name: string; color: string }[] = [
   { name: "PraxTalk default", color: "" },

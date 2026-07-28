@@ -3,7 +3,7 @@
 import { useMutation } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { useDashboardAuth } from "../DashboardShell";
+import { useDashboardAuth } from "../_components/DashboardShell";
 
 /**
  * Self-service profile management — every operator can edit their

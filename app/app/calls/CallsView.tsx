@@ -3,8 +3,8 @@
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "@/convex/_generated/api";
-import { useDashboardAuth } from "../DashboardShell";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { Card } from "../_components/PageHeader";
 
 export function CallsView() {
   const { sessionToken } = useDashboardAuth();

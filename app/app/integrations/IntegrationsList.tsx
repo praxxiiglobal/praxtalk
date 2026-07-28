@@ -1,7 +1,7 @@
 "use client";
 
-import { useDashboardAuth } from "../DashboardShell";
-import { Card } from "../PageHeader";
+import { useDashboardAuth } from "../_components/DashboardShell";
+import { Card } from "../_components/PageHeader";
 import { ApiKeysSection } from "./ApiKeysSection";
 import { EmailIntegrationSection } from "./EmailIntegrationSection";
 import { PersonalEmailSection } from "./PersonalEmailSection";

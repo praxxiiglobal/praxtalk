@@ -1,4 +1,4 @@
-import { PageHeader, PageBody } from "../../PageHeader";
+import { PageHeader, PageBody } from "../../_components/PageHeader";
 import { PricingEditor } from "./PricingEditor";
 
 export const metadata = {

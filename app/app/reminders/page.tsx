@@ -1,5 +1,5 @@
 import { RemindersView } from "./RemindersView";
-import { PageHeader, PageBody } from "../PageHeader";
+import { PageHeader, PageBody } from "../_components/PageHeader";
 
 export const metadata = {
   title: "Reminders · PraxTalk",

@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useDashboardAuth } from "../DashboardShell";
+import { useDashboardAuth } from "../_components/DashboardShell";
 import { cn } from "@/lib/cn";
 
 type IntegrationType = "voice" | "email" | "whatsapp";
