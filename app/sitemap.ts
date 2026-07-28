@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { VENDORS } from "./compare/_vendors";
+import { VENDORS } from "./(marketing)/compare/_vendors";
 
 const BASE = "https://www.praxtalk.com";
 
