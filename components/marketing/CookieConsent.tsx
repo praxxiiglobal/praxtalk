@@ -124,39 +124,41 @@ export function CookieConsent({ nonce }: { nonce?: string }) {
     );
   };
 
+  // GA loads only after cookie consent is granted. The scripts must be
+  // injected imperatively: consent is only ever known client-side, and
+  // React never executes <script> tags it renders on the client — the
+  // previous JSX <script> approach put inert tags in the DOM and GA
+  // silently never loaded. document.createElement is parser-independent,
+  // so CSP strict-dynamic trusts it; the nonce is set as belt-and-braces.
+  useEffect(() => {
+    if (cookieConsent !== "granted") return;
+    if (document.getElementById("praxtalk-ga-loader")) return;
+
+    const loader = document.createElement("script");
+    loader.id = "praxtalk-ga-loader";
+    loader.async = true;
+    loader.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
+    if (nonce) loader.nonce = nonce;
+    document.head.appendChild(loader);
+
+    const init = document.createElement("script");
+    init.id = "praxtalk-ga-init";
+    if (nonce) init.nonce = nonce;
+    init.text = `
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${GA_MEASUREMENT_ID}', { anonymize_ip: true });
+`;
+    document.head.appendChild(init);
+  }, [cookieConsent, nonce]);
+
   const settled =
     cookieConsent !== null &&
     (geoConsent === "granted" || geoConsent === "unsupported");
 
   return (
     <>
-      {/* GA only fires after BOTH consents are settled. Same as before
-          on the cookie side; the geo gate is the new gate. */}
-      {cookieConsent === "granted" && (
-        <>
-          {/* gtag.js loader — external script, allowlisted via
-              googletagmanager.com in CSP. The nonce isn't strictly
-              needed for src= scripts but doesn't hurt. */}
-          <script
-            async
-            src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`}
-            nonce={nonce}
-          />
-          {/* gtag-init — inline, gated through CSP via the nonce. */}
-          <script
-            nonce={nonce}
-            dangerouslySetInnerHTML={{
-              __html: `
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-gtag('config', '${GA_MEASUREMENT_ID}', { anonymize_ip: true });
-`,
-            }}
-          />
-        </>
-      )}
-
       {hydrated && !settled && (
         <div
           role="dialog"

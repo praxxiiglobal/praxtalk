@@ -1,14 +1,22 @@
 {
-  "name": "praxtalk-scaffold",
+  "name": "praxtalk",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "dev": "next dev",
+    "predev": "node scripts/build-widget-bundle.mjs",
+    "dev": "concurrently -k -n convex,next -c cyan,magenta \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:frontend": "next dev",
+    "dev:backend": "convex dev",
     "prebuild": "node scripts/build-widget-bundle.mjs",
-    "build": "convex deploy --cmd 'next build'",
+    "build": "convex deploy --cmd \"next build\"",
     "build:next-only": "next build",
     "build:widget": "node scripts/build-widget-bundle.mjs",
     "start": "next start",
+    "typecheck": "tsc --noEmit && tsc -p convex --noEmit",
+    "clean": "node -e \"fs.rmSync('.next',{recursive:true,force:true})\"",
     "mobile:add:ios": "cap add ios",
     "mobile:add:android": "cap add android",
     "mobile:sync": "cap sync",
@@ -41,6 +49,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/web-push": "^3.6.4",
+    "concurrently": "^9.1.2",
     "esbuild": "^0.28.0",
     "tailwindcss": "^4",
     "typescript": "^5"

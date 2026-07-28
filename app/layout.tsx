@@ -138,10 +138,14 @@ export default async function RootLayout({
           Skip to main content
         </a>
         {/* JSON-LD structured data — needs the per-request nonce
-            because the inline body is blocked by the strict CSP. */}
+            because the inline body is blocked by the strict CSP.
+            suppressHydrationWarning: browsers hide the nonce attribute
+            from the DOM after parsing, so hydration always sees "" where
+            the server sent a value — a mismatch by design, not a bug. */}
         <script
           type="application/ld+json"
           nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: JSON.stringify(structuredData),
           }}
