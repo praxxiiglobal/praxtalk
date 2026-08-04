@@ -91,6 +91,7 @@ async function checkRateLimit(
 async function authenticate(
   ctx: Parameters<Parameters<typeof httpAction>[0]>[0],
   req: Request,
+  opts: { skipIpLimit?: boolean } = {},
 ): Promise<
   | {
       workspaceId: Id<"workspaces">;
@@ -101,9 +102,16 @@ async function authenticate(
   | { error: Response }
 > {
   // Rate limit before auth so brute-force attempts get 429'd just like
-  // legitimate over-quota requests do.
-  const rateLimited = await checkRateLimit(ctx, req);
-  if (rateLimited) return { error: rateLimited };
+  // legitimate over-quota requests do. `skipIpLimit` exists for the
+  // typing GET poll: it's designed to be polled every ~2s by CRMs
+  // whose requests all egress from one IP (e.g. Convex actions), so
+  // the shared 60/min IP bucket would starve it and everything else.
+  // The per-API-key limit below still applies, which is what actually
+  // bounds a leaked key.
+  if (!opts.skipIpLimit) {
+    const rateLimited = await checkRateLimit(ctx, req);
+    if (rateLimited) return { error: rateLimited };
+  }
 
   const auth = req.headers.get("authorization") ?? "";
   const match = auth.match(/^Bearer (ptk_live_[a-f0-9]+)$/i);
@@ -342,12 +350,13 @@ http.route({
 // ── GET /api/v1/typing?conversationId=... ─────────────────────────────
 // CRM polls this (~every 2s while a thread is open) to learn whether
 // the VISITOR is currently typing. Returns both timestamps; the caller
-// applies its own freshness window.
+// applies its own freshness window. Exempt from the per-IP bucket —
+// see the note in authenticate(); per-key limits still apply.
 http.route({
   path: "/api/v1/typing",
   method: "GET",
   handler: httpAction(async (ctx, req) => {
-    const auth = await authenticate(ctx, req);
+    const auth = await authenticate(ctx, req, { skipIpLimit: true });
     if ("error" in auth) return auth.error;
     const url = new URL(req.url);
     const conversationId = url.searchParams.get("conversationId");
