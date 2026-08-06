@@ -2,15 +2,22 @@ import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 
 const WINDOW_MS = 60_000; // 1 minute
-const LIMIT_PER_WINDOW = 60; // 60 requests per minute per IP
-const LIMIT_PER_KEY_READ = 6_000;  // 6k req/min per read-scope API key
-const LIMIT_PER_KEY_WRITE = 600;   // 600 req/min per write-scope API key
+// Raised 60 → 300 (2026-08-06): every operator of a CRM integration
+// egresses through ONE IP (e.g. Convex action servers), so 60/min was
+// throttling legitimate multi-agent inboxes (~40 req/min per agent
+// with thread + typing polls). 300 supports ~7 concurrent agents;
+// per-API-key limits (6k read / 600 write per min) remain the real
+// abuse bound for authenticated traffic, and unauthenticated probes
+// still can't exceed 300 attempts/min from one host.
+const LIMIT_PER_WINDOW = 300;
+const LIMIT_PER_KEY_READ = 6_000; // 6k req/min per read-scope API key
+const LIMIT_PER_KEY_WRITE = 600; // 600 req/min per write-scope API key
 
 const LOGIN_WINDOW_MS = 15 * 60_000; // 15 minutes
-const LOGIN_LIMIT_PER_IP = 20;       // 20 login attempts / 15 min / IP
+const LOGIN_LIMIT_PER_IP = 20; // 20 login attempts / 15 min / IP
 const RESET_WINDOW_MS = 60 * 60_000; // 1 hour
-const RESET_LIMIT_PER_IP = 10;       // 10 password-reset requests / hour / IP
-const RESET_LIMIT_PER_EMAIL = 3;     // 3 password-reset requests / hour / email
+const RESET_LIMIT_PER_IP = 10; // 10 password-reset requests / hour / IP
+const RESET_LIMIT_PER_EMAIL = 3; // 3 password-reset requests / hour / email
 
 /**
  * Inline rate-limit primitive shared by login + password-reset paths.
@@ -45,9 +52,7 @@ export async function takeBucket(
   if (existing.count >= limit) {
     return {
       allowed: false,
-      retryAfterSeconds: Math.ceil(
-        (windowStart + windowMs - now) / 1000,
-      ),
+      retryAfterSeconds: Math.ceil((windowStart + windowMs - now) / 1000),
     };
   }
   await ctx.db.patch(existing._id, { count: existing.count + 1 });
