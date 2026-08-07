@@ -227,12 +227,30 @@ const WIDGET_SHELL = `
   .identity-card-submit:disabled { opacity: 0.6; cursor: not-allowed; }
   .footer { padding: 6px 12px; font-size: 10px; color: #999; text-align: center; background: #fff; }
   .footer a { color: inherit; text-decoration: none; }
+  .bubble .badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 10px;
+    background: #ef4444;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 20px;
+    text-align: center;
+    box-shadow: 0 1px 4px rgba(0,0,0,.3);
+  }
+  .bubble .badge.hidden { display: none; }
 </style>
 
 <button class="bubble" aria-label="Open chat">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
   </svg>
+  <span class="badge hidden" aria-label="Unread messages"></span>
 </button>
 
 <div class="panel" role="dialog" aria-label="Chat">
@@ -441,6 +459,7 @@ const SOURCE = /* javascript */ `(() => {
 
   const els = {
     bubble: root.querySelector(".bubble"),
+    badge: root.querySelector(".bubble .badge"),
     panel: root.querySelector(".panel"),
     title: root.querySelector(".title"),
     body: root.querySelector(".body"),
@@ -497,9 +516,136 @@ const SOURCE = /* javascript */ `(() => {
     panelOpen = next;
     els.panel.classList.toggle("open", next);
     els.bubble.classList.toggle("hidden", next);
+    if (next) markAllSeen();
   }
   els.bubble.addEventListener("click", () => setOpen(true));
   els.closeBtn.addEventListener("click", () => setOpen(false));
+
+  // ── Unread badge + ding + tab-title counter ──────────────────
+  // An agent reply that lands while the panel is closed (or the tab
+  // is hidden) must be impossible to miss: red count on the bubble,
+  // "(n) " prefixed to the page title so background tabs show it,
+  // and a soft two-tone ding. The seen-watermark persists per widget
+  // so page navigations don't re-announce old messages.
+  function seenAtKey() {
+    return "praxtalk_seen_at_" + widgetId;
+  }
+  function loadSeenAt() {
+    try {
+      return Number(localStorage.getItem(seenAtKey()) || 0);
+    } catch {
+      return 0;
+    }
+  }
+  function saveSeenAt(ts) {
+    try {
+      localStorage.setItem(seenAtKey(), String(ts));
+    } catch {}
+  }
+  let latestAgentMsgAt = 0;
+  let lastDingAt = 0;
+  let baseTitle = null;
+  function setUnreadCount(n) {
+    if (!els.badge) return;
+    if (n > 0) {
+      els.badge.textContent = n > 9 ? "9+" : String(n);
+      els.badge.classList.remove("hidden");
+      if (baseTitle === null) baseTitle = document.title;
+      document.title = "(" + n + ") " + baseTitle;
+    } else {
+      els.badge.classList.add("hidden");
+      if (baseTitle !== null) {
+        document.title = baseTitle;
+        baseTitle = null;
+      }
+    }
+  }
+  // WebAudio ding — browsers only allow sound after the visitor has
+  // interacted with the page at least once, so the context is
+  // created/resumed on the first gesture and playback is best-effort
+  // (a silent miss is fine; the badge still shows).
+  let audioCtx = null;
+  function ensureAudio() {
+    try {
+      if (!audioCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        audioCtx = new AC();
+      }
+      if (audioCtx.state === "suspended") {
+        audioCtx.resume().catch(function () {});
+      }
+      return audioCtx;
+    } catch {
+      return null;
+    }
+  }
+  document.addEventListener("pointerdown", ensureAudio, {
+    once: true,
+    capture: true,
+  });
+  document.addEventListener("keydown", ensureAudio, {
+    once: true,
+    capture: true,
+  });
+  function playDing() {
+    const ctx = ensureAudio();
+    if (!ctx || ctx.state !== "running") return;
+    try {
+      const t = ctx.currentTime;
+      [880, 1174.66].forEach(function (freq, i) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, t + i * 0.12);
+        gain.gain.linearRampToValueAtTime(0.12, t + i * 0.12 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.35);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t + i * 0.12);
+        osc.stop(t + i * 0.12 + 0.4);
+      });
+    } catch {}
+  }
+  function isViewingChat() {
+    return panelOpen && document.visibilityState === "visible";
+  }
+  function updateUnread(messages) {
+    const agentMsgs = (messages || []).filter(function (m) {
+      return m.role === "operator" || m.role === "atlas";
+    });
+    if (agentMsgs.length === 0) return;
+    latestAgentMsgAt = agentMsgs.reduce(function (mx, m) {
+      return Math.max(mx, m.createdAt || 0);
+    }, 0);
+    if (isViewingChat()) {
+      saveSeenAt(latestAgentMsgAt);
+      setUnreadCount(0);
+      return;
+    }
+    const seenAt = loadSeenAt();
+    const fresh = agentMsgs.filter(function (m) {
+      return (m.createdAt || 0) > seenAt;
+    });
+    setUnreadCount(fresh.length);
+    if (fresh.length > 0 && latestAgentMsgAt > lastDingAt) {
+      lastDingAt = latestAgentMsgAt;
+      playDing();
+    }
+  }
+  function markAllSeen() {
+    if (latestAgentMsgAt > 0) saveSeenAt(latestAgentMsgAt);
+    setUnreadCount(0);
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (isViewingChat()) markAllSeen();
+  });
+  // Subscription callback: paint the thread, then reconcile unread
+  // state (both message-subscription call sites use this wrapper).
+  function onMessages(list) {
+    renderMessages(list);
+    updateUnread(list);
+  }
 
   function showChat() {
     els.chooserView.classList.add("hidden");
@@ -760,7 +906,7 @@ const SOURCE = /* javascript */ `(() => {
         client.onUpdate(
           "visitors:listMessagesForVisitor",
           { widgetId, visitorKey, conversationId },
-          renderMessages,
+          onMessages,
           (err) => console.error("[PraxTalk] message subscription failed", err),
         );
         subscribeToTyping(conversationId);
@@ -852,7 +998,7 @@ const SOURCE = /* javascript */ `(() => {
           client.onUpdate(
             "visitors:listMessagesForVisitor",
             { widgetId, visitorKey, conversationId },
-            renderMessages,
+            onMessages,
           );
           subscribeToTyping(conversationId);
           showChat();
