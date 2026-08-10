@@ -1356,6 +1356,7 @@ export default defineSchema({
     landingUrl: v.optional(v.string()),
     ip: v.optional(v.string()),
     location: v.optional(v.string()),
+    countryCode: v.optional(v.string()),
     userAgent: v.optional(v.string()),
     sessionStartedAt: v.number(),
     lastSeenAt: v.number(),

@@ -74,6 +74,14 @@ export const ping = mutation({
             ),
           }
         : {}),
+      ...(args.location && typeof args.location === "object"
+        ? {
+            countryCode: clip(
+              String((args.location as any)?.countryCode ?? "") || undefined,
+              4,
+            ),
+          }
+        : {}),
       ...(args.ua ? { userAgent: clip(args.ua, 300) } : {}),
       lastSeenAt: now,
     };
@@ -187,6 +195,7 @@ export const listActive = internalQuery({
         landingUrl: r.landingUrl ?? null,
         ip: r.ip ?? null,
         location: r.location ?? null,
+        countryCode: r.countryCode ?? null,
         userAgent: r.userAgent ?? null,
         sessionStartedAt: r.sessionStartedAt,
         lastSeenAt: r.lastSeenAt,
