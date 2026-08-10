@@ -58,16 +58,15 @@ const WIDGET_SHELL = `
     padding: 14px 16px; display: flex; align-items: center; gap: 10px;
   }
   .title { font-weight: 600; font-size: 15px; flex: 1; letter-spacing: -0.01em; }
-  .human {
-    background: rgba(255,255,255,0.15); color: #fff; border: none;
-    height: 26px; padding: 0 10px; border-radius: 999px;
-    cursor: pointer; font-size: 11.5px; font-weight: 500;
-    font-family: inherit;
-    transition: background 0.15s ease, opacity 0.15s ease;
+  .call {
+    background: rgba(255,255,255,0.15); color: #fff;
+    width: 28px; height: 28px; border-radius: 999px;
+    display: grid; place-items: center; text-decoration: none;
+    transition: background 0.15s ease;
   }
-  .human:hover { background: rgba(255,255,255,0.25); }
-  .human:disabled { opacity: 0.7; cursor: default; }
-  .human.hidden { display: none; }
+  .call:hover { background: rgba(255,255,255,0.25); }
+  .call.hidden { display: none; }
+  .call svg { width: 14px; height: 14px; }
   .close { background: rgba(255,255,255,0.15); color: #fff; border: none;
     width: 28px; height: 28px; border-radius: 999px; cursor: pointer; font-size: 16px; line-height: 1; }
   .close:hover { background: rgba(255,255,255,0.25); }
@@ -256,7 +255,9 @@ const WIDGET_SHELL = `
 <div class="panel" role="dialog" aria-label="Chat">
   <div class="head">
     <div class="title">Chat</div>
-    <button class="human hidden" type="button" aria-label="Talk to a human">Talk to a human</button>
+    <a class="call hidden" href="#" aria-label="Call us">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+    </a>
     <button class="close" aria-label="Close">×</button>
   </div>
   <div class="body">
@@ -481,7 +482,7 @@ const SOURCE = /* javascript */ `(() => {
     sendBtn: root.querySelector(".send"),
     typingRow: root.querySelector(".typing-row"),
     geoBtn: root.querySelector(".geo"),
-    humanBtn: root.querySelector(".human"),
+    callBtn: root.querySelector(".call"),
     closeBtn: root.querySelector(".close"),
     identityCard: root.querySelector(".identity-card"),
     identityName: root.querySelector(".identity-name"),
@@ -651,21 +652,18 @@ const SOURCE = /* javascript */ `(() => {
     els.chooserView.classList.add("hidden");
     els.formView.classList.add("hidden");
     els.chatView.classList.remove("hidden");
-    els.humanBtn.classList.remove("hidden");
     setTimeout(() => els.input.focus(), 50);
   }
   function showForm() {
     els.chooserView.classList.add("hidden");
     els.chatView.classList.add("hidden");
     els.formView.classList.remove("hidden");
-    els.humanBtn.classList.add("hidden");
     setTimeout(() => els.name.focus(), 50);
   }
   function showChooser() {
     els.formView.classList.add("hidden");
     els.chatView.classList.add("hidden");
     els.chooserView.classList.remove("hidden");
-    els.humanBtn.classList.add("hidden");
   }
 
   // Visitor's persisted channel choice. Keyed by widgetId so a
@@ -728,6 +726,20 @@ const SOURCE = /* javascript */ `(() => {
 
   function applyConfig(config) {
     if (!config) return;
+    // Mobile-only call button (replaces the old "Talk to a human"
+    // affordance): when the brand has a click-to-chat phone and the
+    // visitor is on a phone themselves, the header shows a tap-to-call
+    // icon instead.
+    if (els.callBtn && config.waMePhone) {
+      const callPhone = String(config.waMePhone).replace(/[^\d]/g, "");
+      const isMobileUA = /Android|iPhone|iPad|iPod|Mobi/i.test(
+        navigator.userAgent,
+      );
+      if (callPhone && isMobileUA) {
+        els.callBtn.setAttribute("href", "tel:+" + callPhone);
+        els.callBtn.classList.remove("hidden");
+      }
+    }
     els.title.textContent = config.brandName || config.workspaceName || "Chat";
     if (config.primaryColor) {
       root.host.style.setProperty("--praxtalk-accent", config.primaryColor);
@@ -1226,11 +1238,12 @@ const SOURCE = /* javascript */ `(() => {
               await client.mutation("visitors:setPreciseLocation", {
                 widgetId,
                 visitorKey,
+                conversationId,
                 lat: pos.coords.latitude,
                 lng: pos.coords.longitude,
                 accuracy: pos.coords.accuracy,
               });
-              showSystem("📍 Location shared with the team.");
+              showSystem("📍 Current location shared with the team.");
             } catch (err) {
               console.error("[PraxTalk] location share failed", err);
               showSystem("Couldn't share your location. Please try again.");
@@ -1251,32 +1264,6 @@ const SOURCE = /* javascript */ `(() => {
         );
       });
 
-      // "Talk to a human" button. Pauses Atlas on the conversation
-      // and pushes a workspace notification so an operator jumps in.
-      // Idempotent server-side, but we also lock the button locally
-      // after first success so the visitor knows the team's been alerted.
-      let humanRequested = false;
-      els.humanBtn.addEventListener("click", async () => {
-        if (!conversationId || humanRequested) return;
-        els.humanBtn.disabled = true;
-        const original = els.humanBtn.textContent;
-        els.humanBtn.textContent = "Alerting…";
-        try {
-          await client.mutation("visitors:requestHumanAgent", {
-            widgetId,
-            visitorKey,
-            conversationId,
-          });
-          humanRequested = true;
-          els.humanBtn.textContent = "✓ Team alerted";
-          showSystem("We've alerted the team — a human will join shortly.");
-        } catch (err) {
-          console.error("[PraxTalk] requestHumanAgent failed", err);
-          els.humanBtn.disabled = false;
-          els.humanBtn.textContent = original;
-          showSystem("Couldn't alert the team. Please try again.");
-        }
-      });
     })
     .catch((err) => {
       console.error("[PraxTalk] failed to load widget runtime", err);

@@ -353,6 +353,11 @@ export const setPreciseLocation = mutation({
   args: {
     widgetId: v.string(),
     visitorKey: v.string(),
+    // When provided, the share also lands in the conversation as a
+    // visitor message with a maps link — so operators see the exact
+    // spot in their inbox (CRM included, via the message webhook),
+    // like a WhatsApp "current location".
+    conversationId: v.optional(v.id("conversations")),
     lat: v.number(),
     lng: v.number(),
     accuracy: v.optional(v.number()), // meters
@@ -382,6 +387,44 @@ export const setPreciseLocation = mutation({
       location: merged,
       lastSeenAt: Date.now(),
     });
+
+    if (args.conversationId) {
+      const convo = await ctx.db.get(args.conversationId);
+      if (
+        convo &&
+        convo.workspaceId === brand.workspaceId &&
+        (!convo.brandId || convo.brandId === brand._id) &&
+        convo.visitorId === visitor._id
+      ) {
+        const now = Date.now();
+        const mapsUrl = `https://www.google.com/maps?q=${args.lat.toFixed(6)},${args.lng.toFixed(6)}`;
+        const body = `📍 Shared current location: ${mapsUrl}`;
+        const messageId = await ctx.db.insert("messages", {
+          conversationId: convo._id,
+          workspaceId: brand.workspaceId,
+          brandId: convo.brandId ?? brand._id,
+          channel: convo.channel ?? "web_chat",
+          role: "visitor",
+          body,
+          createdAt: now,
+        });
+        await ctx.db.patch(convo._id, {
+          lastMessageAt: now,
+          ...(convo.firstVisitorMessageAt === undefined
+            ? { firstVisitorMessageAt: now }
+            : {}),
+        });
+        await fireEvent(ctx, brand.workspaceId, "message.created", {
+          messageId,
+          conversationId: convo._id,
+          brandId: convo.brandId ?? brand._id,
+          channel: convo.channel ?? "web_chat",
+          role: "visitor",
+          body,
+          createdAt: now,
+        });
+      }
+    }
     return null;
   },
 });
