@@ -947,10 +947,20 @@ const SOURCE = /* javascript */ `(() => {
             landing: String(presenceLanding).slice(0, 500),
             pageload: isFirst,
             ip: geo ? geo.ip : undefined,
-            location: geo ? geo.location : undefined,
+            location:
+              geo && geo.location
+                ? [geo.location.city, geo.location.region, geo.location.country]
+                    .filter(Boolean)
+                    .join(", ")
+                    .slice(0, 120) || undefined
+                : undefined,
             ua: String(navigator.userAgent || "").slice(0, 300) || undefined,
           });
-        } catch {}
+        } catch (e) {
+          // Quiet by default, but findable: monitoring failures were
+          // fully silent once and cost a debugging session.
+          console.debug("[PraxTalk] presence ping failed", e);
+        }
       }
       void sendPresencePing();
       setInterval(sendPresencePing, 20000);

@@ -36,7 +36,10 @@ export const ping = mutation({
     landing: v.optional(v.string()),
     pageload: v.boolean(),
     ip: v.optional(v.string()),
-    location: v.optional(v.string()),
+    // String ("City, Region, Country") or the widget's structured geo
+    // object — normalized to a string below. Accepting both keeps old
+    // cached widget versions from failing validation silently.
+    location: v.optional(v.any()),
     ua: v.optional(v.string()),
   },
   returns: v.null(),
@@ -55,7 +58,22 @@ export const ping = mutation({
       referrer: clip(args.referrer, 500),
       landingUrl: clip(args.landing, 500),
       ...(args.ip ? { ip: clip(args.ip, 60) } : {}),
-      ...(args.location ? { location: clip(args.location, 120) } : {}),
+      ...(args.location
+        ? {
+            location: clip(
+              typeof args.location === "string"
+                ? args.location
+                : [
+                    (args.location as any)?.city,
+                    (args.location as any)?.region,
+                    (args.location as any)?.country,
+                  ]
+                    .filter(Boolean)
+                    .join(", "),
+              120,
+            ),
+          }
+        : {}),
       ...(args.ua ? { userAgent: clip(args.ua, 300) } : {}),
       lastSeenAt: now,
     };
