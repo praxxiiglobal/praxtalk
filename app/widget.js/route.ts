@@ -731,7 +731,7 @@ const SOURCE = /* javascript */ `(() => {
     // visitor is on a phone themselves, the header shows a tap-to-call
     // icon instead.
     if (els.callBtn && config.waMePhone) {
-      const callPhone = String(config.waMePhone).replace(/[^\d]/g, "");
+      const callPhone = String(config.waMePhone).replace(/[^0-9]/g, "");
       const isMobileUA = /Android|iPhone|iPad|iPod|Mobi/i.test(
         navigator.userAgent,
       );
@@ -757,7 +757,7 @@ const SOURCE = /* javascript */ `(() => {
     // applyConfig only flips them visible; the chooser itself is
     // surfaced via showChooser() based on visitor state.
     if (config.waMePhone) {
-      const phone = String(config.waMePhone).replace(/[^\d]/g, "");
+      const phone = String(config.waMePhone).replace(/[^0-9]/g, "");
       if (phone) {
         const msg = config.waMePrefilledMessage
           ? "?text=" + encodeURIComponent(String(config.waMePrefilledMessage))
