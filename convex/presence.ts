@@ -35,6 +35,7 @@ export const ping = mutation({
     referrer: v.optional(v.string()),
     landing: v.optional(v.string()),
     pageload: v.boolean(),
+    visible: v.optional(v.boolean()),
     ip: v.optional(v.string()),
     // String ("City, Region, Country") or the widget's structured geo
     // object — normalized to a string below. Accepting both keeps old
@@ -83,6 +84,7 @@ export const ping = mutation({
           }
         : {}),
       ...(args.ua ? { userAgent: clip(args.ua, 300) } : {}),
+      tabVisible: args.visible !== false,
       lastSeenAt: now,
     };
 
@@ -196,6 +198,7 @@ export const listActive = internalQuery({
         ip: r.ip ?? null,
         location: r.location ?? null,
         countryCode: r.countryCode ?? null,
+        tabVisible: r.tabVisible !== false,
         userAgent: r.userAgent ?? null,
         sessionStartedAt: r.sessionStartedAt,
         lastSeenAt: r.lastSeenAt,

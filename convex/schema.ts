@@ -1358,6 +1358,10 @@ export default defineSchema({
     location: v.optional(v.string()),
     countryCode: v.optional(v.string()),
     userAgent: v.optional(v.string()),
+    // False while the visitor's tab is backgrounded — drives the
+    // Active vs Idle split in monitoring UIs. Unset (old widget
+    // versions) counts as visible.
+    tabVisible: v.optional(v.boolean()),
     sessionStartedAt: v.number(),
     lastSeenAt: v.number(),
     pageViews: v.number(),

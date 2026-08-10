@@ -265,7 +265,7 @@ http.route({
     if (!filter.ok) return filter.response;
     const windowSec = Math.min(
       Math.max(30, Number(url.searchParams.get("windowSec") ?? "120")),
-      900,
+      1800,
     );
     const visitors = await ctx.runQuery(internal.presence.listActive, {
       workspaceId: auth.workspaceId,

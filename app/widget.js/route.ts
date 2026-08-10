@@ -934,13 +934,16 @@ const SOURCE = /* javascript */ `(() => {
       var presenceFirst = true;
       async function sendPresencePing() {
         try {
-          if (!presenceFirst && document.visibilityState !== "visible") return;
+          // Background tabs keep pinging (the browser throttles the
+          // interval on its own) — the visible flag is what moves a
+          // visitor between Active and Idle in the monitor.
           const geo = await presenceGeo();
           const isFirst = presenceFirst;
           presenceFirst = false;
           await client.mutation("presence:ping", {
             widgetId,
             visitorKey,
+            visible: document.visibilityState === "visible",
             url: String(location.href).slice(0, 500),
             title: String(document.title || "").slice(0, 200) || undefined,
             referrer: String(document.referrer || "").slice(0, 500) || undefined,
@@ -959,7 +962,9 @@ const SOURCE = /* javascript */ `(() => {
       void sendPresencePing();
       setInterval(sendPresencePing, 20000);
       document.addEventListener("visibilitychange", function () {
-        if (document.visibilityState === "visible") void sendPresencePing();
+        // Fire on both directions: to-visible restores Active fast,
+        // to-hidden flips the row to Idle without waiting a beat.
+        void sendPresencePing();
       });
 
       // The "drop straight to chat" path (no pre-chat form). Used for
