@@ -345,6 +345,12 @@ export default defineSchema({
     // the most recent message came from the visitor).
     lastOperatorReadAt: v.optional(v.number()),
     lastMessageAt: v.number(),
+    // Set once when the VISITOR sends their first real message (any
+    // channel: widget, email, WhatsApp, voice transcript). Unset =
+    // the conversation exists only because the widget opened — CRM
+    // integrations use this to keep silent widget-opens out of the
+    // chat inbox (they show as live visitors instead).
+    firstVisitorMessageAt: v.optional(v.number()),
     // SLA — wall-clock time of the first non-internal operator
     // message in this conversation. Set once, never overwritten.
     // The duration since `_creationTime` is the visitor-visible
@@ -1332,4 +1338,31 @@ export default defineSchema({
     updatedAt: v.number(),
     updatedByOperatorId: v.optional(v.id("operators")),
   }).index("by_plan_key", ["planKey"]),
+
+  // ── Live visitor presence (monitoring) ─────────────────────────
+  // One row per (brand, browser). The widget pings every ~20s while
+  // the page is visible; a visitor is "active" when lastSeenAt is
+  // recent. Sessions are inferred: a ping after a 30-minute gap
+  // starts a new session (visitCount++, pageViews reset). Rows idle
+  // for 7 days are purged by cron. Powers GET /api/v1/presence for
+  // CRM "live visitors" views.
+  visitorPresence: defineTable({
+    workspaceId: v.id("workspaces"),
+    brandId: v.id("brands"),
+    visitorKey: v.string(),
+    currentUrl: v.string(),
+    pageTitle: v.optional(v.string()),
+    referrer: v.optional(v.string()),
+    landingUrl: v.optional(v.string()),
+    ip: v.optional(v.string()),
+    location: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    sessionStartedAt: v.number(),
+    lastSeenAt: v.number(),
+    pageViews: v.number(),
+    visitCount: v.number(),
+  })
+    .index("by_brand_visitor", ["brandId", "visitorKey"])
+    .index("by_workspace_lastseen", ["workspaceId", "lastSeenAt"])
+    .index("by_lastseen", ["lastSeenAt"]),
 });

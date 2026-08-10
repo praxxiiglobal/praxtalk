@@ -423,6 +423,10 @@ function shapeConversation(
     visitorId: c.visitorId,
     status: c.status,
     lastMessageAt: c.lastMessageAt,
+    // null = the visitor never wrote — the conversation exists only
+    // because the widget opened. CRMs use this to separate "active
+    // visitors" from real chats.
+    firstVisitorMessageAt: c.firstVisitorMessageAt ?? null,
     createdAt: c.createdAt,
     visitor: visitor
       ? {

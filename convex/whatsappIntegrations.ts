@@ -61,9 +61,7 @@ export const upsert = mutation({
       args.sessionToken,
     );
     if (operator.role === "agent") {
-      throw new ConvexError(
-        "Only admins and owners can configure WhatsApp.",
-      );
+      throw new ConvexError("Only admins and owners can configure WhatsApp.");
     }
     if (!args.phoneNumberId.trim()) {
       throw new ConvexError("Phone number ID is required.");
@@ -444,6 +442,12 @@ export const recordInboundMessage = internalMutation({
       body: args.body,
       createdAt: now,
     });
+    {
+      const convoDoc = await ctx.db.get(conversationId);
+      if (convoDoc && convoDoc.firstVisitorMessageAt === undefined) {
+        await ctx.db.patch(conversationId, { firstVisitorMessageAt: now });
+      }
+    }
 
     await ctx.scheduler.runAfter(0, internal.webhooks.enqueue, {
       workspaceId: args.workspaceId,
@@ -451,7 +455,8 @@ export const recordInboundMessage = internalMutation({
       payload: JSON.stringify({
         type: "message.created",
         workspaceId: args.workspaceId,
-        occurredAt: new Date(now).toISOString(),        data: {
+        occurredAt: new Date(now).toISOString(),
+        data: {
           messageId,
           conversationId,
           channel: "whatsapp",
@@ -486,9 +491,7 @@ export const loadOutboundContext = internalQuery({
       integration = await ctx.db
         .query("whatsappIntegrations")
         .withIndex("by_workspace_operator", (q) =>
-          q
-            .eq("workspaceId", message.workspaceId)
-            .eq("operatorId", senderId),
+          q.eq("workspaceId", message.workspaceId).eq("operatorId", senderId),
         )
         .first();
     }
@@ -496,9 +499,7 @@ export const loadOutboundContext = internalQuery({
       integration = await ctx.db
         .query("whatsappIntegrations")
         .withIndex("by_workspace_operator", (q) =>
-          q
-            .eq("workspaceId", message.workspaceId)
-            .eq("operatorId", undefined),
+          q.eq("workspaceId", message.workspaceId).eq("operatorId", undefined),
         )
         .first();
     }
@@ -570,13 +571,10 @@ export const sendOperatorReply = internalAction({
         throw new Error(`Meta ${res.status}: ${errText}`);
       }
     } catch (err) {
-      await ctx.runMutation(
-        internal.whatsappIntegrations.recordSendFailure,
-        {
-          workspaceId: message.workspaceId,
-          error: err instanceof Error ? err.message : "WhatsApp send failed",
-        },
-      );
+      await ctx.runMutation(internal.whatsappIntegrations.recordSendFailure, {
+        workspaceId: message.workspaceId,
+        error: err instanceof Error ? err.message : "WhatsApp send failed",
+      });
     }
     return null;
   },
@@ -632,9 +630,7 @@ export const addTemplate = mutation({
       args.sessionToken,
     );
     if (operator.role === "agent") {
-      throw new ConvexError(
-        "Only admins and owners can manage templates.",
-      );
+      throw new ConvexError("Only admins and owners can manage templates.");
     }
     const name = args.name.trim();
     if (!name) throw new ConvexError("Template name is required.");
@@ -671,9 +667,7 @@ export const removeTemplate = mutation({
       args.sessionToken,
     );
     if (operator.role === "agent") {
-      throw new ConvexError(
-        "Only admins and owners can manage templates.",
-      );
+      throw new ConvexError("Only admins and owners can manage templates.");
     }
     const t = await ctx.db.get(args.templateId);
     if (!t || t.workspaceId !== workspaceId) {
@@ -768,10 +762,7 @@ export const _sendReminderTemplate = internalAction({
     body: v.string(),
   },
   returns: v.object({ ok: v.boolean(), error: v.optional(v.string()) }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ ok: boolean; error?: string }> => {
+  handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
     const ctxData: {
       integration: { phoneNumberId: string; accessToken: string };
       template: { name: string; language: string; variableCount: number };
@@ -851,9 +842,7 @@ export const _loadReminderTemplateContext = internalQuery({
   handler: async (ctx, args) => {
     const integration = await ctx.db
       .query("whatsappIntegrations")
-      .withIndex("by_workspace", (q) =>
-        q.eq("workspaceId", args.workspaceId),
-      )
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .first();
     if (!integration || !integration.enabled) return null;
     const convo = await ctx.db.get(args.conversationId);
@@ -863,9 +852,7 @@ export const _loadReminderTemplateContext = internalQuery({
     const template = (
       await ctx.db
         .query("whatsappTemplates")
-        .withIndex("by_workspace", (q) =>
-          q.eq("workspaceId", args.workspaceId),
-        )
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
         .collect()
     ).find((t) => t.name === args.templateName);
     if (!template) return null;

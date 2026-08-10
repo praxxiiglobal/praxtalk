@@ -67,9 +67,7 @@ export const upsert = mutation({
       args.sessionToken,
     );
     if (operator.role === "agent") {
-      throw new ConvexError(
-        "Only admins and owners can configure voice.",
-      );
+      throw new ConvexError("Only admins and owners can configure voice.");
     }
     if (!args.apiKey.trim()) {
       throw new ConvexError("API key / account ID is required.");
@@ -849,7 +847,10 @@ async function originateViaCallHippo(args: {
     throw new Error(`CallHippo ${res.status}: ${await res.text()}`);
   }
   try {
-    const json = (await res.json()) as { callId?: string; data?: { callId?: string } };
+    const json = (await res.json()) as {
+      callId?: string;
+      data?: { callId?: string };
+    };
     return json.callId ?? json.data?.callId;
   } catch {
     return undefined;
@@ -942,10 +943,7 @@ export const _sendReminderVoice = internalAction({
     body: v.string(),
   },
   returns: v.object({ ok: v.boolean(), error: v.optional(v.string()) }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ ok: boolean; error?: string }> => {
+  handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
     const ctxData: {
       provider: Provider;
       apiKey: string;
@@ -966,8 +964,7 @@ export const _sendReminderVoice = internalAction({
           "Voice not configured, no defaultNumber set, or visitor has no phone.",
       };
     }
-    const { provider, apiKey, apiToken, defaultNumber, visitorPhone } =
-      ctxData;
+    const { provider, apiKey, apiToken, defaultNumber, visitorPhone } = ctxData;
 
     try {
       if (provider === "twilio") {
@@ -1087,21 +1084,18 @@ async function sendTtsViaTeleCMI(args: {
   to: string;
   body: string;
 }) {
-  const res = await fetch(
-    "https://rest.telecmi.com/v2/text_to_speech_call",
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        appid: args.appId,
-        secret: args.secret,
-        from: args.from,
-        to: args.to,
-        text: args.body,
-        lang: "en-US",
-      }),
-    },
-  );
+  const res = await fetch("https://rest.telecmi.com/v2/text_to_speech_call", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      appid: args.appId,
+      secret: args.secret,
+      from: args.from,
+      to: args.to,
+      text: args.body,
+      lang: "en-US",
+    }),
+  });
   if (!res.ok) {
     throw new Error(`TeleCMI TTS ${res.status}: ${await res.text()}`);
   }
@@ -1115,9 +1109,7 @@ export const _loadReminderVoiceContext = internalQuery({
   handler: async (ctx, args) => {
     const integration = await ctx.db
       .query("voiceIntegrations")
-      .withIndex("by_workspace", (q) =>
-        q.eq("workspaceId", args.workspaceId),
-      )
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .first();
     if (!integration || !integration.enabled || !integration.defaultNumber)
       return null;
@@ -1382,9 +1374,7 @@ export const loadSmsReplyContext = internalQuery({
       integration = await ctx.db
         .query("voiceIntegrations")
         .withIndex("by_workspace_operator", (q) =>
-          q
-            .eq("workspaceId", msg.workspaceId)
-            .eq("operatorId", undefined),
+          q.eq("workspaceId", msg.workspaceId).eq("operatorId", undefined),
         )
         .first();
     }
@@ -1546,6 +1536,12 @@ export const recordInboundSms = internalMutation({
       body: args.body,
       createdAt: now,
     });
+    {
+      const convoDoc = await ctx.db.get(conversationId);
+      if (convoDoc && convoDoc.firstVisitorMessageAt === undefined) {
+        await ctx.db.patch(conversationId, { firstVisitorMessageAt: now });
+      }
+    }
     return null;
   },
 });
@@ -1611,9 +1607,7 @@ export const listActive = query({
     // is fine at the open-beta scale (one operator rarely has > 3 active calls).
     const all = await ctx.db
       .query("activeCalls")
-      .withIndex("by_operator_status", (q) =>
-        q.eq("operatorId", operator._id),
-      )
+      .withIndex("by_operator_status", (q) => q.eq("operatorId", operator._id))
       .collect();
     const live = all.filter((c) => liveStatuses.includes(c.status));
     return await Promise.all(
@@ -1642,10 +1636,7 @@ export const listActive = query({
 export const hangupCall = action({
   args: { sessionToken: v.string(), activeCallId: v.id("activeCalls") },
   returns: v.object({ ok: v.boolean(), error: v.optional(v.string()) }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ ok: boolean; error?: string }> => {
+  handler: async (ctx, args): Promise<{ ok: boolean; error?: string }> => {
     const ctxData: {
       ownerOperatorId: Id<"operators">;
       provider: Provider;
@@ -1673,7 +1664,10 @@ export const hangupCall = action({
           },
         );
         if (!res.ok) {
-          return { ok: false, error: `Twilio hangup ${res.status}: ${await res.text()}` };
+          return {
+            ok: false,
+            error: `Twilio hangup ${res.status}: ${await res.text()}`,
+          };
         }
       } else if (ctxData.provider === "callhippo") {
         const auth = btoa(`${ctxData.apiKey}:${ctxData.apiToken}`);
@@ -1685,7 +1679,10 @@ export const hangupCall = action({
           },
         );
         if (!res.ok) {
-          return { ok: false, error: `CallHippo hangup ${res.status}: ${await res.text()}` };
+          return {
+            ok: false,
+            error: `CallHippo hangup ${res.status}: ${await res.text()}`,
+          };
         }
       } else if (ctxData.provider === "telecmi") {
         const res = await fetch("https://rest.telecmi.com/v2/ind_hangup", {
@@ -1698,7 +1695,10 @@ export const hangupCall = action({
           }),
         });
         if (!res.ok) {
-          return { ok: false, error: `TeleCMI hangup ${res.status}: ${await res.text()}` };
+          return {
+            ok: false,
+            error: `TeleCMI hangup ${res.status}: ${await res.text()}`,
+          };
         }
       }
 

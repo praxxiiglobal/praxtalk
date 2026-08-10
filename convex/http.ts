@@ -248,6 +248,34 @@ http.route({
 // Returns the workspace's saved replies. When the API key is brand-
 // scoped, only that brand's replies + the workspace-global ones come
 // back. Otherwise every reply is returned.
+// ── GET /api/v1/presence ──────────────────────────────────────────────
+// Live visitors currently browsing the brand sites (widget presence
+// pings). ?brandId= optional, ?windowSec= optional active window
+// (default 120s, max 900). Exempt from the per-IP bucket like the
+// typing poll — CRMs poll this every ~10-15s from one egress IP; the
+// per-key read limit still applies.
+http.route({
+  path: "/api/v1/presence",
+  method: "GET",
+  handler: httpAction(async (ctx, req) => {
+    const auth = await authenticate(ctx, req, { skipIpLimit: true });
+    if ("error" in auth) return auth.error;
+    const url = new URL(req.url);
+    const filter = resolveBrandFilter(auth, url.searchParams.get("brandId"));
+    if (!filter.ok) return filter.response;
+    const windowSec = Math.min(
+      Math.max(30, Number(url.searchParams.get("windowSec") ?? "120")),
+      900,
+    );
+    const visitors = await ctx.runQuery(internal.presence.listActive, {
+      workspaceId: auth.workspaceId,
+      brandId: filter.brandId,
+      activeWindowMs: windowSec * 1000,
+    });
+    return jsonResponse({ visitors });
+  }),
+});
+
 http.route({
   path: "/api/v1/saved-replies",
   method: "GET",

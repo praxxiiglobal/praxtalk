@@ -912,6 +912,52 @@ const SOURCE = /* javascript */ `(() => {
         subscribeToTyping(conversationId);
       }
 
+      // ── Presence beacon (Live Visitors monitoring) ─────────────
+      // Pings presence:ping on page load and every 20s while the tab
+      // is visible, so operators see who's browsing right now — page,
+      // referrer, time on site. Geo is fetched once per page and
+      // cached; every failure is silent (monitoring must never break
+      // the site or the chat).
+      var presenceLanding = location.href;
+      var presenceGeoCache;
+      var presenceGeoFetched = false;
+      async function presenceGeo() {
+        if (presenceGeoFetched) return presenceGeoCache;
+        presenceGeoFetched = true;
+        try {
+          presenceGeoCache = await fetchVisitorGeo();
+        } catch {
+          presenceGeoCache = undefined;
+        }
+        return presenceGeoCache;
+      }
+      var presenceFirst = true;
+      async function sendPresencePing() {
+        try {
+          if (!presenceFirst && document.visibilityState !== "visible") return;
+          const geo = await presenceGeo();
+          const isFirst = presenceFirst;
+          presenceFirst = false;
+          await client.mutation("presence:ping", {
+            widgetId,
+            visitorKey,
+            url: String(location.href).slice(0, 500),
+            title: String(document.title || "").slice(0, 200) || undefined,
+            referrer: String(document.referrer || "").slice(0, 500) || undefined,
+            landing: String(presenceLanding).slice(0, 500),
+            pageload: isFirst,
+            ip: geo ? geo.ip : undefined,
+            location: geo ? geo.location : undefined,
+            ua: String(navigator.userAgent || "").slice(0, 300) || undefined,
+          });
+        } catch {}
+      }
+      void sendPresencePing();
+      setInterval(sendPresencePing, 20000);
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "visible") void sendPresencePing();
+      });
+
       // The "drop straight to chat" path (no pre-chat form). Used for
       // brand-new anonymous visitors and for the chooser's "chat here"
       // button. After this lands, the visitor sees an empty chat view

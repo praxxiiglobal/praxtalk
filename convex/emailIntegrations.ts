@@ -144,7 +144,9 @@ export const remove = mutation({
       args.sessionToken,
     );
     if (operator.role === "agent") {
-      throw new Error("Only admins and owners can remove the email integration.");
+      throw new Error(
+        "Only admins and owners can remove the email integration.",
+      );
     }
     const existing = await ctx.db
       .query("emailIntegrations")
@@ -495,8 +497,10 @@ export const recordInboundEmail = internalMutation({
 
     // Try to thread to an existing conversation.
     let conversation: Doc<"conversations"> | null = null;
-    const threadCandidates = [args.inReplyTo, ...(args.references ?? [])]
-      .filter((x): x is string => Boolean(x));
+    const threadCandidates = [
+      args.inReplyTo,
+      ...(args.references ?? []),
+    ].filter((x): x is string => Boolean(x));
     for (const ref of threadCandidates) {
       const byThread = await ctx.db
         .query("conversations")
@@ -537,6 +541,9 @@ export const recordInboundEmail = internalMutation({
       emailSubject: args.subject,
       createdAt: now,
     });
+    if (conversation.firstVisitorMessageAt === undefined) {
+      await ctx.db.patch(conversation._id, { firstVisitorMessageAt: now });
+    }
 
     // Forward to the webhook fan-out.
     await ctx.scheduler.runAfter(0, internal.webhooks.enqueue, {
@@ -599,21 +606,18 @@ export const sendOperatorReply = internalAction({
       { messageId },
     );
     if (!ctxData) {
-      await ctx.runMutation(
-        internal.emailIntegrations.recordDeliveryFinal,
-        {
-          messageId,
-          error: "No email integration / message context — won't retry",
-        },
-      );
+      await ctx.runMutation(internal.emailIntegrations.recordDeliveryFinal, {
+        messageId,
+        error: "No email integration / message context — won't retry",
+      });
       return null;
     }
     const { message, conversation, visitor, integration } = ctxData;
     if (!visitor.email) {
-      await ctx.runMutation(
-        internal.emailIntegrations.recordDeliveryFinal,
-        { messageId, error: "Visitor has no email — won't retry" },
-      );
+      await ctx.runMutation(internal.emailIntegrations.recordDeliveryFinal, {
+        messageId,
+        error: "Visitor has no email — won't retry",
+      });
       return null;
     }
 
@@ -666,23 +670,21 @@ export const sendOperatorReply = internalAction({
         // Hand off to the Node-runtime SMTP sender (nodemailer can't
         // run in Convex's V8 isolate). Returns void; failure recorded
         // inside the action via recordOutboundDelivery.
-        await ctx.runAction(
-          internal.emailSmtpImap.sendOutboundForMessage,
-          { messageId },
-        );
+        await ctx.runAction(internal.emailSmtpImap.sendOutboundForMessage, {
+          messageId,
+        });
       }
 
-      await ctx.runMutation(
-        internal.emailIntegrations.recordDeliverySuccess,
-        { messageId },
-      );
+      await ctx.runMutation(internal.emailIntegrations.recordDeliverySuccess, {
+        messageId,
+      });
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Email send failed";
-      await ctx.runMutation(
-        internal.emailIntegrations.recordDeliveryFailure,
-        { messageId, error: errorMessage },
-      );
+      await ctx.runMutation(internal.emailIntegrations.recordDeliveryFailure, {
+        messageId,
+        error: errorMessage,
+      });
     }
     return null;
   },
@@ -877,9 +879,7 @@ export const loadOutboundContext = internalQuery({
       integration = await ctx.db
         .query("emailIntegrations")
         .withIndex("by_workspace_operator", (q) =>
-          q
-            .eq("workspaceId", message.workspaceId)
-            .eq("operatorId", senderId),
+          q.eq("workspaceId", message.workspaceId).eq("operatorId", senderId),
         )
         .first();
     }
@@ -887,9 +887,7 @@ export const loadOutboundContext = internalQuery({
       integration = await ctx.db
         .query("emailIntegrations")
         .withIndex("by_workspace_operator", (q) =>
-          q
-            .eq("workspaceId", message.workspaceId)
-            .eq("operatorId", undefined),
+          q.eq("workspaceId", message.workspaceId).eq("operatorId", undefined),
         )
         .first();
     }

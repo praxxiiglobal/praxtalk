@@ -42,4 +42,13 @@ crons.interval(
   {},
 );
 
+// Presence rows idle for a week get dropped — the monitoring table
+// tracks recently-seen browsers, not history.
+crons.interval(
+  "purge stale visitor presence",
+  { hours: 1 },
+  internal.presence._purgeStalePresence,
+  {},
+);
+
 export default crons;

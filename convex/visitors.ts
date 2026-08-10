@@ -191,7 +191,15 @@ export const sendVisitorMessage = mutation({
       createdAt: now,
     });
 
-    await ctx.db.patch(args.conversationId, { lastMessageAt: now });
+    await ctx.db.patch(args.conversationId, {
+      lastMessageAt: now,
+      // First real words from the visitor promote this conversation
+      // from "opened the widget" to an actual chat (CRM inboxes key
+      // off this).
+      ...(convo.firstVisitorMessageAt === undefined
+        ? { firstVisitorMessageAt: now }
+        : {}),
+    });
 
     await fireEvent(ctx, brand.workspaceId, "message.created", {
       messageId,
@@ -316,8 +324,7 @@ export const requestHumanAgent = mutation({
         createdAt: now,
       });
 
-      const visitorLabel =
-        visitor.name ?? visitor.email ?? "A visitor";
+      const visitorLabel = visitor.name ?? visitor.email ?? "A visitor";
       await ctx.db.insert("notifications", {
         workspaceId: brand.workspaceId,
         kind: "human_requested",
@@ -475,7 +482,7 @@ export const listMessagesForVisitor = query({
     // conversation doesn't refetch the same operator dozens of times.
     const opCache = new Map<string, string | null>();
     const resolveName = async (
-      opId: typeof messages[number]["senderOperatorId"],
+      opId: (typeof messages)[number]["senderOperatorId"],
     ): Promise<string | null> => {
       if (!opId) return null;
       const key = String(opId);
@@ -503,7 +510,7 @@ export const listMessagesForVisitor = query({
         senderName:
           m.role === "operator"
             ? ((m as { senderDisplayName?: string }).senderDisplayName ??
-                (await resolveName(m.senderOperatorId)))
+              (await resolveName(m.senderOperatorId)))
             : null,
       })),
     );
