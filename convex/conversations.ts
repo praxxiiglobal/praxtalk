@@ -223,15 +223,21 @@ export const setStatus = mutation({
     if (convo.brandId && !hasBrandAccess(operator, convo.brandId)) {
       throw new Error("No access to this brand.");
     }
+    // Attribution: name the operator so a close is always traceable
+    // to a person (parallel to the REST path's API-key attribution).
+    const actor = operator.name || operator.email || "Operator";
     await ctx.db.patch(args.conversationId, {
       status: args.status,
       resolvedBy: args.status === "resolved" ? "operator" : undefined,
+      statusChangedBy: actor,
+      statusChangedAt: Date.now(),
     });
     await fireEvent(ctx, workspaceId, "conversation.status_changed", {
       conversationId: args.conversationId,
       brandId: convo.brandId,
       previousStatus: convo.status,
       status: args.status,
+      changedBy: actor,
     });
     return null;
   },

@@ -334,6 +334,12 @@ export default defineSchema({
       v.literal("closed"),
     ),
     resolvedBy: v.optional(v.union(v.literal("atlas"), v.literal("operator"))),
+    // Human-readable audit trail for the last status change: who did
+    // it ("Nick Johnson", "Prateek (API key: FNP Global)", "API key:
+    // FNP Global") and when. Populated by both the dashboard setStatus
+    // and the REST PATCH so a close is always attributable.
+    statusChangedBy: v.optional(v.string()),
+    statusChangedAt: v.optional(v.number()),
     confidence: v.optional(v.number()),
     // Visitor explicitly asked to talk to a human. Atlas stops
     // evaluating new messages on this conversation; the inbox badges

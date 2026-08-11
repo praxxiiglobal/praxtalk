@@ -97,6 +97,7 @@ async function authenticate(
       workspaceId: Id<"workspaces">;
       scope: "read" | "write";
       brandId: Id<"brands"> | null;
+      keyName: string;
       rateLimit: { limit: number; remaining: number };
     }
   | { error: Response }
@@ -160,6 +161,7 @@ async function authenticate(
     workspaceId: result.workspaceId,
     scope: result.scope,
     brandId: result.brandId,
+    keyName: result.name,
     rateLimit: { limit: keyLimit.limit, remaining: keyLimit.remaining },
   };
 }
@@ -486,12 +488,19 @@ http.route({
     if (segments.length !== 4) return errorResponse(404, "Not found.");
     const conversationId = segments[3] as Id<"conversations">;
 
-    let payload: { status?: unknown };
+    let payload: { status?: unknown; changedBy?: unknown };
     try {
-      payload = (await req.json()) as { status?: unknown };
+      payload = (await req.json()) as { status?: unknown; changedBy?: unknown };
     } catch {
       return errorResponse(400, "Invalid JSON body.");
     }
+    // Optional attribution: callers (e.g. the Prax CRM) send the
+    // human actor's display name so the audit trail names a person,
+    // not just the shared API key.
+    const changedBy =
+      typeof payload.changedBy === "string"
+        ? payload.changedBy.trim().slice(0, 120)
+        : undefined;
     const status = payload.status;
     if (
       status !== "open" &&
@@ -523,6 +532,8 @@ http.route({
         workspaceId: auth.workspaceId,
         conversationId,
         status,
+        changedBy: changedBy || undefined,
+        apiKeyName: auth.keyName,
       });
       return jsonResponse({ ok: true });
     } catch (err) {

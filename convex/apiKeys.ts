@@ -155,6 +155,7 @@ export const verifyKey = internalQuery({
       workspaceId: match.workspaceId,
       scope: match.scope,
       brandId: match.brandId ?? null,
+      name: match.name,
     };
   },
 });

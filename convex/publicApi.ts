@@ -148,6 +148,10 @@ export const setConversationStatus = internalMutation({
       v.literal("resolved"),
       v.literal("closed"),
     ),
+    // Attribution: the human actor's name as sent by the API caller
+    // (optional) and the API key that authenticated the request.
+    changedBy: v.optional(v.string()),
+    apiKeyName: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -155,9 +159,17 @@ export const setConversationStatus = internalMutation({
     if (!convo || convo.workspaceId !== args.workspaceId) {
       throw new Error("Conversation not found.");
     }
+    const keyLabel = args.apiKeyName
+      ? `API key: ${args.apiKeyName}`
+      : "API";
+    const attribution = args.changedBy
+      ? `${args.changedBy} (${keyLabel})`
+      : keyLabel;
     await ctx.db.patch(args.conversationId, {
       status: args.status,
       resolvedBy: args.status === "resolved" ? "operator" : undefined,
+      statusChangedBy: attribution,
+      statusChangedAt: Date.now(),
     });
     await fireEvent(ctx, args.workspaceId, "conversation.status_changed", {
       conversationId: args.conversationId,
@@ -165,6 +177,7 @@ export const setConversationStatus = internalMutation({
       previousStatus: convo.status,
       status: args.status,
       via: "api",
+      changedBy: attribution,
     });
     return null;
   },
@@ -451,6 +464,10 @@ function shapeConversation(
     // because the widget opened. CRMs use this to separate "active
     // visitors" from real chats.
     firstVisitorMessageAt: c.firstVisitorMessageAt ?? null,
+    // Audit trail: who last changed the status (operator name, or
+    // "Name (API key: X)" / "API key: X" for REST callers) and when.
+    statusChangedBy: c.statusChangedBy ?? null,
+    statusChangedAt: c.statusChangedAt ?? null,
     createdAt: c.createdAt,
     visitor: visitor
       ? {
