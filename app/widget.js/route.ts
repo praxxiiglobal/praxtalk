@@ -38,6 +38,10 @@ const WIDGET_SHELL = `
   }
   .bubble:hover { transform: translateY(-2px); }
   .bubble.hidden { display: none; }
+  /* Boot state: invisible until applyConfig runs, so visitors never
+     see the unbranded default (black bubble + glyph) flash before the
+     brand color and logo arrive. */
+  .bubble.preboot { visibility: hidden; }
   .bubble-logo {
     width: 44px; height: 44px; border-radius: 50%;
     background: #fff; object-fit: contain; padding: 4px;
@@ -292,7 +296,7 @@ const WIDGET_SHELL = `
   .bubble .badge.hidden { display: none; }
 </style>
 
-<button class="bubble" aria-label="Open chat">
+<button class="bubble preboot" aria-label="Open chat">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
   </svg>
@@ -863,32 +867,48 @@ const SOURCE = /* javascript */ `(() => {
 
   function applyConfig(config) {
     if (!config) return;
+    // Reveal the launcher — it boots hidden (.preboot) so visitors
+    // never see the unbranded default flash before branding applies.
+    if (els.bubble) els.bubble.classList.remove("preboot");
     // Per-brand logo: bubble icon (unless the brand opted for the
-    // classic glyph), header chip, and message avatars. onerror on
-    // the images falls back to the glyph so a dead URL can never
-    // leave the bubble blank.
-    if (config.avatarUrl && els.bubbleLogo) {
-      brandLogoUrl = config.avatarUrl;
-      if (config.bubbleIcon !== "glyph") {
-        els.bubbleLogo.src = config.avatarUrl;
+    // classic glyph), header chip, message avatars, and the typing
+    // bubble. onerror falls back to the glyph so a dead URL can never
+    // leave the bubble blank. The remove-branches matter: config gets
+    // applied twice (cached copy first, then fresh) so a logo removed
+    // in the brand editor must also clear here.
+    const logoUrl = config.avatarUrl || null;
+    brandLogoUrl = logoUrl;
+    if (els.bubbleLogo && els.bubble) {
+      if (logoUrl && config.bubbleIcon !== "glyph") {
+        els.bubbleLogo.src = logoUrl;
         els.bubbleLogo.onerror = function () {
           els.bubble.classList.remove("has-logo");
         };
         els.bubble.classList.add("has-logo");
+      } else {
+        els.bubble.classList.remove("has-logo");
       }
-      if (els.headLogo && els.head) {
-        els.headLogo.src = config.avatarUrl;
+    }
+    if (els.headLogo && els.head) {
+      if (logoUrl) {
+        els.headLogo.src = logoUrl;
         els.headLogo.onerror = function () {
           els.head.classList.remove("has-logo");
         };
         els.head.classList.add("has-logo");
+      } else {
+        els.head.classList.remove("has-logo");
       }
-      if (els.typingAvatar && els.typingRow) {
-        els.typingAvatar.src = config.avatarUrl;
+    }
+    if (els.typingAvatar && els.typingRow) {
+      if (logoUrl) {
+        els.typingAvatar.src = logoUrl;
         els.typingAvatar.onerror = function () {
           els.typingRow.classList.remove("has-logo");
         };
         els.typingRow.classList.add("has-logo");
+      } else {
+        els.typingRow.classList.remove("has-logo");
       }
     }
     // Mobile-only call button (replaces the old "Talk to a human"
@@ -1002,11 +1022,26 @@ const SOURCE = /* javascript */ `(() => {
       if (!ConvexClient) throw new Error("ConvexClient not found in bundled module");
       const client = new ConvexClient(CONVEX_URL);
 
+      // Config cache: apply the last-seen config instantly so repeat
+      // visitors get the branded bubble with zero flash, then fetch
+      // fresh config and re-apply + cache. First-ever visitors keep
+      // the bubble hidden for the one round-trip instead of seeing
+      // the unbranded default flip to the brand look.
+      let cachedCfg = null;
+      try {
+        const raw = localStorage.getItem("praxtalk_cfg_" + widgetId);
+        cachedCfg = raw ? JSON.parse(raw) : null;
+      } catch {}
+      if (cachedCfg) applyConfig(cachedCfg);
+
       const config = await client.query("widgets:getConfigByWidgetId", { widgetId });
       if (!config) {
         console.warn("[PraxTalk] unknown widget id:", widgetId);
         return;
       }
+      try {
+        localStorage.setItem("praxtalk_cfg_" + widgetId, JSON.stringify(config));
+      } catch {}
       applyConfig(config);
 
       const cachedProfile = loadProfile();
