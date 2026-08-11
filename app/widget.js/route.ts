@@ -38,6 +38,26 @@ const WIDGET_SHELL = `
   }
   .bubble:hover { transform: translateY(-2px); }
   .bubble.hidden { display: none; }
+  .bubble-logo {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: #fff; object-fit: contain; padding: 4px;
+    box-sizing: border-box; display: none;
+  }
+  .bubble.has-logo svg { display: none; }
+  .bubble.has-logo .bubble-logo { display: block; }
+  .head-logo {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: #fff; object-fit: contain; padding: 3px;
+    box-sizing: border-box; display: none; flex-shrink: 0;
+  }
+  .head.has-logo .head-logo { display: block; }
+  .msg-line { display: flex; align-items: flex-end; gap: 6px; max-width: 100%; }
+  .msg-avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; object-fit: contain; padding: 2px;
+    box-sizing: border-box; border: 1px solid rgba(0,0,0,0.08);
+    flex-shrink: 0;
+  }
   .bubble svg { width: 24px; height: 24px; }
   .panel {
     position: fixed; bottom: 20px;
@@ -260,11 +280,13 @@ const WIDGET_SHELL = `
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
   </svg>
+  <img class="bubble-logo" alt="" />
   <span class="badge hidden" aria-label="Unread messages"></span>
 </button>
 
 <div class="panel" role="dialog" aria-label="Chat">
   <div class="head">
+    <img class="head-logo" alt="" />
     <div class="title">Chat</div>
     <a class="call hidden" href="#" aria-label="Call us">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
@@ -471,8 +493,11 @@ const SOURCE = /* javascript */ `(() => {
 
   const els = {
     bubble: root.querySelector(".bubble"),
+    bubbleLogo: root.querySelector(".bubble-logo"),
     badge: root.querySelector(".bubble .badge"),
     panel: root.querySelector(".panel"),
+    head: root.querySelector(".head"),
+    headLogo: root.querySelector(".head-logo"),
     title: root.querySelector(".title"),
     body: root.querySelector(".body"),
     formView: root.querySelector(".form-view"),
@@ -701,7 +726,23 @@ const SOURCE = /* javascript */ `(() => {
     const div = document.createElement("div");
     div.className = "msg " + role;
     renderMsgBody(div, body);
-    wrap.appendChild(div);
+    // Brand logo as a mini avatar beside agent replies (only when the
+    // brand has one configured — plain rows otherwise, zero layout
+    // change for visitor/system messages).
+    if (role === "operator" && brandLogoUrl) {
+      const line = document.createElement("div");
+      line.className = "msg-line";
+      const av = document.createElement("img");
+      av.className = "msg-avatar";
+      av.src = brandLogoUrl;
+      av.alt = "";
+      av.onerror = function () { av.style.display = "none"; };
+      line.appendChild(av);
+      line.appendChild(div);
+      wrap.appendChild(line);
+    } else {
+      wrap.appendChild(div);
+    }
     return wrap;
   }
 
@@ -796,8 +837,33 @@ const SOURCE = /* javascript */ `(() => {
     els.list.scrollTop = els.list.scrollHeight;
   }
 
+  // Brand logo (from config.avatarUrl). Read by bubble() to draw the
+  // mini avatar beside agent replies; set once in applyConfig.
+  let brandLogoUrl = null;
+
   function applyConfig(config) {
     if (!config) return;
+    // Per-brand logo: bubble icon (unless the brand opted for the
+    // classic glyph), header chip, and message avatars. onerror on
+    // the images falls back to the glyph so a dead URL can never
+    // leave the bubble blank.
+    if (config.avatarUrl && els.bubbleLogo) {
+      brandLogoUrl = config.avatarUrl;
+      if (config.bubbleIcon !== "glyph") {
+        els.bubbleLogo.src = config.avatarUrl;
+        els.bubbleLogo.onerror = function () {
+          els.bubble.classList.remove("has-logo");
+        };
+        els.bubble.classList.add("has-logo");
+      }
+      if (els.headLogo && els.head) {
+        els.headLogo.src = config.avatarUrl;
+        els.headLogo.onerror = function () {
+          els.head.classList.remove("has-logo");
+        };
+        els.head.classList.add("has-logo");
+      }
+    }
     // Mobile-only call button (replaces the old "Talk to a human"
     // affordance): when the brand has a click-to-chat phone and the
     // visitor is on a phone themselves, the header shows a tap-to-call

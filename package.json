@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/build-widget-bundle.mjs",
+    "prebuild": "node scripts/build-widget-bundle.mjs && node scripts/check-widget-syntax.mjs",
     "build": "convex deploy --cmd 'next build'",
     "build:next-only": "next build",
     "build:widget": "node scripts/build-widget-bundle.mjs",

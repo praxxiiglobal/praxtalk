@@ -21,6 +21,7 @@ export const getConfigByWidgetId = query({
       welcomeMessage: v.string(),
       position: v.union(v.literal("br"), v.literal("bl")),
       avatarUrl: v.optional(v.string()),
+      bubbleIcon: v.optional(v.union(v.literal("logo"), v.literal("glyph"))),
       // wa.me lite — present when the brand has a click-to-chat
       // WhatsApp number configured. Widget renders a "Prefer
       // WhatsApp" link in the welcome strip when set; null otherwise.
@@ -46,6 +47,7 @@ export const getConfigByWidgetId = query({
       welcomeMessage: brand.welcomeMessage,
       position: brand.position,
       avatarUrl: brand.avatarUrl,
+      bubbleIcon: brand.bubbleIcon,
       waMePhone: brand.waMePhone ?? null,
       waMePrefilledMessage: brand.waMePrefilledMessage ?? null,
       // Unset = default-on (most brands want to capture identity).

@@ -15,6 +15,8 @@ type Brand = {
   primaryColor: string;
   welcomeMessage: string;
   position: "br" | "bl";
+  avatarUrl?: string;
+  bubbleIcon?: "logo" | "glyph";
   askIdentityInChat?: boolean;
 };
 
@@ -137,6 +139,10 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
   const [primaryColor, setPrimaryColor] = useState(brand.primaryColor);
   const [welcomeMessage, setWelcomeMessage] = useState(brand.welcomeMessage);
   const [position, setPosition] = useState<"br" | "bl">(brand.position);
+  const [logoUrl, setLogoUrl] = useState(brand.avatarUrl ?? "");
+  const [bubbleIcon, setBubbleIcon] = useState<"logo" | "glyph">(
+    brand.bubbleIcon ?? "logo",
+  );
   // Default-on: when the brand row has no value yet, treat as enabled.
   const [askIdentityInChat, setAskIdentityInChat] = useState<boolean>(
     brand.askIdentityInChat ?? true,
@@ -171,6 +177,8 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
         primaryColor,
         welcomeMessage,
         position,
+        avatarUrl: logoUrl,
+        bubbleIcon,
         askIdentityInChat,
       });
       setEditing(false);
@@ -256,6 +264,60 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
                 className="h-7 flex-1 bg-transparent font-mono text-[12px] outline-none"
               />
             </div>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              Logo URL
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="url"
+                value={logoUrl}
+                onChange={(e) => setLogoUrl(e.target.value)}
+                placeholder="https://yoursite.com/logo.png"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-rule-2 bg-paper px-3 text-sm outline-none focus:border-ink"
+              />
+              {logoUrl.trim() !== "" && (
+                <span
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+                  style={{ backgroundColor: primaryColor }}
+                  title="Bubble preview"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={logoUrl.trim()}
+                    alt=""
+                    className="h-8 w-8 rounded-full bg-white object-contain p-0.5"
+                    onError={(e) => {
+                      e.currentTarget.style.visibility = "hidden";
+                    }}
+                    onLoad={(e) => {
+                      e.currentTarget.style.visibility = "visible";
+                    }}
+                  />
+                </span>
+              )}
+            </div>
+            <span className="text-[11px] text-muted">
+              Shown on the chat bubble, panel header, and beside agent
+              replies. Leave empty for the default chat icon.
+            </span>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              Bubble icon
+            </span>
+            <select
+              value={bubbleIcon}
+              onChange={(e) =>
+                setBubbleIcon(e.target.value as "logo" | "glyph")
+              }
+              disabled={logoUrl.trim() === ""}
+              className="h-10 rounded-lg border border-rule-2 bg-paper px-3 text-sm outline-none focus:border-ink disabled:opacity-50"
+            >
+              <option value="logo">Brand logo</option>
+              <option value="glyph">Classic chat icon</option>
+            </select>
           </label>
           <label className="flex flex-col gap-1 sm:col-span-2">
             <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">

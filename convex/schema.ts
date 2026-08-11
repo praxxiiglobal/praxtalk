@@ -143,6 +143,10 @@ export default defineSchema({
     welcomeMessage: v.string(),
     position: v.union(v.literal("br"), v.literal("bl")),
     avatarUrl: v.optional(v.string()),
+    // Launcher-bubble icon when avatarUrl is set: "logo" (default)
+    // shows the brand logo on the bubble, "glyph" keeps the classic
+    // chat icon (for logos that read badly at small sizes).
+    bubbleIcon: v.optional(v.union(v.literal("logo"), v.literal("glyph"))),
     businessHours: v.optional(v.string()),
     // Structured business-hours config used by the off-hours auto-
     // responder. Free-text `businessHours` above stays as a human-

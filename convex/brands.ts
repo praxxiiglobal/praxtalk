@@ -115,6 +115,7 @@ export const update = mutation({
     welcomeMessage: v.optional(v.string()),
     position: v.optional(v.union(v.literal("br"), v.literal("bl"))),
     avatarUrl: v.optional(v.string()),
+    bubbleIcon: v.optional(v.union(v.literal("logo"), v.literal("glyph"))),
     businessHours: v.optional(v.string()),
     waMePhone: v.optional(v.string()),
     waMePrefilledMessage: v.optional(v.string()),
@@ -146,7 +147,12 @@ export const update = mutation({
     if (args.welcomeMessage !== undefined)
       patch.welcomeMessage = args.welcomeMessage;
     if (args.position !== undefined) patch.position = args.position;
-    if (args.avatarUrl !== undefined) patch.avatarUrl = args.avatarUrl;
+    if (args.avatarUrl !== undefined) {
+      // Empty string clears the logo (patch with undefined removes).
+      const trimmed = args.avatarUrl.trim();
+      patch.avatarUrl = trimmed.length === 0 ? undefined : trimmed;
+    }
+    if (args.bubbleIcon !== undefined) patch.bubbleIcon = args.bubbleIcon;
     if (args.businessHours !== undefined)
       patch.businessHours = args.businessHours;
     if (args.waMePhone !== undefined) {
@@ -264,6 +270,7 @@ function toPublicBrand(b: Doc<"brands">) {
     welcomeMessage: b.welcomeMessage,
     position: b.position,
     avatarUrl: b.avatarUrl,
+    bubbleIcon: b.bubbleIcon,
     businessHours: b.businessHours,
     waMePhone: b.waMePhone,
     waMePrefilledMessage: b.waMePrefilledMessage,
