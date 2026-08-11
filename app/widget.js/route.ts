@@ -77,7 +77,10 @@ const WIDGET_SHELL = `
     background: var(--praxtalk-accent); color: #fff;
     padding: 14px 16px; display: flex; align-items: center; gap: 10px;
   }
-  .title { font-weight: 600; font-size: 15px; flex: 1; letter-spacing: -0.01em; }
+  .head-text { flex: 1; min-width: 0; }
+  .title { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+  .head-status { font-size: 11px; color: rgba(255,255,255,0.85); display: flex; align-items: center; gap: 5px; margin-top: 1px; }
+  .head-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #7CE3B1; flex-shrink: 0; }
   .call {
     background: rgba(255,255,255,0.15); color: #fff;
     width: 28px; height: 28px; border-radius: 999px;
@@ -182,10 +185,23 @@ const WIDGET_SHELL = `
     border-radius: 10px; margin-top: 6px;
     border: 1px solid rgba(0,0,0,0.08);
   }
-  /* "Agent is typing…" row — sits between the message list and the
-     composer. Hidden via the [hidden] attribute when nobody's typing. */
-  .typing-row { display: flex; align-items: center; gap: 8px; padding: 4px 16px 6px; color: #6b6b5d; font-size: 12px; }
+  /* Agent-typing indicator — sits between the message list and the
+     composer, styled as an incoming message bubble (brand avatar +
+     three animated dots). Hidden via [hidden] when nobody's typing. */
+  .typing-row { display: flex; align-items: flex-end; gap: 6px; padding: 0 16px 8px; }
   .typing-row[hidden] { display: none; }
+  .typing-avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; object-fit: contain; padding: 2px;
+    box-sizing: border-box; border: 1px solid rgba(0,0,0,0.08);
+    flex-shrink: 0; display: none;
+  }
+  .typing-row.has-logo .typing-avatar { display: block; }
+  .typing-bubble {
+    background: #fff; border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 14px; border-top-left-radius: 4px;
+    padding: 11px 13px; display: inline-flex; align-items: center;
+  }
   .typing-dots { display: inline-flex; gap: 3px; }
   .typing-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--praxtalk-accent, #6b6b5d); opacity: 0.4; animation: praxtalk-typing 1.2s infinite ease-in-out; }
   .typing-dots i:nth-child(2) { animation-delay: 0.2s; }
@@ -287,7 +303,10 @@ const WIDGET_SHELL = `
 <div class="panel" role="dialog" aria-label="Chat">
   <div class="head">
     <img class="head-logo" alt="" />
-    <div class="title">Chat</div>
+    <div class="head-text">
+      <div class="title">Chat</div>
+      <div class="head-status"><span class="head-status-dot"></span>Online now</div>
+    </div>
     <a class="call hidden" href="#" aria-label="Call us">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
     </a>
@@ -379,8 +398,8 @@ const WIDGET_SHELL = `
         </div>
       </div>
       <div class="typing-row" hidden>
-        <span class="typing-dots"><i></i><i></i><i></i></span>
-        <span class="typing-text">Agent is typing…</span>
+        <img class="typing-avatar" alt="" />
+        <span class="typing-bubble"><span class="typing-dots"><i></i><i></i><i></i></span></span>
       </div>
       <div class="composer">
         <button class="geo" type="button" aria-label="Share my location" title="Share my location">
@@ -517,6 +536,7 @@ const SOURCE = /* javascript */ `(() => {
     input: root.querySelector(".input"),
     sendBtn: root.querySelector(".send"),
     typingRow: root.querySelector(".typing-row"),
+    typingAvatar: root.querySelector(".typing-avatar"),
     geoBtn: root.querySelector(".geo"),
     callBtn: root.querySelector(".call"),
     closeBtn: root.querySelector(".close"),
@@ -862,6 +882,13 @@ const SOURCE = /* javascript */ `(() => {
           els.head.classList.remove("has-logo");
         };
         els.head.classList.add("has-logo");
+      }
+      if (els.typingAvatar && els.typingRow) {
+        els.typingAvatar.src = config.avatarUrl;
+        els.typingAvatar.onerror = function () {
+          els.typingRow.classList.remove("has-logo");
+        };
+        els.typingRow.classList.add("has-logo");
       }
     }
     // Mobile-only call button (replaces the old "Talk to a human"
