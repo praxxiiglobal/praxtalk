@@ -151,6 +151,17 @@ const WIDGET_SHELL = `
   .chat-view.hidden { display: none; }
   .list { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
   .empty { color: #6b6b5d; font-size: 13px; text-align: center; margin: auto 0; padding: 24px; }
+  .msg-att {
+    display: flex; align-items: center; gap: 6px; margin-top: 6px;
+    font-size: 12.5px; font-weight: 500; color: inherit;
+    text-decoration: underline; text-underline-offset: 2px;
+    word-break: break-word;
+  }
+  .msg-att-img {
+    display: block; max-width: 200px; max-height: 160px;
+    border-radius: 10px; margin-top: 6px;
+    border: 1px solid rgba(0,0,0,0.08);
+  }
   /* "Agent is typing…" row — sits between the message list and the
      composer. Hidden via the [hidden] attribute when nobody's typing. */
   .typing-row { display: flex; align-items: center; gap: 8px; padding: 4px 16px 6px; color: #6b6b5d; font-size: 12px; }
@@ -689,9 +700,52 @@ const SOURCE = /* javascript */ `(() => {
     }
     const div = document.createElement("div");
     div.className = "msg " + role;
-    div.textContent = body;
+    renderMsgBody(div, body);
     wrap.appendChild(div);
     return wrap;
+  }
+
+  // Agent attachments arrive as "📎 <name>\n<url>" text blocks (the
+  // CRM appends them — its API only carries a body string). Render
+  // them as tappable cards / inline images instead of raw URLs. All
+  // DOM built via createElement + textContent, never innerHTML, so
+  // message content can't inject markup.
+  function renderMsgBody(div, body) {
+    const attachments = [];
+    const text = String(body)
+      .replace(/(?:^|\n\n?)📎 ([^\n]+)\n(https?:\/\/[^\s]+)/g, function (_m, name, url) {
+        attachments.push({ name: name.trim(), url: url });
+        return "";
+      })
+      .trim();
+    if (attachments.length === 0) {
+      div.textContent = body;
+      return;
+    }
+    if (text) {
+      const t = document.createElement("div");
+      t.textContent = text;
+      div.appendChild(t);
+    }
+    for (const a of attachments) {
+      if (!/^https?:\/\//.test(a.url)) continue;
+      const link = document.createElement("a");
+      link.href = a.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(a.name)) {
+        const img = document.createElement("img");
+        img.src = a.url;
+        img.alt = a.name;
+        img.className = "msg-att-img";
+        link.appendChild(img);
+        link.title = a.name + " — tap to open full size";
+      } else {
+        link.className = "msg-att";
+        link.textContent = "📎 " + a.name + " — tap to open";
+      }
+      div.appendChild(link);
+    }
   }
 
   // Synthesised "Sarah joined the chat" row inserted the first time
