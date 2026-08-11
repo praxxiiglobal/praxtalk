@@ -187,18 +187,42 @@ export const listMessages = internalQuery({
       )
       .order("asc")
       .take(500);
+    // Resolve a sender name for operator messages — same two paths
+    // as the widget query (visitors.listMessages): senderDisplayName
+    // (set on REST-sent replies, e.g. from the CRM) first, operator
+    // row's name as fallback. Cached so N messages cost at most one
+    // read per distinct operator.
+    const opCache = new Map<string, string | null>();
+    const resolveName = async (
+      opId: (typeof messages)[number]["senderOperatorId"],
+    ): Promise<string | null> => {
+      if (!opId) return null;
+      const key = String(opId);
+      if (opCache.has(key)) return opCache.get(key) ?? null;
+      const op = await ctx.db.get(opId);
+      const name = op && "email" in op ? (op.name ?? null) : null;
+      opCache.set(key, name);
+      return name;
+    };
     // Strip operator internal notes — those are team-only and must
     // never leave the dashboard, even via a workspace-scoped API key.
-    return messages
-      .filter((m) => m.role !== "internal_note")
-      .map((m) => ({
-        id: m._id,
-        conversationId: m.conversationId,
-        brandId: m.brandId,
-        role: m.role,
-        body: m.body,
-        createdAt: m.createdAt,
-      }));
+    return await Promise.all(
+      messages
+        .filter((m) => m.role !== "internal_note")
+        .map(async (m) => ({
+          id: m._id,
+          conversationId: m.conversationId,
+          brandId: m.brandId,
+          role: m.role,
+          body: m.body,
+          createdAt: m.createdAt,
+          senderName:
+            m.role === "operator"
+              ? ((m as { senderDisplayName?: string }).senderDisplayName ??
+                (await resolveName(m.senderOperatorId)))
+              : null,
+        })),
+    );
   },
 });
 
