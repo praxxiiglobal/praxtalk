@@ -705,35 +705,53 @@ const SOURCE = /* javascript */ `(() => {
     return wrap;
   }
 
-  // Agent attachments arrive as "📎 <name>\n<url>" text blocks (the
+  // Agent attachments arrive as "clip <name> / <url>" text blocks (the
   // CRM appends them — its API only carries a body string). Render
-  // them as tappable cards / inline images instead of raw URLs. All
-  // DOM built via createElement + textContent, never innerHTML, so
-  // message content can't inject markup.
+  // them as tappable cards / inline images instead of raw URLs.
+  // IMPORTANT: this code lives inside a template literal, so backslash
+  // escapes get cooked away — everything here is written WITHOUT
+  // backslashes (no regex escapes, String.fromCharCode for newline).
   function renderMsgBody(div, body) {
+    const NL = String.fromCharCode(10);
+    const lines = String(body).split(NL);
     const attachments = [];
-    const text = String(body)
-      .replace(/(?:^|\n\n?)📎 ([^\n]+)\n(https?:\/\/[^\s]+)/g, function (_m, name, url) {
-        attachments.push({ name: name.trim(), url: url });
-        return "";
-      })
-      .trim();
+    const textLines = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const next = i + 1 < lines.length ? lines[i + 1] : "";
+      if (line.indexOf("📎 ") === 0 && next.indexOf("http") === 0) {
+        attachments.push({ name: line.slice(2).trim(), url: next.trim() });
+        i++;
+      } else {
+        textLines.push(line);
+      }
+    }
     if (attachments.length === 0) {
       div.textContent = body;
       return;
     }
+    const text = textLines.join(NL).trim();
     if (text) {
       const t = document.createElement("div");
       t.textContent = text;
       div.appendChild(t);
     }
+    const imgExts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
     for (const a of attachments) {
-      if (!/^https?:\/\//.test(a.url)) continue;
+      if (a.url.indexOf("http") !== 0) continue;
       const link = document.createElement("a");
       link.href = a.url;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
-      if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(a.name)) {
+      const lower = a.name.toLowerCase();
+      let isImg = false;
+      for (const ext of imgExts) {
+        if (lower.length > ext.length && lower.indexOf(ext) === lower.length - ext.length) {
+          isImg = true;
+          break;
+        }
+      }
+      if (isImg) {
         const img = document.createElement("img");
         img.src = a.url;
         img.alt = a.name;
