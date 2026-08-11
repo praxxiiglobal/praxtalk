@@ -923,28 +923,52 @@ const SOURCE = /* javascript */ `(() => {
       let visitorMessageCount = 0;
 
       // ── Typing indicators ─────────────────────────────────────────
-      // Show "Agent is typing…" while the operator's last ping is
-      // fresh; auto-hide after the TTL since no update fires when they
-      // stop. And ping PraxTalk (debounced) while the visitor types so
-      // the operator sees dots on the CRM side.
+      // Show "Agent is typing…" while the operator pings. RECEIPT-BASED
+      // on purpose: the ping carries a SERVER timestamp, and comparing
+      // it against this device's Date.now() breaks whenever the
+      // visitor's clock is a few seconds off (dots never showed on
+      // skewed machines). So we never compare clocks — a CHANGED value
+      // means fresh typing, and the hide timer runs purely on the local
+      // clock. The first update after subscribing only seeds the
+      // baseline so a stale ping from an earlier visit can't flash the
+      // dots on load. And ping PraxTalk (debounced) while the visitor
+      // types so the operator sees dots on the CRM side.
       const TYPING_TTL_MS = 6000;
       let operatorTypingTimer = null;
-      function showOperatorTyping(ts) {
+      let lastOperatorTypingAt = null;
+      let typingBaselineSeeded = false;
+      function hideOperatorTyping() {
         if (operatorTypingTimer) {
           clearTimeout(operatorTypingTimer);
           operatorTypingTimer = null;
         }
-        const age = ts ? Date.now() - ts : Infinity;
-        const fresh = age < TYPING_TTL_MS;
-        els.typingRow.hidden = !fresh;
-        if (fresh) {
-          els.list.scrollTop = els.list.scrollHeight;
-          operatorTypingTimer = setTimeout(() => {
-            els.typingRow.hidden = true;
-          }, TYPING_TTL_MS - age);
+        els.typingRow.hidden = true;
+      }
+      function showOperatorTyping(ts) {
+        if (!typingBaselineSeeded) {
+          typingBaselineSeeded = true;
+          lastOperatorTypingAt = ts || null;
+          return;
         }
+        if (!ts) {
+          lastOperatorTypingAt = null;
+          hideOperatorTyping();
+          return;
+        }
+        if (ts === lastOperatorTypingAt) return;
+        lastOperatorTypingAt = ts;
+        if (operatorTypingTimer) clearTimeout(operatorTypingTimer);
+        els.typingRow.hidden = false;
+        els.list.scrollTop = els.list.scrollHeight;
+        operatorTypingTimer = setTimeout(() => {
+          operatorTypingTimer = null;
+          els.typingRow.hidden = true;
+        }, TYPING_TTL_MS);
       }
       function subscribeToTyping(convoId) {
+        typingBaselineSeeded = false;
+        lastOperatorTypingAt = null;
+        hideOperatorTyping();
         client.onUpdate(
           "typing:getTypingForVisitor",
           { widgetId, visitorKey, conversationId: convoId },
