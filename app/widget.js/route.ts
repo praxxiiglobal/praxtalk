@@ -770,6 +770,98 @@ const SOURCE = /* javascript */ `(() => {
     return wrap;
   }
 
+  // Formatting markers — mirror of the CRM's parser (ChatTab.tsx):
+  // *bold*, _italic_, {red|colored}. Markers must hug their content
+  // and stay on one line; anything else renders literally. Built with
+  // DOM APIs only (no innerHTML) and — IMPORTANT — zero backslashes
+  // and zero regexes, because this lives inside a template literal
+  // where escapes get cooked away (see the renderMsgBody note below).
+  const FMT_COLORS_LIGHT = {
+    red: "#D93025",
+    green: "#188038",
+    blue: "#1A73E8",
+    orange: "#E8710A",
+  };
+  const FMT_COLORS_DARK = {
+    red: "#FF8A80",
+    green: "#7CE3B1",
+    blue: "#8AB4F8",
+    orange: "#FDD663",
+  };
+  function appendFormatted(el, text, onDark) {
+    const FMT_NL = String.fromCharCode(10);
+    const palette = onDark ? FMT_COLORS_DARK : FMT_COLORS_LIGHT;
+    let plain = "";
+    function flush() {
+      if (plain) {
+        el.appendChild(document.createTextNode(plain));
+        plain = "";
+      }
+    }
+    let i = 0;
+    while (i < text.length) {
+      const ch = text.charAt(i);
+      const nlAt = text.indexOf(FMT_NL, i + 1);
+      const lineEnd = nlAt === -1 ? text.length : nlAt;
+      if (ch === "*" || ch === "_") {
+        const atBoundary =
+          i === 0 ||
+          text.charAt(i - 1) === " " ||
+          text.charAt(i - 1) === FMT_NL;
+        const close = text.indexOf(ch, i + 1);
+        if (
+          atBoundary &&
+          close > i + 1 &&
+          close < lineEnd &&
+          text.charAt(i + 1) !== " " &&
+          text.charAt(close - 1) !== " "
+        ) {
+          flush();
+          const tag = document.createElement(ch === "*" ? "strong" : "em");
+          // Recurse so styles stack: *_text_* → bold italic, and
+          // *_{red|text}_* → bold italic red. Each level strips its
+          // own markers, so this always terminates.
+          appendFormatted(tag, text.slice(i + 1, close), onDark);
+          el.appendChild(tag);
+          i = close + 1;
+          continue;
+        }
+      } else if (ch === "{") {
+        const bar = text.indexOf("|", i + 1);
+        // Balanced-brace scan — mirror of the CRM parser: nested color
+        // wraps close at the matching brace so the innermost color wins.
+        let cbrace = -1;
+        let depth = 0;
+        for (let k = i + 1; k < lineEnd; k++) {
+          const c2 = text.charAt(k);
+          if (c2 === "{") depth += 1;
+          else if (c2 === "}") {
+            if (depth === 0) {
+              cbrace = k;
+              break;
+            }
+            depth -= 1;
+          }
+        }
+        if (bar !== -1 && bar < cbrace && cbrace > bar + 1) {
+          const cname = text.slice(i + 1, bar).trim().toLowerCase();
+          if (palette[cname]) {
+            flush();
+            const span = document.createElement("span");
+            span.style.color = palette[cname];
+            appendFormatted(span, text.slice(bar + 1, cbrace), onDark);
+            el.appendChild(span);
+            i = cbrace + 1;
+            continue;
+          }
+        }
+      }
+      plain += ch;
+      i += 1;
+    }
+    flush();
+  }
+
   // Agent attachments arrive as "clip <name> / <url>" text blocks (the
   // CRM appends them — its API only carries a body string). Render
   // them as tappable cards / inline images instead of raw URLs.
@@ -791,14 +883,17 @@ const SOURCE = /* javascript */ `(() => {
         textLines.push(line);
       }
     }
+    // Visitor bubbles sit on the accent color (white text) — use the
+    // light-on-dark color variants there so colored text stays legible.
+    const onDark = String(div.className).indexOf("visitor") !== -1;
     if (attachments.length === 0) {
-      div.textContent = body;
+      appendFormatted(div, body, onDark);
       return;
     }
     const text = textLines.join(NL).trim();
     if (text) {
       const t = document.createElement("div");
-      t.textContent = text;
+      appendFormatted(t, text, onDark);
       div.appendChild(t);
     }
     const imgExts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
@@ -831,13 +926,14 @@ const SOURCE = /* javascript */ `(() => {
     }
   }
 
-  // Synthesised "Sarah joined the chat" row inserted the first time
-  // each operator's name appears in the conversation. Visitor never
-  // sees raw operator IDs — just the human "Sarah joined" handoff.
-  function joinedRow(senderName) {
+  // Synthesised hand-off rows: "Sarah joined the chat" for the first
+  // agent, "Chat transferred to Nick" whenever a different agent takes
+  // over — same wording rules as the CRM's own thread view. Visitor
+  // never sees raw operator IDs, only the human hand-off story.
+  function joinedRow(text) {
     const div = document.createElement("div");
     div.className = "msg system-join";
-    div.textContent = senderName + " joined the chat";
+    div.textContent = text;
     return div;
   }
 
@@ -850,11 +946,17 @@ const SOURCE = /* javascript */ `(() => {
       els.list.appendChild(empty);
       return;
     }
-    const seenOps = new Set();
+    let lastOp = null;
     for (const m of messages) {
-      if (m.role === "operator" && m.senderName && !seenOps.has(m.senderName)) {
-        seenOps.add(m.senderName);
-        els.list.appendChild(joinedRow(m.senderName));
+      if (m.role === "operator" && m.senderName && m.senderName !== lastOp) {
+        els.list.appendChild(
+          joinedRow(
+            lastOp === null
+              ? m.senderName + " joined the chat"
+              : "Chat transferred to " + m.senderName,
+          ),
+        );
+        lastOp = m.senderName;
       }
       els.list.appendChild(bubble(m.role, m.body, m.senderName));
     }
