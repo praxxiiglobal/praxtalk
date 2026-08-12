@@ -1310,9 +1310,26 @@ const SOURCE = /* javascript */ `(() => {
       // button. After this lands, the visitor sees an empty chat view
       // and can start typing; the identity card prompt comes after
       // their first send (unless the brand turned it off).
+      // Single-flight conversation starter shared by the chat-open
+      // path and send(). A fast first message used to race the async
+      // conversation create and get SILENTLY DROPPED ("Enter does
+      // nothing"); routing every path through one in-flight promise
+      // fixes the drop and can never double-create a conversation.
+      let startPromise = null;
+      function startConversationOnce() {
+        if (conversationId) return Promise.resolve();
+        if (!startPromise) {
+          startPromise = startConversation(undefined).catch((err) => {
+            startPromise = null;
+            throw err;
+          });
+        }
+        return startPromise;
+      }
+
       async function enterChatAnonymous() {
         try {
-          await startConversation(undefined);
+          await startConversationOnce();
           showChat();
         } catch (err) {
           console.error("[PraxTalk] anon start failed", err);
@@ -1508,9 +1525,25 @@ const SOURCE = /* javascript */ `(() => {
       });
 
       async function send() {
-        if (!conversationId) return;
         const text = els.input.value.trim();
         if (!text) return;
+        // First message can arrive before the conversation exists
+        // (fast typers beat the async create, resumed sessions may
+        // not have re-wired) — wait for / trigger creation instead
+        // of silently dropping the send. On failure the text stays
+        // in the input so nothing is ever lost.
+        if (!conversationId) {
+          els.sendBtn.disabled = true;
+          try {
+            await startConversationOnce();
+          } catch (err) {
+            console.error("[PraxTalk] send failed — no conversation", err);
+            return;
+          } finally {
+            els.sendBtn.disabled = false;
+          }
+          if (!conversationId) return;
+        }
         els.input.value = "";
         els.list.appendChild(bubble("visitor", text));
         els.list.scrollTop = els.list.scrollHeight;
