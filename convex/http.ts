@@ -414,11 +414,36 @@ http.route({
 
     const url = new URL(req.url);
     const segments = url.pathname.split("/").filter(Boolean);
-    // /api/v1/conversations/:id/messages
-    if (segments.length !== 5 || segments[4] !== "messages") {
+    // /api/v1/conversations/:id/(messages|request-identity)
+    if (
+      segments.length !== 5 ||
+      (segments[4] !== "messages" && segments[4] !== "request-identity")
+    ) {
       return errorResponse(404, "Not found.");
     }
     const conversationId = segments[3] as Id<"conversations">;
+
+    // POST /api/v1/conversations/:id/request-identity — ask the widget
+    // to re-show the identity card to this visitor. No body needed.
+    if (segments[4] === "request-identity") {
+      if (auth.brandId) {
+        const convo = await ctx.runQuery(internal.publicApi.getConversation, {
+          workspaceId: auth.workspaceId,
+          conversationId,
+        });
+        const denied = await ensureBrandAccessOnResource(
+          ctx,
+          auth,
+          convo?.brandId ?? null,
+        );
+        if (denied) return denied;
+      }
+      await ctx.runMutation(internal.publicApi.requestConversationIdentity, {
+        workspaceId: auth.workspaceId,
+        conversationId,
+      });
+      return jsonResponse({ ok: true });
+    }
 
     let body: { body?: unknown; senderName?: unknown };
     try {

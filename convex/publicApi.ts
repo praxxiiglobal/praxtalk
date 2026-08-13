@@ -138,6 +138,26 @@ export const sendOperatorMessage = internalMutation({
   },
 });
 
+// Agent-triggered "ask the visitor for their details again". Bumps
+// identityRequestedAt; the widget's typing subscription sees it and
+// re-shows the identity card (overriding a prior skip). No-op-safe:
+// a missing/foreign conversation just returns without throwing.
+export const requestConversationIdentity = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    conversationId: v.id("conversations"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const convo = await ctx.db.get(args.conversationId);
+    if (!convo || convo.workspaceId !== args.workspaceId) return null;
+    await ctx.db.patch(args.conversationId, {
+      identityRequestedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
 export const setConversationStatus = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),

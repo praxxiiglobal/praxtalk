@@ -372,6 +372,12 @@ export default defineSchema({
     // a second one (visitors don't need 'we're closed' twice in the
     // same thread).
     offHoursAutoRepliedAt: v.optional(v.number()),
+    // Agent-triggered identity request. An operator can ask (from the
+    // CRM) for the visitor's contact details to be requested again even
+    // if the visitor skipped the auto-prompt. The widget subscribes to
+    // this timestamp (via typing.getTypingForVisitor) and re-shows the
+    // identity card whenever it advances, overriding the local skip flag.
+    identityRequestedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_workspace_status_lastmsg", [

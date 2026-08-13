@@ -78,25 +78,38 @@ export const getTypingForVisitor = query({
     visitorKey: v.string(),
     conversationId: v.id("conversations"),
   },
-  handler: async (ctx, args): Promise<{ operatorTypingAt: number | null }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    operatorTypingAt: number | null;
+    identityRequestedAt: number | null;
+  }> => {
     const brand = await ctx.db
       .query("brands")
       .withIndex("by_widget_id", (q) => q.eq("widgetId", args.widgetId))
       .unique();
-    if (!brand) return { operatorTypingAt: null };
+    if (!brand)
+      return { operatorTypingAt: null, identityRequestedAt: null };
     const convo = await ctx.db.get(args.conversationId);
     if (!convo || convo.workspaceId !== brand.workspaceId)
-      return { operatorTypingAt: null };
+      return { operatorTypingAt: null, identityRequestedAt: null };
     const visitor = await ctx.db.get(convo.visitorId);
     if (!visitor || visitor.visitorKey !== args.visitorKey)
-      return { operatorTypingAt: null };
+      return { operatorTypingAt: null, identityRequestedAt: null };
     const row = await ctx.db
       .query("typingStates")
       .withIndex("by_conversation", (q) =>
         q.eq("conversationId", args.conversationId),
       )
       .unique();
-    return { operatorTypingAt: row?.operatorTypingAt ?? null };
+    // identityRequestedAt rides this already-subscribed query so the
+    // widget gets an agent's "request details" the instant it happens,
+    // with no extra subscription.
+    return {
+      operatorTypingAt: row?.operatorTypingAt ?? null,
+      identityRequestedAt: convo.identityRequestedAt ?? null,
+    };
   },
 });
 

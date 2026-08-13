@@ -565,6 +565,21 @@ const SOURCE = /* javascript */ `(() => {
   function markIdentityAsked() {
     try { localStorage.setItem(identityAskedKey(widgetId), "1"); } catch {}
   }
+  // Which agent identity-request (by timestamp) this browser has already
+  // acted on, so a reconnect/reload doesn't re-pop the same request, but
+  // a NEW request (later timestamp) does.
+  function identityReqActedKey(wid) {
+    return "praxtalk_identity_req_" + wid;
+  }
+  function getIdentityReqActed() {
+    try {
+      return Number(localStorage.getItem(identityReqActedKey(widgetId))) || 0;
+    } catch { return 0; }
+  }
+  function setIdentityReqActed(ts) {
+    try { localStorage.setItem(identityReqActedKey(widgetId), String(ts)); }
+    catch {}
+  }
 
   // If the browser doesn't expose Geolocation (very old / locked-down
   // contexts) hide the share-location button entirely.
@@ -1207,7 +1222,20 @@ const SOURCE = /* javascript */ `(() => {
         client.onUpdate(
           "typing:getTypingForVisitor",
           { widgetId, visitorKey, conversationId: convoId },
-          (state) => showOperatorTyping(state && state.operatorTypingAt),
+          (state) => {
+            showOperatorTyping(state && state.operatorTypingAt);
+            // Agent asked (from the CRM) to re-request the visitor's
+            // details. Fires the moment it arrives — overriding a prior
+            // skip. Acted-timestamp in localStorage prevents re-popping
+            // the same request on reconnect while still honoring a newer
+            // request.
+            if (state && state.identityRequestedAt) {
+              if (state.identityRequestedAt > getIdentityReqActed()) {
+                setIdentityReqActed(state.identityRequestedAt);
+                showIdentityCard();
+              }
+            }
+          },
           (err) => console.error("[PraxTalk] typing subscription failed", err),
         );
       }
