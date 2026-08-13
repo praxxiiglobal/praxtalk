@@ -898,7 +898,12 @@ const SOURCE = /* javascript */ `(() => {
     }
     const imgExts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
     for (const a of attachments) {
-      if (a.url.indexOf("http") !== 0) continue;
+      // Only render real http(s) links. Explicit scheme check (not a
+      // loose "http" prefix) so nothing like javascript:/data: can
+      // ever reach an href — belt-and-braces on the customer's page.
+      if (a.url.indexOf("http://") !== 0 && a.url.indexOf("https://") !== 0) {
+        continue;
+      }
       const link = document.createElement("a");
       link.href = a.url;
       link.target = "_blank";

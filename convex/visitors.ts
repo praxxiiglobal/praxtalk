@@ -177,10 +177,37 @@ export const sendVisitorMessage = mutation({
       throw new Error("Visitor mismatch.");
     }
 
-    const body = args.body.trim();
+    // Cap body length. A real chat message is never this long; the cap
+    // stops a scripted client from storing a multi-MB blob that every
+    // agent's browser would then try to render. Slice, don't reject,
+    // so a legit long paste still goes through (just clamped).
+    const MAX_BODY_LEN = 4000;
+    const body = args.body.trim().slice(0, MAX_BODY_LEN);
     if (!body) throw new Error("Message body required.");
 
     const now = Date.now();
+
+    // Per-conversation flood guard. sendVisitorMessage is a public
+    // mutation (widgetId + self-generated visitorKey), so without this
+    // a scripted client could hammer thousands of inserts/sec — each
+    // one also fires a webhook and mirrors into the CRM (3x amplified).
+    // Bound = far above human typing speed, so real visitors never hit
+    // it. Counts the visitor's own messages in the trailing window via
+    // the existing by_conversation_created index (cheap, bounded take).
+    const RL_WINDOW_MS = 10_000;
+    const RL_MAX = 12;
+    const recent = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation_created", (q) =>
+        q
+          .eq("conversationId", args.conversationId)
+          .gte("createdAt", now - RL_WINDOW_MS),
+      )
+      .take(RL_MAX + 1);
+    const recentFromVisitor = recent.filter((m) => m.role === "visitor").length;
+    if (recentFromVisitor >= RL_MAX) {
+      throw new Error("You're sending messages too quickly. Please slow down.");
+    }
     const messageId = await ctx.db.insert("messages", {
       conversationId: args.conversationId,
       workspaceId: brand.workspaceId,
