@@ -309,18 +309,20 @@ const WIDGET_SHELL = `
      background, just branded text following a circle, so it reads as a
      friendly nudge rather than a button. Decorative (the bubble below is
      the click target). Shown only while closed and after config applies,
-     so it never flashes before styling. Centred on the launcher via
-     translateX(-50%) so it tracks the bubble's position/stagger. */
+     so it never flashes before styling. */
   .launcher-arc {
-    /* 96×120 box, bottom-aligned to the viewport and centred horizontally
-       on the launcher. The text arc (path below) is concentric with the
-       56px bubble but at radius 40 — i.e. ~12px OUTSIDE the bubble — so the
-       text clears the icon/logo entirely and reads against the page, never
-       on top of the logo art. gap ≈ (radius − 28)px, easy to re-tune. */
+    /* 96×120 box. The text arc (path below) is concentric with the 56px
+       bubble at radius 40 (~12px outside it) so the text clears the icon
+       and reads against the page, not on the logo art. gap ≈ (radius−28)px.
+       Centred on the launcher using the SAME right reference as the bubble.
+       (Do NOT use 100vw here — it counts the scrollbar, so on any page with
+       a vertical scrollbar the arc landed ~15px off-centre from the bubble,
+       which is positioned from the right edge.) The 96px box straddles the
+       bubble centre: right = bubbleRight + 28 − 48 = bubbleRight − 20. */
     position: fixed;
     bottom: 0;
-    left: calc(100vw - var(--praxtalk-bubble-right) - 28px);
-    transform: translateX(-50%);
+    right: calc(var(--praxtalk-bubble-right) - 20px);
+    left: auto;
     width: 96px; height: 120px;
     pointer-events: none;
     opacity: 0;
@@ -1123,9 +1125,11 @@ const SOURCE = /* javascript */ `(() => {
       host.style.setProperty("--praxtalk-panel-right", "auto");
       host.style.setProperty("--praxtalk-panel-left", offsetPx + "px");
       // Re-centre the arc hint over the now-left-aligned launcher (its
-      // default CSS centres against the right edge).
+      // default CSS centres against the right edge). Mirror of the CSS
+      // formula: left = bubbleLeft + 28 − 48 = offsetPx − 20.
       if (els.launcherArc) {
-        els.launcherArc.style.left = offsetPx + 28 + "px";
+        els.launcherArc.style.right = "auto";
+        els.launcherArc.style.left = offsetPx - 20 + "px";
       }
     }
     // wa.me lite — pre-set the href on every wa link in the DOM
