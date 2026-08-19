@@ -1173,6 +1173,15 @@ const SOURCE = /* javascript */ `(() => {
       host.style.setProperty("--praxtalk-panel-right", "auto");
       host.style.setProperty("--praxtalk-panel-left", offsetPx + "px");
     }
+    // Custom launcher label (falls back to the default). Sets the curved
+    // arc's textPath content; scaling is handled by applyLauncherGeometry.
+    if (els.launcherArc) {
+      const tp = els.launcherArc.querySelector("textPath");
+      if (tp) {
+        const t = (config.launcherText || "").trim();
+        tp.textContent = t.length ? t : "Talk to us";
+      }
+    }
     // Size the launcher (bubble + arc) from the brand's configured size.
     // Runs last so it can read the resolved position for arc placement.
     applyLauncherGeometry(

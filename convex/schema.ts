@@ -153,6 +153,11 @@ export default defineSchema({
     // to the bubble (icon/logo scale, panel offset, the "Talk to us"
     // arc) derives from this in the widget.
     launcherSize: v.optional(v.number()),
+    // Custom label that curves over the launcher bubble. Optional —
+    // the widget falls back to "Talk to us" when unset or empty.
+    // Trimmed + capped at LAUNCHER_TEXT_MAX chars on write (it follows a
+    // short arc, so long strings get clipped by the path).
+    launcherText: v.optional(v.string()),
     businessHours: v.optional(v.string()),
     // Structured business-hours config used by the off-hours auto-
     // responder. Free-text `businessHours` above stays as a human-

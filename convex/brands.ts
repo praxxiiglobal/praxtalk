@@ -10,6 +10,9 @@ import { pushActivity } from "./notifications";
 // widget itself defaults to 64 when the field is unset.
 export const LAUNCHER_SIZE_MIN = 48;
 export const LAUNCHER_SIZE_MAX = 88;
+// Max length of the launcher label — it curves over the bubble on a short
+// arc, so anything longer gets clipped by the path. Shared with the UI.
+export const LAUNCHER_TEXT_MAX = 20;
 
 /**
  * List every brand the caller can access. Admins/owners (`brandAccess: "all"`)
@@ -123,6 +126,7 @@ export const update = mutation({
     avatarUrl: v.optional(v.string()),
     bubbleIcon: v.optional(v.union(v.literal("logo"), v.literal("glyph"))),
     launcherSize: v.optional(v.number()),
+    launcherText: v.optional(v.string()),
     businessHours: v.optional(v.string()),
     waMePhone: v.optional(v.string()),
     waMePrefilledMessage: v.optional(v.string()),
@@ -168,6 +172,11 @@ export const update = mutation({
         LAUNCHER_SIZE_MIN,
         Math.min(LAUNCHER_SIZE_MAX, n),
       );
+    }
+    if (args.launcherText !== undefined) {
+      // Trim + cap. Empty string is stored as-is; the widget treats
+      // empty/unset alike and shows the default "Talk to us".
+      patch.launcherText = args.launcherText.trim().slice(0, LAUNCHER_TEXT_MAX);
     }
     if (args.businessHours !== undefined)
       patch.businessHours = args.businessHours;
@@ -288,6 +297,7 @@ function toPublicBrand(b: Doc<"brands">) {
     avatarUrl: b.avatarUrl,
     bubbleIcon: b.bubbleIcon,
     launcherSize: b.launcherSize,
+    launcherText: b.launcherText,
     businessHours: b.businessHours,
     waMePhone: b.waMePhone,
     waMePrefilledMessage: b.waMePrefilledMessage,

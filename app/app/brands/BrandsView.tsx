@@ -18,6 +18,7 @@ type Brand = {
   avatarUrl?: string;
   bubbleIcon?: "logo" | "glyph";
   launcherSize?: number;
+  launcherText?: string;
   askIdentityInChat?: boolean;
 };
 
@@ -26,6 +27,9 @@ type Brand = {
 const LAUNCHER_SIZE_MIN = 48;
 const LAUNCHER_SIZE_MAX = 88;
 const LAUNCHER_SIZE_DEFAULT = 64;
+// Mirror of LAUNCHER_TEXT_MAX in convex/brands.ts.
+const LAUNCHER_TEXT_MAX = 20;
+const LAUNCHER_TEXT_DEFAULT = "Talk to us";
 
 export function BrandsView() {
   const { sessionToken, operator } = useDashboardAuth();
@@ -153,6 +157,9 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
   const [launcherSize, setLauncherSize] = useState<number>(
     brand.launcherSize ?? LAUNCHER_SIZE_DEFAULT,
   );
+  const [launcherText, setLauncherText] = useState<string>(
+    brand.launcherText ?? "",
+  );
   // Default-on: when the brand row has no value yet, treat as enabled.
   const [askIdentityInChat, setAskIdentityInChat] = useState<boolean>(
     brand.askIdentityInChat ?? true,
@@ -190,6 +197,7 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
         avatarUrl: logoUrl,
         bubbleIcon,
         launcherSize,
+        launcherText,
         askIdentityInChat,
       });
       setEditing(false);
@@ -346,6 +354,22 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
               className="h-10 w-full cursor-pointer"
               aria-label="Launcher bubble size in pixels"
             />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              Launcher text
+            </span>
+            <input
+              type="text"
+              value={launcherText}
+              onChange={(e) => setLauncherText(e.target.value)}
+              maxLength={LAUNCHER_TEXT_MAX}
+              placeholder={LAUNCHER_TEXT_DEFAULT}
+              className="h-10 rounded-lg border border-rule-2 bg-paper px-3 text-sm outline-none focus:border-ink"
+            />
+            <span className="text-[11px] text-muted">
+              Curves over the bubble. Leave blank for “{LAUNCHER_TEXT_DEFAULT}”.
+            </span>
           </label>
           <label className="flex flex-col gap-1 sm:col-span-2">
             <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
