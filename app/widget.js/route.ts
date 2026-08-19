@@ -49,6 +49,14 @@ const WIDGET_SHELL = `
   }
   .bubble.has-logo svg { display: none; }
   .bubble.has-logo .bubble-logo { display: block; }
+  /* Launcher doubles as the close control: when the panel is open the
+     bubble stays put (the panel opens ABOVE it) and swaps its glyph /
+     brand logo for a bold ✕. */
+  .bubble svg.bubble-close { display: none; width: 28px; height: 28px; }
+  .bubble.open svg.bubble-close { display: block; }
+  .bubble.open > svg:not(.bubble-close) { display: none; }
+  .bubble.open .bubble-logo { display: none; }
+  .bubble.open .badge { display: none; }
   .head-logo {
     width: 32px; height: 32px; border-radius: 50%;
     background: #fff; object-fit: contain; padding: 3px;
@@ -64,19 +72,24 @@ const WIDGET_SHELL = `
   }
   .bubble svg { width: 24px; height: 24px; }
   .panel {
-    position: fixed; bottom: 20px;
+    /* Sits ABOVE the launcher: 20px base + 56px bubble + 12px gap = 88px.
+       The bubble stays visible below and turns into the ✕ close control. */
+    position: fixed; bottom: 88px;
     right: var(--praxtalk-panel-right);
     left: var(--praxtalk-panel-left);
     width: 360px; max-width: calc(100vw - 32px);
-    height: 540px; max-height: calc(100vh - 32px);
+    height: 540px; max-height: calc(100vh - 108px);
     background: #fff; color: var(--praxtalk-ink);
     border-radius: 16px; overflow: hidden;
     box-shadow: 0 24px 48px -12px rgba(0,0,0,0.25), 0 8px 16px -8px rgba(0,0,0,0.15);
     display: none; flex-direction: column;
     transform-origin: bottom right;
   }
-  .panel.open { display: flex; animation: slide 0.18s ease; }
-  @keyframes slide { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .panel.open { display: flex; animation: slide 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+  @keyframes slide {
+    from { opacity: 0; transform: translateY(10px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
   .head {
     background: var(--praxtalk-accent); color: #fff;
     padding: 14px 16px; display: flex; align-items: center; gap: 10px;
@@ -94,9 +107,6 @@ const WIDGET_SHELL = `
   .call:hover { background: rgba(255,255,255,0.25); }
   .call.hidden { display: none; }
   .call svg { width: 14px; height: 14px; }
-  .close { background: rgba(255,255,255,0.15); color: #fff; border: none;
-    width: 28px; height: 28px; border-radius: 999px; cursor: pointer; font-size: 16px; line-height: 1; }
-  .close:hover { background: rgba(255,255,255,0.25); }
   .body { flex: 1; display: flex; flex-direction: column; min-height: 0; background: #fafaf6; }
 
   /* Pre-chat form view */
@@ -294,15 +304,53 @@ const WIDGET_SHELL = `
     box-shadow: 0 1px 4px rgba(0,0,0,.3);
   }
   .bubble .badge.hidden { display: none; }
+
+  /* Curved "Talk to us" hint arcing over the top of the launcher — no
+     background, just branded text following a circle, so it reads as a
+     friendly nudge rather than a button. Decorative (the bubble below is
+     the click target). Shown only while closed and after config applies,
+     so it never flashes before styling. Centred on the launcher via
+     translateX(-50%) so it tracks the bubble's position/stagger. */
+  .launcher-arc {
+    /* 96×96 box centred ON the launcher (both axes), so the text arc is
+       concentric with the 56px bubble and hugs its top edge. The arc
+       radius (35 in the path below) sits ~7px outside the bubble. */
+    position: fixed;
+    bottom: 0;
+    left: calc(100vw - var(--praxtalk-bubble-right) - 28px);
+    transform: translateX(-50%);
+    width: 96px; height: 96px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .launcher-arc.show { opacity: 1; }
+  .launcher-arc text {
+    fill: var(--praxtalk-accent);
+    font-family: inherit;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
+    /* white halo so the text stays legible on any host-page background */
+    stroke: rgba(255,255,255,0.75); stroke-width: 3px; paint-order: stroke;
+  }
 </style>
 
 <button class="bubble preboot" aria-label="Open chat">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
   </svg>
+  <svg class="bubble-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M18 6 6 18M6 6l12 12"/>
+  </svg>
   <img class="bubble-logo" alt="" />
   <span class="badge hidden" aria-label="Unread messages"></span>
 </button>
+
+<svg class="launcher-arc" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+  <defs>
+    <path id="ptk-arc-path" d="M 15.1 36 A 35 35 0 0 1 80.9 36"></path>
+  </defs>
+  <text><textPath href="#ptk-arc-path" startOffset="50%" text-anchor="middle">Talk to us</textPath></text>
+</svg>
 
 <div class="panel" role="dialog" aria-label="Chat">
   <div class="head">
@@ -314,7 +362,6 @@ const WIDGET_SHELL = `
     <a class="call hidden" href="#" aria-label="Call us">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
     </a>
-    <button class="close" aria-label="Close">×</button>
   </div>
   <div class="body">
     <div class="chooser-view hidden">
@@ -517,6 +564,7 @@ const SOURCE = /* javascript */ `(() => {
   const els = {
     bubble: root.querySelector(".bubble"),
     bubbleLogo: root.querySelector(".bubble-logo"),
+    launcherArc: root.querySelector(".launcher-arc"),
     badge: root.querySelector(".bubble .badge"),
     panel: root.querySelector(".panel"),
     head: root.querySelector(".head"),
@@ -543,7 +591,6 @@ const SOURCE = /* javascript */ `(() => {
     typingAvatar: root.querySelector(".typing-avatar"),
     geoBtn: root.querySelector(".geo"),
     callBtn: root.querySelector(".call"),
-    closeBtn: root.querySelector(".close"),
     identityCard: root.querySelector(".identity-card"),
     identityName: root.querySelector(".identity-name"),
     identityEmail: root.querySelector(".identity-email"),
@@ -588,14 +635,26 @@ const SOURCE = /* javascript */ `(() => {
   }
 
   let panelOpen = false;
+  // Gates the "Talk to us" arc hint: stays hidden until brand config has
+  // applied (set in applyConfig) so it never flashes before styling, and
+  // hides whenever the panel is open.
+  let labelReady = false;
+  function refreshLauncherHint() {
+    if (els.launcherArc) {
+      els.launcherArc.classList.toggle("show", labelReady && !panelOpen);
+    }
+  }
   function setOpen(next) {
     panelOpen = next;
     els.panel.classList.toggle("open", next);
-    els.bubble.classList.toggle("hidden", next);
+    // Launcher stays in place and flips to a ✕ (see .bubble.open) instead
+    // of hiding — the panel opens above it, and the same button closes.
+    els.bubble.classList.toggle("open", next);
+    els.bubble.setAttribute("aria-label", next ? "Close chat" : "Open chat");
+    refreshLauncherHint();
     if (next) markAllSeen();
   }
-  els.bubble.addEventListener("click", () => setOpen(true));
-  els.closeBtn.addEventListener("click", () => setOpen(false));
+  els.bubble.addEventListener("click", () => setOpen(!panelOpen));
 
   // ── Unread badge + ding + tab-title counter ──────────────────
   // An agent reply that lands while the panel is closed (or the tab
@@ -992,6 +1051,9 @@ const SOURCE = /* javascript */ `(() => {
     // Reveal the launcher — it boots hidden (.preboot) so visitors
     // never see the unbranded default flash before branding applies.
     if (els.bubble) els.bubble.classList.remove("preboot");
+    // Same gate for the "Talk to us" arc hint above the launcher.
+    labelReady = true;
+    refreshLauncherHint();
     // Per-brand logo: bubble icon (unless the brand opted for the
     // classic glyph), header chip, message avatars, and the typing
     // bubble. onerror falls back to the glyph so a dead URL can never
@@ -1058,6 +1120,11 @@ const SOURCE = /* javascript */ `(() => {
       host.style.setProperty("--praxtalk-bubble-left", offsetPx + "px");
       host.style.setProperty("--praxtalk-panel-right", "auto");
       host.style.setProperty("--praxtalk-panel-left", offsetPx + "px");
+      // Re-centre the arc hint over the now-left-aligned launcher (its
+      // default CSS centres against the right edge).
+      if (els.launcherArc) {
+        els.launcherArc.style.left = offsetPx + 28 + "px";
+      }
     }
     // wa.me lite — pre-set the href on every wa link in the DOM
     // (welcome-strip escape hatch + chooser-screen big button).
