@@ -312,14 +312,16 @@ const WIDGET_SHELL = `
      so it never flashes before styling. Centred on the launcher via
      translateX(-50%) so it tracks the bubble's position/stagger. */
   .launcher-arc {
-    /* 96×96 box centred ON the launcher (both axes), so the text arc is
-       concentric with the 56px bubble and hugs its top edge. The arc
-       radius (35 in the path below) sits ~7px outside the bubble. */
+    /* 96×120 box, bottom-aligned to the viewport and centred horizontally
+       on the launcher. The text arc (path below) is concentric with the
+       56px bubble but at radius 40 — i.e. ~12px OUTSIDE the bubble — so the
+       text clears the icon/logo entirely and reads against the page, never
+       on top of the logo art. gap ≈ (radius − 28)px, easy to re-tune. */
     position: fixed;
     bottom: 0;
     left: calc(100vw - var(--praxtalk-bubble-right) - 28px);
     transform: translateX(-50%);
-    width: 96px; height: 96px;
+    width: 96px; height: 120px;
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -328,9 +330,9 @@ const WIDGET_SHELL = `
   .launcher-arc text {
     fill: var(--praxtalk-accent);
     font-family: inherit;
-    font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.2px;
     /* white halo so the text stays legible on any host-page background */
-    stroke: rgba(255,255,255,0.75); stroke-width: 3px; paint-order: stroke;
+    stroke: rgba(255,255,255,0.85); stroke-width: 2.5px; paint-order: stroke;
   }
 </style>
 
@@ -345,9 +347,9 @@ const WIDGET_SHELL = `
   <span class="badge hidden" aria-label="Unread messages"></span>
 </button>
 
-<svg class="launcher-arc" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+<svg class="launcher-arc" viewBox="0 0 96 120" fill="none" aria-hidden="true">
   <defs>
-    <path id="ptk-arc-path" d="M 15.1 36 A 35 35 0 0 1 80.9 36"></path>
+    <path id="ptk-arc-path" d="M 13.4 52 A 40 40 0 0 1 82.6 52"></path>
   </defs>
   <text><textPath href="#ptk-arc-path" startOffset="50%" text-anchor="middle">Talk to us</textPath></text>
 </svg>

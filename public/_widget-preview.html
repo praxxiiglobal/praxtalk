@@ -53,14 +53,14 @@
     bottom: 0;
     left: calc(100vw - var(--praxtalk-bubble-right) - 28px);
     transform: translateX(-50%);
-    width: 96px; height: 96px;
+    width: 96px; height: 120px;
     pointer-events: none;
     transition: opacity 0.3s ease;
   }
   .launcher-arc text {
     fill: var(--praxtalk-accent);
-    font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
-    stroke: rgba(255,255,255,0.75); stroke-width: 3px; paint-order: stroke;
+    font-family: inherit; font-size: 11.5px; font-weight: 700; letter-spacing: 0.2px;
+    stroke: rgba(255,255,255,0.85); stroke-width: 2.5px; paint-order: stroke;
   }
   .ptk-toggle:checked ~ .ptk-host .launcher-arc { opacity: 0; }
 
@@ -131,9 +131,9 @@
       </svg>
     </label>
 
-    <svg class="launcher-arc" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+    <svg class="launcher-arc" viewBox="0 0 96 120" fill="none" aria-hidden="true">
       <defs>
-        <path id="ptk-arc-path" d="M 15.1 36 A 35 35 0 0 1 80.9 36"></path>
+        <path id="ptk-arc-path" d="M 13.4 52 A 40 40 0 0 1 82.6 52"></path>
       </defs>
       <text><textPath href="#ptk-arc-path" startOffset="50%" text-anchor="middle">Talk to us</textPath></text>
     </svg>
