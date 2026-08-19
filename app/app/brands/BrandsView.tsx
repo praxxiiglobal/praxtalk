@@ -17,8 +17,15 @@ type Brand = {
   position: "br" | "bl";
   avatarUrl?: string;
   bubbleIcon?: "logo" | "glyph";
+  launcherSize?: number;
   askIdentityInChat?: boolean;
 };
+
+// Launcher-size slider bounds (px). Mirror of LAUNCHER_SIZE_MIN/MAX in
+// convex/brands.ts (the server re-clamps, so these stay purely UI).
+const LAUNCHER_SIZE_MIN = 48;
+const LAUNCHER_SIZE_MAX = 88;
+const LAUNCHER_SIZE_DEFAULT = 64;
 
 export function BrandsView() {
   const { sessionToken, operator } = useDashboardAuth();
@@ -143,6 +150,9 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
   const [bubbleIcon, setBubbleIcon] = useState<"logo" | "glyph">(
     brand.bubbleIcon ?? "logo",
   );
+  const [launcherSize, setLauncherSize] = useState<number>(
+    brand.launcherSize ?? LAUNCHER_SIZE_DEFAULT,
+  );
   // Default-on: when the brand row has no value yet, treat as enabled.
   const [askIdentityInChat, setAskIdentityInChat] = useState<boolean>(
     brand.askIdentityInChat ?? true,
@@ -179,6 +189,7 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
         position,
         avatarUrl: logoUrl,
         bubbleIcon,
+        launcherSize,
         askIdentityInChat,
       });
       setEditing(false);
@@ -318,6 +329,23 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
               <option value="logo">Brand logo</option>
               <option value="glyph">Classic chat icon</option>
             </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              <span>Launcher size</span>
+              <span className="tabular-nums text-ink">{launcherSize}px</span>
+            </span>
+            <input
+              type="range"
+              min={LAUNCHER_SIZE_MIN}
+              max={LAUNCHER_SIZE_MAX}
+              step={2}
+              value={launcherSize}
+              onChange={(e) => setLauncherSize(Number(e.target.value))}
+              style={{ accentColor: primaryColor }}
+              className="h-10 w-full cursor-pointer"
+              aria-label="Launcher bubble size in pixels"
+            />
           </label>
           <label className="flex flex-col gap-1 sm:col-span-2">
             <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">

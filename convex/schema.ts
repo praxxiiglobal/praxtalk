@@ -147,6 +147,12 @@ export default defineSchema({
     // shows the brand logo on the bubble, "glyph" keeps the classic
     // chat icon (for logos that read badly at small sizes).
     bubbleIcon: v.optional(v.union(v.literal("logo"), v.literal("glyph"))),
+    // Launcher-bubble diameter in px. Optional — the widget defaults to
+    // 64 when unset. Clamped to LAUNCHER_SIZE_MIN..MAX (48..88) on write
+    // so a bad value can never break the widget layout. Everything tied
+    // to the bubble (icon/logo scale, panel offset, the "Talk to us"
+    // arc) derives from this in the widget.
+    launcherSize: v.optional(v.number()),
     businessHours: v.optional(v.string()),
     // Structured business-hours config used by the off-hours auto-
     // responder. Free-text `businessHours` above stays as a human-

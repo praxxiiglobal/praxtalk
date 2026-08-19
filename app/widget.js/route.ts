@@ -23,13 +23,18 @@ const WIDGET_SHELL = `
     --praxtalk-bubble-left: auto;
     --praxtalk-panel-right: 20px;
     --praxtalk-panel-left: auto;
+    /* Launcher-bubble diameter. Brand-configurable (see applyLauncherGeometry);
+       everything below derives from it so one value resizes the whole
+       launcher. Default 64px. */
+    --praxtalk-launcher-size: 64px;
   }
   * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; }
   .bubble {
     position: fixed; bottom: 20px;
     right: var(--praxtalk-bubble-right);
     left: var(--praxtalk-bubble-left);
-    width: 56px; height: 56px; border-radius: 999px;
+    width: var(--praxtalk-launcher-size); height: var(--praxtalk-launcher-size);
+    border-radius: 999px;
     background: var(--praxtalk-accent); color: #fff;
     border: none; cursor: pointer;
     box-shadow: 0 8px 24px -8px rgba(0,0,0,0.35);
@@ -43,7 +48,9 @@ const WIDGET_SHELL = `
      brand color and logo arrive. */
   .bubble.preboot { visibility: hidden; }
   .bubble-logo {
-    width: 44px; height: 44px; border-radius: 50%;
+    width: calc(var(--praxtalk-launcher-size) - 12px);
+    height: calc(var(--praxtalk-launcher-size) - 12px);
+    border-radius: 50%;
     background: #fff; object-fit: contain; padding: 4px;
     box-sizing: border-box; display: none;
   }
@@ -52,7 +59,11 @@ const WIDGET_SHELL = `
   /* Launcher doubles as the close control: when the panel is open the
      bubble stays put (the panel opens ABOVE it) and swaps its glyph /
      brand logo for a bold ✕. */
-  .bubble svg.bubble-close { display: none; width: 28px; height: 28px; }
+  .bubble svg.bubble-close {
+    display: none;
+    width: calc(var(--praxtalk-launcher-size) * 0.5);
+    height: calc(var(--praxtalk-launcher-size) * 0.5);
+  }
   .bubble.open svg.bubble-close { display: block; }
   .bubble.open > svg:not(.bubble-close) { display: none; }
   .bubble.open .bubble-logo { display: none; }
@@ -70,11 +81,15 @@ const WIDGET_SHELL = `
     box-sizing: border-box; border: 1px solid rgba(0,0,0,0.08);
     flex-shrink: 0;
   }
-  .bubble svg { width: 24px; height: 24px; }
+  .bubble svg {
+    width: calc(var(--praxtalk-launcher-size) * 0.4375);
+    height: calc(var(--praxtalk-launcher-size) * 0.4375);
+  }
   .panel {
-    /* Sits ABOVE the launcher: 20px base + 56px bubble + 12px gap = 88px.
+    /* Sits ABOVE the launcher: 20px base + bubble height + 12px gap.
        The bubble stays visible below and turns into the ✕ close control. */
-    position: fixed; bottom: 88px;
+    position: fixed;
+    bottom: calc(20px + var(--praxtalk-launcher-size) + 12px);
     right: var(--praxtalk-panel-right);
     left: var(--praxtalk-panel-left);
     width: 360px; max-width: calc(100vw - 32px);
@@ -311,19 +326,19 @@ const WIDGET_SHELL = `
      the click target). Shown only while closed and after config applies,
      so it never flashes before styling. */
   .launcher-arc {
-    /* 96×120 box. The text arc (path below) is concentric with the 56px
-       bubble at radius 40 (~12px outside it) so the text clears the icon
-       and reads against the page, not on the logo art. gap ≈ (radius−28)px.
+    /* 96×128 box. The text arc (path below) is concentric with the 64px
+       bubble at radius 44 (~12px outside it) so the text clears the icon
+       and reads against the page, not on the logo art. gap ≈ (radius−32)px.
        Centred on the launcher using the SAME right reference as the bubble.
        (Do NOT use 100vw here — it counts the scrollbar, so on any page with
        a vertical scrollbar the arc landed ~15px off-centre from the bubble,
        which is positioned from the right edge.) The 96px box straddles the
-       bubble centre: right = bubbleRight + 28 − 48 = bubbleRight − 20. */
+       bubble centre: right = bubbleRight + 32 − 48 = bubbleRight − 16. */
     position: fixed;
     bottom: 0;
-    right: calc(var(--praxtalk-bubble-right) - 20px);
+    right: calc(var(--praxtalk-bubble-right) - 16px);
     left: auto;
-    width: 96px; height: 120px;
+    width: 96px; height: 128px;
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -349,9 +364,9 @@ const WIDGET_SHELL = `
   <span class="badge hidden" aria-label="Unread messages"></span>
 </button>
 
-<svg class="launcher-arc" viewBox="0 0 96 120" fill="none" aria-hidden="true">
+<svg class="launcher-arc" viewBox="0 0 96 128" fill="none" aria-hidden="true">
   <defs>
-    <path id="ptk-arc-path" d="M 13.4 52 A 40 40 0 0 1 82.6 52"></path>
+    <path id="ptk-arc-path" d="M 9.9 54 A 44 44 0 0 1 86.1 54"></path>
   </defs>
   <text><textPath href="#ptk-arc-path" startOffset="50%" text-anchor="middle">Talk to us</textPath></text>
 </svg>
@@ -1050,6 +1065,39 @@ const SOURCE = /* javascript */ `(() => {
   // mini avatar beside agent replies; set once in applyConfig.
   let brandLogoUrl = null;
 
+  // Resize the whole launcher from one number (the brand's launcherSize).
+  // The bubble + its icon/logo and the panel offset follow the CSS var
+  // --praxtalk-launcher-size. The "Talk to us" arc is an SVG whose viewBox
+  // stays the fixed 64px reference (0 0 96 128); we SCALE it by setting the
+  // element's box size, so the arc + text stay concentric with the bubble
+  // at any size. Bounds mirror LAUNCHER_SIZE_MIN/MAX in convex/brands.ts.
+  function applyLauncherGeometry(size, position) {
+    const S = Math.max(48, Math.min(88, Math.round((size || 64) / 2) * 2));
+    root.host.style.setProperty("--praxtalk-launcher-size", S + "px");
+    const arc = els.launcherArc;
+    if (!arc) return;
+    const k = S / 64; // reference bubble is 64px
+    const W = 96 * k;
+    const H = 128 * k;
+    arc.style.width = W + "px";
+    arc.style.height = H + "px";
+    // The 20px launcher inset from the viewport bottom does not scale, so
+    // bottom = 20 − 20k keeps the arc's circle centre on the bubble centre
+    // (0 at the 64px reference).
+    arc.style.bottom = 20 - 20 * k + "px";
+    // Centre the W-wide box on the bubble centre: bubbleEdge + S/2 − W/2.
+    const off = S / 2 - W / 2; // negative (W > S)
+    const op = off < 0 ? " - " : " + ";
+    const mag = Math.abs(off).toFixed(2) + "px";
+    if (position === "bl") {
+      arc.style.right = "auto";
+      arc.style.left = "calc(var(--praxtalk-bubble-left)" + op + mag + ")";
+    } else {
+      arc.style.left = "auto";
+      arc.style.right = "calc(var(--praxtalk-bubble-right)" + op + mag + ")";
+    }
+  }
+
   function applyConfig(config) {
     if (!config) return;
     // Reveal the launcher — it boots hidden (.preboot) so visitors
@@ -1124,14 +1172,13 @@ const SOURCE = /* javascript */ `(() => {
       host.style.setProperty("--praxtalk-bubble-left", offsetPx + "px");
       host.style.setProperty("--praxtalk-panel-right", "auto");
       host.style.setProperty("--praxtalk-panel-left", offsetPx + "px");
-      // Re-centre the arc hint over the now-left-aligned launcher (its
-      // default CSS centres against the right edge). Mirror of the CSS
-      // formula: left = bubbleLeft + 28 − 48 = offsetPx − 20.
-      if (els.launcherArc) {
-        els.launcherArc.style.right = "auto";
-        els.launcherArc.style.left = offsetPx - 20 + "px";
-      }
     }
+    // Size the launcher (bubble + arc) from the brand's configured size.
+    // Runs last so it can read the resolved position for arc placement.
+    applyLauncherGeometry(
+      config.launcherSize,
+      config.position === "bl" ? "bl" : "br",
+    );
     // wa.me lite — pre-set the href on every wa link in the DOM
     // (welcome-strip escape hatch + chooser-screen big button).
     // applyConfig only flips them visible; the chooser itself is

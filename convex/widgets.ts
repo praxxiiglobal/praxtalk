@@ -22,6 +22,8 @@ export const getConfigByWidgetId = query({
       position: v.union(v.literal("br"), v.literal("bl")),
       avatarUrl: v.optional(v.string()),
       bubbleIcon: v.optional(v.union(v.literal("logo"), v.literal("glyph"))),
+      // Launcher-bubble diameter in px; absent = widget default (64).
+      launcherSize: v.optional(v.number()),
       // wa.me lite — present when the brand has a click-to-chat
       // WhatsApp number configured. Widget renders a "Prefer
       // WhatsApp" link in the welcome strip when set; null otherwise.
@@ -48,6 +50,7 @@ export const getConfigByWidgetId = query({
       position: brand.position,
       avatarUrl: brand.avatarUrl,
       bubbleIcon: brand.bubbleIcon,
+      launcherSize: brand.launcherSize,
       waMePhone: brand.waMePhone ?? null,
       waMePrefilledMessage: brand.waMePrefilledMessage ?? null,
       // Unset = default-on (most brands want to capture identity).

@@ -31,12 +31,13 @@
     --praxtalk-ink: #0F1A12;
     --praxtalk-bubble-right: 20px;
     --praxtalk-panel-right: 20px;
+    --praxtalk-launcher-size: 64px;
   }
   .ptk-host * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; }
   .bubble {
     position: fixed; bottom: 20px;
     right: var(--praxtalk-bubble-right);
-    width: 56px; height: 56px; border-radius: 999px;
+    width: var(--praxtalk-launcher-size); height: var(--praxtalk-launcher-size); border-radius: 999px;
     background: var(--praxtalk-accent); color: #fff;
     border: none; cursor: pointer;
     box-shadow: 0 8px 24px -8px rgba(0,0,0,0.35);
@@ -44,16 +45,16 @@
     transition: transform 0.15s ease;
   }
   .bubble:hover { transform: translateY(-2px); }
-  .bubble svg { width: 24px; height: 24px; }
-  .bubble svg.bubble-close { display: none; width: 28px; height: 28px; }
+  .bubble svg { width: calc(var(--praxtalk-launcher-size) * 0.4375); height: calc(var(--praxtalk-launcher-size) * 0.4375); }
+  .bubble svg.bubble-close { display: none; width: calc(var(--praxtalk-launcher-size) * 0.5); height: calc(var(--praxtalk-launcher-size) * 0.5); }
 
   /* Curved "Talk to us" hint arcing over the launcher (shown while closed) */
   .launcher-arc {
     position: fixed;
     bottom: 0;
-    right: calc(var(--praxtalk-bubble-right) - 20px);
+    right: calc(var(--praxtalk-bubble-right) - 16px);
     left: auto;
-    width: 96px; height: 120px;
+    width: 96px; height: 128px;
     pointer-events: none;
     transition: opacity 0.3s ease;
   }
@@ -66,7 +67,7 @@
 
   .panel {
     /* NEW — sits ABOVE the launcher (20 + 56 + 12 gap = 88px) */
-    position: fixed; bottom: 88px;
+    position: fixed; bottom: calc(20px + var(--praxtalk-launcher-size) + 12px);
     right: var(--praxtalk-panel-right);
     width: 360px; max-width: calc(100vw - 32px);
     height: 540px; max-height: calc(100vh - 108px);
@@ -131,9 +132,9 @@
       </svg>
     </label>
 
-    <svg class="launcher-arc" viewBox="0 0 96 120" fill="none" aria-hidden="true">
+    <svg class="launcher-arc" viewBox="0 0 96 128" fill="none" aria-hidden="true">
       <defs>
-        <path id="ptk-arc-path" d="M 13.4 52 A 40 40 0 0 1 82.6 52"></path>
+        <path id="ptk-arc-path" d="M 9.9 54 A 44 44 0 0 1 86.1 54"></path>
       </defs>
       <text><textPath href="#ptk-arc-path" startOffset="50%" text-anchor="middle">Talk to us</textPath></text>
     </svg>

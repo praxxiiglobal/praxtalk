@@ -5,6 +5,12 @@ import { generateWidgetId, slugify } from "./lib/auth";
 import { requireOperator } from "./auth";
 import { pushActivity } from "./notifications";
 
+// Launcher-bubble size bounds (px). Shared with the dashboard slider and
+// enforced server-side so a bad value can never reach the widget. The
+// widget itself defaults to 64 when the field is unset.
+export const LAUNCHER_SIZE_MIN = 48;
+export const LAUNCHER_SIZE_MAX = 88;
+
 /**
  * List every brand the caller can access. Admins/owners (`brandAccess: "all"`)
  * see all brands in their workspace. Scoped agents see only the brands in
@@ -116,6 +122,7 @@ export const update = mutation({
     position: v.optional(v.union(v.literal("br"), v.literal("bl"))),
     avatarUrl: v.optional(v.string()),
     bubbleIcon: v.optional(v.union(v.literal("logo"), v.literal("glyph"))),
+    launcherSize: v.optional(v.number()),
     businessHours: v.optional(v.string()),
     waMePhone: v.optional(v.string()),
     waMePrefilledMessage: v.optional(v.string()),
@@ -153,6 +160,15 @@ export const update = mutation({
       patch.avatarUrl = trimmed.length === 0 ? undefined : trimmed;
     }
     if (args.bubbleIcon !== undefined) patch.bubbleIcon = args.bubbleIcon;
+    if (args.launcherSize !== undefined) {
+      // Clamp to a safe range so a bad slider value can't break the
+      // widget layout. Round to the nearest even px to match the slider.
+      const n = Math.round(args.launcherSize / 2) * 2;
+      patch.launcherSize = Math.max(
+        LAUNCHER_SIZE_MIN,
+        Math.min(LAUNCHER_SIZE_MAX, n),
+      );
+    }
     if (args.businessHours !== undefined)
       patch.businessHours = args.businessHours;
     if (args.waMePhone !== undefined) {
@@ -271,6 +287,7 @@ function toPublicBrand(b: Doc<"brands">) {
     position: b.position,
     avatarUrl: b.avatarUrl,
     bubbleIcon: b.bubbleIcon,
+    launcherSize: b.launcherSize,
     businessHours: b.businessHours,
     waMePhone: b.waMePhone,
     waMePrefilledMessage: b.waMePrefilledMessage,
