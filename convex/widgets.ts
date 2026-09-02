@@ -26,6 +26,14 @@ export const getConfigByWidgetId = query({
       launcherSize: v.optional(v.number()),
       // Curved launcher label; absent/empty = widget default ("Talk to us").
       launcherText: v.optional(v.string()),
+      // Proactive greeting card, RESOLVED server-side: null when the
+      // brand hasn't opted in, otherwise the teaser copy (greetingText
+      // falling back to welcomeMessage). The widget just renders what
+      // it's given — the fallback rule lives here, in one place.
+      greeting: v.union(v.string(), v.null()),
+      // Suggestion chips shown under the greeting. Always an array —
+      // empty means "greeting only, no chips".
+      quickReplies: v.array(v.string()),
       // wa.me lite — present when the brand has a click-to-chat
       // WhatsApp number configured. Widget renders a "Prefer
       // WhatsApp" link in the welcome strip when set; null otherwise.
@@ -54,6 +62,12 @@ export const getConfigByWidgetId = query({
       bubbleIcon: brand.bubbleIcon,
       launcherSize: brand.launcherSize,
       launcherText: brand.launcherText,
+      // Opt-in only. A brand that never enabled the greeting gets null
+      // here, so the widget can't accidentally pop a card at visitors.
+      greeting: brand.greetingEnabled
+        ? (brand.greetingText?.trim() || brand.welcomeMessage.trim() || null)
+        : null,
+      quickReplies: brand.greetingEnabled ? (brand.quickReplies ?? []) : [],
       waMePhone: brand.waMePhone ?? null,
       waMePrefilledMessage: brand.waMePrefilledMessage ?? null,
       // Unset = default-on (most brands want to capture identity).
