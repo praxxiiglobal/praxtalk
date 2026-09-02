@@ -19,6 +19,9 @@ type Brand = {
   bubbleIcon?: "logo" | "glyph";
   launcherSize?: number;
   launcherText?: string;
+  greetingEnabled?: boolean;
+  greetingText?: string;
+  quickReplies?: string[];
   askIdentityInChat?: boolean;
 };
 
@@ -30,6 +33,10 @@ const LAUNCHER_SIZE_DEFAULT = 64;
 // Mirror of LAUNCHER_TEXT_MAX in convex/brands.ts.
 const LAUNCHER_TEXT_MAX = 20;
 const LAUNCHER_TEXT_DEFAULT = "Talk to us";
+// Mirrors of GREETING_TEXT_MAX / QUICK_REPLIES_MAX in convex/brands.ts.
+// The server re-clamps on write, so these stay purely UI.
+const GREETING_TEXT_MAX = 160;
+const QUICK_REPLIES_MAX = 4;
 
 export function BrandsView() {
   const { sessionToken, operator } = useDashboardAuth();
@@ -160,6 +167,18 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
   const [launcherText, setLauncherText] = useState<string>(
     brand.launcherText ?? "",
   );
+  // Opt-in, unlike the other widget toggles: this one puts a card in
+  // front of the customer's visitors, so it stays off until asked for.
+  const [greetingEnabled, setGreetingEnabled] = useState<boolean>(
+    brand.greetingEnabled ?? false,
+  );
+  const [greetingText, setGreetingText] = useState<string>(
+    brand.greetingText ?? "",
+  );
+  // Edited as one-per-line text; split on save.
+  const [quickRepliesText, setQuickRepliesText] = useState<string>(
+    (brand.quickReplies ?? []).join("\n"),
+  );
   // Default-on: when the brand row has no value yet, treat as enabled.
   const [askIdentityInChat, setAskIdentityInChat] = useState<boolean>(
     brand.askIdentityInChat ?? true,
@@ -198,6 +217,13 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
         bubbleIcon,
         launcherSize,
         launcherText,
+        greetingEnabled,
+        greetingText,
+        quickReplies: quickRepliesText
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .slice(0, QUICK_REPLIES_MAX),
         askIdentityInChat,
       });
       setEditing(false);
@@ -395,6 +421,63 @@ function BrandRow({ brand, canManage }: { brand: Brand; canManage: boolean }) {
               <option value="bl">Bottom left</option>
             </select>
           </label>
+          <div className="flex flex-col gap-3 rounded-lg border border-rule-2 bg-paper p-3 sm:col-span-2">
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={greetingEnabled}
+                onChange={(e) => setGreetingEnabled(e.target.checked)}
+                className="mt-0.5 h-4 w-4"
+              />
+              <span className="flex flex-col gap-0.5 text-sm">
+                <span className="font-medium text-ink">Proactive greeting</span>
+                <span className="text-[12px] leading-[1.4] text-muted">
+                  Slides a card in above the launcher a few seconds after the
+                  page loads, with optional tappable suggestions. Shown once
+                  per visit, and it stops appearing for anyone who dismisses
+                  it or opens the chat.
+                </span>
+              </span>
+            </label>
+            {greetingEnabled && (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+                    Greeting text
+                  </span>
+                  <textarea
+                    rows={2}
+                    value={greetingText}
+                    onChange={(e) => setGreetingText(e.target.value)}
+                    maxLength={GREETING_TEXT_MAX}
+                    placeholder={welcomeMessage}
+                    className="rounded-lg border border-rule-2 bg-paper px-3 py-2 text-sm outline-none focus:border-ink"
+                  />
+                  <span className="text-[11px] text-muted">
+                    Leave blank to reuse the welcome message. An emoji and a
+                    first name read warmer than a slogan.
+                  </span>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+                    Quick replies
+                  </span>
+                  <textarea
+                    rows={4}
+                    value={quickRepliesText}
+                    onChange={(e) => setQuickRepliesText(e.target.value)}
+                    placeholder={"What do you sell?\nDo you ship to my area?"}
+                    className="rounded-lg border border-rule-2 bg-paper px-3 py-2 text-sm outline-none focus:border-ink"
+                  />
+                  <span className="text-[11px] text-muted">
+                    One per line, up to {QUICK_REPLIES_MAX}. Tapping one opens
+                    the chat and sends it, so Atlas or an operator answers
+                    straight away. Leave blank for the greeting alone.
+                  </span>
+                </label>
+              </>
+            )}
+          </div>
           <label className="flex items-start gap-2 sm:col-span-2 rounded-lg border border-rule-2 bg-paper p-3">
             <input
               type="checkbox"

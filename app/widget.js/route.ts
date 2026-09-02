@@ -351,6 +351,93 @@ const WIDGET_SHELL = `
     /* white halo so the text stays legible on any host-page background */
     stroke: rgba(255,255,255,0.85); stroke-width: 2.5px; paint-order: stroke;
   }
+
+  /* ── Proactive greeting ──────────────────────────────────────────
+     The attention-grabber: a card that slides in above the launcher a
+     few seconds after load, while the panel is still closed, with
+     optional tappable suggestion chips under it.
+
+     Mutually exclusive with the arc hint — showing a curved "Talk to
+     us" AND a greeting card at once is noise, so refreshLauncherHint
+     suppresses the arc while this is up. Anchored to the same bubble
+     edge vars as the launcher, so it tracks brand position and
+     launcher size with no extra JS. */
+  .greeting {
+    position: fixed;
+    bottom: calc(20px + var(--praxtalk-launcher-size) + 14px);
+    right: var(--praxtalk-bubble-right);
+    left: var(--praxtalk-bubble-left);
+    width: 288px;
+    max-width: calc(100vw - 40px);
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .greeting.show {
+    display: flex;
+    animation: ptk-greet-in 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes ptk-greet-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  /* Honour the visitor's OS-level motion preference — this thing
+     appears unprompted, so it must never be the reason a page moves
+     for someone who asked it not to. */
+  @media (prefers-reduced-motion: reduce) {
+    .greeting.show { animation: none; }
+  }
+  .greeting-card {
+    position: relative;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 12px 32px -12px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .greeting-open {
+    display: flex; align-items: flex-start; gap: 10px;
+    width: 100%; margin: 0;
+    padding: 14px 32px 14px 14px;
+    background: none; border: none; border-radius: 16px;
+    font-family: inherit; font-size: 14px; line-height: 1.5;
+    color: #1f2328; text-align: left; cursor: pointer;
+  }
+  .greeting-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #fff; object-fit: contain; padding: 2px;
+    border: 1px solid rgba(0,0,0,0.07);
+    flex-shrink: 0; display: none;
+  }
+  .greeting.has-logo .greeting-avatar { display: block; }
+  .greeting-close {
+    position: absolute; top: 6px; right: 6px;
+    width: 22px; height: 22px; padding: 0;
+    border: none; border-radius: 50%;
+    background: none; color: #9aa0a6;
+    cursor: pointer; display: grid; place-items: center;
+  }
+  .greeting-close:hover { background: rgba(0,0,0,0.06); color: #3c4043; }
+  .greeting-close svg { width: 12px; height: 12px; }
+  /* Chips hang off the same edge as the launcher: right-aligned for a
+     bottom-right widget, left-aligned when the brand flips it. */
+  .greeting-chips {
+    display: flex; flex-direction: column; gap: 8px;
+    align-items: flex-end;
+  }
+  .greeting.pos-left .greeting-chips { align-items: flex-start; }
+  .greeting-chips:empty { display: none; }
+  .greeting-chip {
+    max-width: 100%;
+    padding: 9px 15px;
+    background: #fff;
+    color: var(--praxtalk-accent);
+    border: 1.5px solid var(--praxtalk-accent);
+    border-radius: 999px;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    line-height: 1.3; text-align: left; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .greeting-chip:hover { background: var(--praxtalk-accent); color: #fff; }
 </style>
 
 <button class="bubble preboot" aria-label="Open chat">
@@ -370,6 +457,21 @@ const WIDGET_SHELL = `
   </defs>
   <text><textPath href="#ptk-arc-path" startOffset="50%" text-anchor="middle">Talk to us</textPath></text>
 </svg>
+
+<div class="greeting" role="complementary" aria-label="Message from the team">
+  <div class="greeting-card">
+    <button class="greeting-open" type="button">
+      <img class="greeting-avatar" alt="" />
+      <span class="greeting-text"></span>
+    </button>
+    <button class="greeting-close" type="button" aria-label="Dismiss message">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true">
+        <path d="M18 6 6 18M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+  <div class="greeting-chips"></div>
+</div>
 
 <div class="panel" role="dialog" aria-label="Chat">
   <div class="head">
@@ -584,6 +686,12 @@ const SOURCE = /* javascript */ `(() => {
     bubble: root.querySelector(".bubble"),
     bubbleLogo: root.querySelector(".bubble-logo"),
     launcherArc: root.querySelector(".launcher-arc"),
+    greeting: root.querySelector(".greeting"),
+    greetingOpen: root.querySelector(".greeting-open"),
+    greetingText: root.querySelector(".greeting-text"),
+    greetingAvatar: root.querySelector(".greeting-avatar"),
+    greetingChips: root.querySelector(".greeting-chips"),
+    greetingClose: root.querySelector(".greeting-close"),
     badge: root.querySelector(".bubble .badge"),
     panel: root.querySelector(".panel"),
     head: root.querySelector(".head"),
@@ -658,9 +766,15 @@ const SOURCE = /* javascript */ `(() => {
   // applied (set in applyConfig) so it never flashes before styling, and
   // hides whenever the panel is open.
   let labelReady = false;
+  // The arc hint and the greeting card are mutually exclusive — see the
+  // .greeting CSS note. Whichever is up, the other stands down.
+  let greetingVisible = false;
   function refreshLauncherHint() {
     if (els.launcherArc) {
-      els.launcherArc.classList.toggle("show", labelReady && !panelOpen);
+      els.launcherArc.classList.toggle(
+        "show",
+        labelReady && !panelOpen && !greetingVisible,
+      );
     }
   }
   function setOpen(next) {
@@ -670,10 +784,136 @@ const SOURCE = /* javascript */ `(() => {
     // of hiding — the panel opens above it, and the same button closes.
     els.bubble.classList.toggle("open", next);
     els.bubble.setAttribute("aria-label", next ? "Close chat" : "Open chat");
+    if (next) {
+      // The greeting exists to get the panel opened. Once it has, it's
+      // done its job — retire it on this browser for good rather than
+      // re-pitching a visitor who already knows chat is here.
+      hideGreeting();
+      markGreetingDismissed();
+    }
     refreshLauncherHint();
     if (next) markAllSeen();
   }
   els.bubble.addEventListener("click", () => setOpen(!panelOpen));
+
+  // ── Proactive greeting card ────────────────────────────────────
+  // Opt-in per brand: widgets.getConfigByWidgetId returns
+  // config.greeting as null unless the brand switched it on, so this
+  // whole feature stays inert for everyone who hasn't asked for it.
+  //
+  // Frequency rules are deliberately conservative — an unprompted
+  // popup is the fastest way to make a widget feel like adware:
+  //   · once per tab session (sessionStorage), so a six-page visit
+  //     produces one greeting, not six
+  //   · permanently dismissable per browser (localStorage), set both
+  //     by the close button and by ever opening the panel
+  const GREETING_DELAY_MS = 4000;
+  let greetingArmed = false;
+  let greetingTimer = null;
+  // Wired during boot — see the send() definition. Lets a chip post
+  // through the same path a typed message takes.
+  let sendMessage = null;
+
+  function greetOffKey() { return "praxtalk_greet_off_" + widgetId; }
+  function isGreetingDismissed() {
+    try { return localStorage.getItem(greetOffKey()) === "1"; }
+    catch { return false; }
+  }
+  function markGreetingDismissed() {
+    try { localStorage.setItem(greetOffKey(), "1"); } catch {}
+  }
+  function greetSeenKey() { return "praxtalk_greet_seen_" + widgetId; }
+  function isGreetingSeenThisSession() {
+    try { return sessionStorage.getItem(greetSeenKey()) === "1"; }
+    catch { return false; }
+  }
+  function markGreetingSeen() {
+    try { sessionStorage.setItem(greetSeenKey(), "1"); } catch {}
+  }
+
+  function hideGreeting() {
+    if (greetingTimer) {
+      clearTimeout(greetingTimer);
+      greetingTimer = null;
+    }
+    if (els.greeting) els.greeting.classList.remove("show");
+    greetingVisible = false;
+    refreshLauncherHint();
+  }
+
+  function showGreeting() {
+    greetingTimer = null;
+    if (!els.greeting || panelOpen || isGreetingDismissed()) return;
+    els.greeting.classList.add("show");
+    greetingVisible = true;
+    markGreetingSeen();
+    refreshLauncherHint();
+  }
+
+  // A chip is just "the visitor typed this and pressed enter". Reuse
+  // the real send path rather than duplicating it, so conversation
+  // creation, the inline identity card and Atlas all behave exactly as
+  // they would for a typed message.
+  function askQuickReply(text) {
+    setOpen(true); // hides + permanently dismisses the greeting
+    if (els.input) els.input.value = text;
+    if (sendMessage) sendMessage();
+    else if (els.input) els.input.focus(); // pre-boot: leave it composed
+  }
+
+  function applyGreetingConfig(config) {
+    if (!els.greeting || !els.greetingText) return;
+    els.greeting.classList.toggle("pos-left", config.position === "bl");
+
+    const text = String(config.greeting == null ? "" : config.greeting).trim();
+    // Brand has it off (or never turned it on) — retract anything a
+    // cached config already put on screen. applyConfig runs twice: once
+    // with the cached copy, then again with the fresh one.
+    if (!text) {
+      hideGreeting();
+      return;
+    }
+    els.greetingText.textContent = text;
+
+    // Chips are operator-authored strings arriving over the API and
+    // rendered on someone else's page: textContent only, never
+    // innerHTML.
+    if (els.greetingChips) {
+      while (els.greetingChips.firstChild) {
+        els.greetingChips.removeChild(els.greetingChips.firstChild);
+      }
+      const chips = Array.isArray(config.quickReplies)
+        ? config.quickReplies
+        : [];
+      for (let i = 0; i < chips.length; i++) {
+        const label = String(chips[i] == null ? "" : chips[i]).trim();
+        if (!label) continue;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "greeting-chip";
+        btn.textContent = label;
+        btn.addEventListener("click", function () { askQuickReply(label); });
+        els.greetingChips.appendChild(btn);
+      }
+    }
+
+    // Arm the countdown once — the second applyConfig pass must not
+    // restart it or double-show.
+    if (greetingArmed) return;
+    if (isGreetingDismissed() || isGreetingSeenThisSession()) return;
+    greetingArmed = true;
+    greetingTimer = setTimeout(showGreeting, GREETING_DELAY_MS);
+  }
+
+  if (els.greetingClose) {
+    els.greetingClose.addEventListener("click", function () {
+      hideGreeting();
+      markGreetingDismissed();
+    });
+  }
+  if (els.greetingOpen) {
+    els.greetingOpen.addEventListener("click", function () { setOpen(true); });
+  }
 
   // ── Unread badge + ding + tab-title counter ──────────────────
   // An agent reply that lands while the panel is closed (or the tab
@@ -1147,6 +1387,17 @@ const SOURCE = /* javascript */ `(() => {
         els.typingRow.classList.remove("has-logo");
       }
     }
+    if (els.greetingAvatar && els.greeting) {
+      if (logoUrl) {
+        els.greetingAvatar.src = logoUrl;
+        els.greetingAvatar.onerror = function () {
+          els.greeting.classList.remove("has-logo");
+        };
+        els.greeting.classList.add("has-logo");
+      } else {
+        els.greeting.classList.remove("has-logo");
+      }
+    }
     // Mobile-only call button (replaces the old "Talk to a human"
     // affordance): when the brand has a click-to-chat phone and the
     // visitor is on a phone themselves, the header shows a tap-to-call
@@ -1188,6 +1439,9 @@ const SOURCE = /* javascript */ `(() => {
       config.launcherSize,
       config.position === "bl" ? "bl" : "br",
     );
+    // Greeting card copy + chips. Runs after the geometry so the card
+    // is laid out against the final launcher size and position.
+    applyGreetingConfig(config);
     // wa.me lite — pre-set the href on every wa link in the DOM
     // (welcome-strip escape hatch + chooser-screen big button).
     // applyConfig only flips them visible; the chooser itself is
@@ -1731,6 +1985,9 @@ const SOURCE = /* javascript */ `(() => {
           showIdentityCard();
         }
       }
+      // Hand the send path to the outer scope so a greeting chip can
+      // post through exactly the same code a typed message runs.
+      sendMessage = send;
       els.sendBtn.addEventListener("click", send);
       els.input.addEventListener("keydown", (e) => {
         if (e.key === "Enter" && !e.shiftKey) {

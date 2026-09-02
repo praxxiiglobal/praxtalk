@@ -13,6 +13,13 @@ export const LAUNCHER_SIZE_MAX = 88;
 // Max length of the launcher label — it curves over the bubble on a short
 // arc, so anything longer gets clipped by the path. Shared with the UI.
 export const LAUNCHER_TEXT_MAX = 20;
+// Proactive-greeting bounds. The card sits beside the launcher on a
+// phone-width footprint, so the copy has to stay short to read as a
+// nudge rather than an ad. Enforced server-side for the same reason the
+// launcher bounds are: a bad value must never reach the widget.
+export const GREETING_TEXT_MAX = 160;
+export const QUICK_REPLIES_MAX = 4;
+export const QUICK_REPLY_TEXT_MAX = 48;
 
 /**
  * List every brand the caller can access. Admins/owners (`brandAccess: "all"`)
@@ -127,6 +134,9 @@ export const update = mutation({
     bubbleIcon: v.optional(v.union(v.literal("logo"), v.literal("glyph"))),
     launcherSize: v.optional(v.number()),
     launcherText: v.optional(v.string()),
+    greetingEnabled: v.optional(v.boolean()),
+    greetingText: v.optional(v.string()),
+    quickReplies: v.optional(v.array(v.string())),
     businessHours: v.optional(v.string()),
     waMePhone: v.optional(v.string()),
     waMePrefilledMessage: v.optional(v.string()),
@@ -177,6 +187,24 @@ export const update = mutation({
       // Trim + cap. Empty string is stored as-is; the widget treats
       // empty/unset alike and shows the default "Talk to us".
       patch.launcherText = args.launcherText.trim().slice(0, LAUNCHER_TEXT_MAX);
+    }
+    if (args.greetingEnabled !== undefined) {
+      patch.greetingEnabled = args.greetingEnabled;
+    }
+    if (args.greetingText !== undefined) {
+      // Empty clears it; the widget then falls back to welcomeMessage.
+      const trimmed = args.greetingText.trim().slice(0, GREETING_TEXT_MAX);
+      patch.greetingText = trimmed.length === 0 ? undefined : trimmed;
+    }
+    if (args.quickReplies !== undefined) {
+      // Drop blanks, trim + cap each chip, then cap the list. An empty
+      // result is stored as undefined so "no chips" is one state, not
+      // two (absent vs empty array) for the widget to reason about.
+      const chips = args.quickReplies
+        .map((c) => c.trim().slice(0, QUICK_REPLY_TEXT_MAX))
+        .filter((c) => c.length > 0)
+        .slice(0, QUICK_REPLIES_MAX);
+      patch.quickReplies = chips.length === 0 ? undefined : chips;
     }
     if (args.businessHours !== undefined)
       patch.businessHours = args.businessHours;
@@ -298,6 +326,9 @@ function toPublicBrand(b: Doc<"brands">) {
     bubbleIcon: b.bubbleIcon,
     launcherSize: b.launcherSize,
     launcherText: b.launcherText,
+    greetingEnabled: b.greetingEnabled,
+    greetingText: b.greetingText,
+    quickReplies: b.quickReplies,
     businessHours: b.businessHours,
     waMePhone: b.waMePhone,
     waMePrefilledMessage: b.waMePrefilledMessage,

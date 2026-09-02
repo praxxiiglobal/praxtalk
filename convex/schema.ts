@@ -158,6 +158,24 @@ export default defineSchema({
     // Trimmed + capped at LAUNCHER_TEXT_MAX chars on write (it follows a
     // short arc, so long strings get clipped by the path).
     launcherText: v.optional(v.string()),
+    // ── Proactive greeting ───────────────────────────────────────────
+    // The attention-grabbing card that slides in beside the launcher a
+    // few seconds after load, while the panel is still closed. Opt-in
+    // per brand: unset/false = never shown, so turning this on is a
+    // deliberate choice rather than something existing tenants' sites
+    // start doing on their own after a deploy.
+    greetingEnabled: v.optional(v.boolean()),
+    // Teaser copy. Falls back to `welcomeMessage` when unset/empty, so
+    // switching the toggle on is enough to get something sensible.
+    // Trimmed + capped at GREETING_TEXT_MAX on write — the card is
+    // narrow and a wall of text reads as spam, not a nudge.
+    greetingText: v.optional(v.string()),
+    // Tappable suggestion chips under the greeting. Each one opens the
+    // panel and sends itself as the visitor's first message, so Atlas
+    // (or an operator) answers immediately. Empty/unset = no chips,
+    // just the greeting. Capped at QUICK_REPLIES_MAX entries of
+    // QUICK_REPLY_TEXT_MAX chars each on write.
+    quickReplies: v.optional(v.array(v.string())),
     businessHours: v.optional(v.string()),
     // Structured business-hours config used by the off-hours auto-
     // responder. Free-text `businessHours` above stays as a human-
