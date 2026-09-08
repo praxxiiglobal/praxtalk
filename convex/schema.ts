@@ -1091,6 +1091,13 @@ export default defineSchema({
         deliveredAt: v.optional(v.number()),
       }),
     ),
+    // Machine tag for OPERATOR-FACING system events ("widget_closed",
+    // …). Tagged rows are hidden from the visitor-side stream
+    // (visitors.listMessagesForVisitor) — a notice like "Visitor closed
+    // the chat window" is for the team, not the customer — and let
+    // producers dedupe on the tag instead of on body text. Unset on
+    // every pre-existing system row, which keeps those visitor-visible.
+    systemKind: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_conversation_created", ["conversationId", "createdAt"]),
 

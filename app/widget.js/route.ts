@@ -777,7 +777,11 @@ const SOURCE = /* javascript */ `(() => {
       );
     }
   }
-  function setOpen(next) {
+  // Wired during boot (the Convex client + conversation live in that
+  // scope). Called whenever the visitor collapses the panel so the
+  // team can be told the customer stepped away.
+  let onPanelClosed = null;
+  function setOpen(next, opts) {
     panelOpen = next;
     els.panel.classList.toggle("open", next);
     // Launcher stays in place and flips to a ✕ (see .bubble.open) instead
@@ -793,6 +797,9 @@ const SOURCE = /* javascript */ `(() => {
     }
     refreshLauncherHint();
     if (next) markAllSeen();
+    // Collapsing the panel is a signal the team wants; programmatic
+    // closes (e.g. after a WhatsApp hand-off) pass { silent: true }.
+    if (!next && onPanelClosed && !(opts && opts.silent)) onPanelClosed();
   }
   els.bubble.addEventListener("click", () => setOpen(!panelOpen));
 
@@ -1551,6 +1558,23 @@ const SOURCE = /* javascript */ `(() => {
 
       const cachedProfile = loadProfile();
       let conversationId = null;
+
+      // Panel collapsed via the ✕ launcher → tell the team (see
+      // visitors.notifyWidgetClosed, which decides whether the notice
+      // is warranted). Fire-and-forget: a failed ping must never touch
+      // the visitor's experience.
+      onPanelClosed = function () {
+        if (!conversationId || !visitorKey) return;
+        client
+          .mutation("visitors:notifyWidgetClosed", {
+            widgetId,
+            visitorKey,
+            conversationId,
+          })
+          .catch(function (err) {
+            console.debug("[PraxTalk] close notice failed", err);
+          });
+      };
       // Track how many messages the visitor has sent this session.
       // Used to trigger the inline identity card after the first send.
       let visitorMessageCount = 0;
@@ -1795,7 +1819,7 @@ const SOURCE = /* javascript */ `(() => {
           window.location.href = href;
           return;
         }
-        setTimeout(() => setOpen(false), 250);
+        setTimeout(() => setOpen(false, { silent: true }), 250);
       });
 
       const showChooserFirst =

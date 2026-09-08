@@ -4,6 +4,10 @@ import { internal } from "./_generated/api";
 import { isWithinBusinessHours } from "./lib/businessHours";
 import { fireEvent } from "./webhooks";
 
+// messages.systemKind for the "visitor collapsed the chat panel" notice
+// (see notifyWidgetClosed). Operator-facing only.
+const WIDGET_CLOSED_KIND = "widget_closed";
+
 const locationValidator = v.object({
   country: v.optional(v.string()),
   countryCode: v.optional(v.string()),
@@ -368,6 +372,97 @@ export const requestHumanAgent = mutation({
 });
 
 /**
+ * Public — the visitor collapsed the chat panel (the ✕ on the launcher).
+ * Drops an operator-facing system notice into the thread so whoever is
+ * handling the chat — in PraxTalk or in the Prax CRM inbox — can see
+ * the customer has stepped away instead of typing into the void.
+ *
+ * Deliberately quiet:
+ *   · no `lastMessageAt` bump — that would re-sort the inbox, flag the
+ *     chat unread, and in the CRM fire a "New chat message" desktop
+ *     alert for something that isn't one;
+ *   · no notifications row;
+ *   · never shown back to the visitor (listMessagesForVisitor hides
+ *     systemKind rows).
+ * The message.created webhook still fires so CRM mirrors refresh at
+ * once rather than on their next poll.
+ *
+ * Skipped when the visitor never actually wrote anything, when the
+ * chat is already resolved/closed, and when the thread's latest entry
+ * is already this notice — so open/close/open with no activity in
+ * between posts it once.
+ */
+export const notifyWidgetClosed = mutation({
+  args: {
+    widgetId: v.string(),
+    visitorKey: v.string(),
+    conversationId: v.id("conversations"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const brand = await ctx.db
+      .query("brands")
+      .withIndex("by_widget_id", (q) => q.eq("widgetId", args.widgetId))
+      .unique();
+    if (!brand) throw new ConvexError("Unknown widget.");
+
+    const convo = await ctx.db.get(args.conversationId);
+    if (!convo || convo.workspaceId !== brand.workspaceId) {
+      throw new ConvexError("Conversation not found.");
+    }
+    if (convo.brandId && convo.brandId !== brand._id) {
+      throw new ConvexError("Conversation does not belong to this widget.");
+    }
+    const visitor = await ctx.db.get(convo.visitorId);
+    if (!visitor || visitor.visitorKey !== args.visitorKey) {
+      throw new ConvexError("Visitor mismatch.");
+    }
+
+    // A widget that was opened and closed without a word isn't a chat
+    // anyone is handling; a resolved chat is done either way.
+    if (convo.firstVisitorMessageAt === undefined) return null;
+    if (convo.status === "resolved" || convo.status === "closed") return null;
+
+    const latest = await ctx.db
+      .query("messages")
+      .withIndex("by_conversation_created", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
+      .order("desc")
+      .first();
+    if (latest?.role === "system" && latest.systemKind === WIDGET_CLOSED_KIND) {
+      return null;
+    }
+
+    const now = Date.now();
+    const body = "Visitor closed the chat window.";
+    const messageId = await ctx.db.insert("messages", {
+      conversationId: args.conversationId,
+      workspaceId: brand.workspaceId,
+      brandId: convo.brandId ?? brand._id,
+      channel: convo.channel ?? "web_chat",
+      role: "system",
+      systemKind: WIDGET_CLOSED_KIND,
+      body,
+      createdAt: now,
+    });
+
+    await fireEvent(ctx, brand.workspaceId, "message.created", {
+      messageId,
+      conversationId: args.conversationId,
+      brandId: convo.brandId ?? brand._id,
+      channel: convo.channel ?? "web_chat",
+      role: "system",
+      systemKind: WIDGET_CLOSED_KIND,
+      body,
+      createdAt: now,
+    });
+
+    return null;
+  },
+});
+
+/**
  * Public — visitor-initiated precise location share. Called from the
  * widget after the visitor taps the location button and the browser's
  * native geolocation prompt resolves with success.
@@ -563,8 +658,12 @@ export const listMessagesForVisitor = query({
       return name;
     };
 
-    // Internal notes never leak to the visitor.
-    const visible = messages.filter((m) => m.role !== "internal_note");
+    // Internal notes never leak to the visitor, and neither do
+    // operator-facing system events (systemKind-tagged rows — e.g. the
+    // "Visitor closed the chat window" notice).
+    const visible = messages.filter(
+      (m) => m.role !== "internal_note" && m.systemKind === undefined,
+    );
     return await Promise.all(
       visible.map(async (m) => ({
         _id: m._id,
