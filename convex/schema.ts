@@ -438,6 +438,12 @@ export default defineSchema({
     conversationId: v.id("conversations"),
     visitorTypingAt: v.optional(v.number()),
     operatorTypingAt: v.optional(v.number()),
+    // The visitor's UNSENT text, shipped by the widget with each typing
+    // ping (capped, see typing.ts DRAFT_MAX) so an operator's console
+    // can preview what's coming and have the reply ready. Cleared the
+    // moment the message is sent (visitors.sendVisitorMessage) or the
+    // box is emptied. Operator-facing only — never echoed to the widget.
+    visitorDraft: v.optional(v.string()),
   }).index("by_conversation", ["conversationId"]),
 
   // ── Conversation tags ─────────────────────────────────────────────
@@ -1091,6 +1097,13 @@ export default defineSchema({
         deliveredAt: v.optional(v.number()),
       }),
     ),
+    // Machine tag for OPERATOR-FACING system events ("widget_closed",
+    // …). Tagged rows are hidden from the visitor-side stream
+    // (visitors.listMessagesForVisitor) — a notice like "Visitor closed
+    // the chat window" is for the team, not the customer — and let
+    // producers dedupe on the tag instead of on body text. Unset on
+    // every pre-existing system row, which keeps those visitor-visible.
+    systemKind: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_conversation_created", ["conversationId", "createdAt"]),
 
