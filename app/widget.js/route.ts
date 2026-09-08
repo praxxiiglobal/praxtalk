@@ -790,10 +790,8 @@ const SOURCE = /* javascript */ `(() => {
     els.bubble.setAttribute("aria-label", next ? "Close chat" : "Open chat");
     if (next) {
       // The greeting exists to get the panel opened. Once it has, it's
-      // done its job — retire it on this browser for good rather than
-      // re-pitching a visitor who already knows chat is here.
+      // done its job for this page view; it returns on the next load.
       hideGreeting();
-      markGreetingDismissed();
     }
     refreshLauncherHint();
     if (next) markAllSeen();
@@ -808,35 +806,21 @@ const SOURCE = /* javascript */ `(() => {
   // config.greeting as null unless the brand switched it on, so this
   // whole feature stays inert for everyone who hasn't asked for it.
   //
-  // Frequency rules are deliberately conservative — an unprompted
-  // popup is the fastest way to make a widget feel like adware:
-  //   · once per tab session (sessionStorage), so a six-page visit
-  //     produces one greeting, not six
-  //   · permanently dismissable per browser (localStorage), set both
-  //     by the close button and by ever opening the panel
+  // Frequency (2026-09-08): the card comes back on EVERY page load,
+  // GREETING_DELAY_MS after the config lands, as long as the panel is
+  // closed. Dismissing it (the ✕, opening the panel, tapping a chip)
+  // hides it for the current page view only. The earlier rules — once
+  // per tab session, plus a permanent per-browser dismissal set by the
+  // ✕ or by ever opening the panel — meant a visitor who closed it once
+  // never saw the prompt again, even a week later. The chips are the
+  // fastest way into a chat, so the team wants them to greet every
+  // visit instead.
   const GREETING_DELAY_MS = 4000;
   let greetingArmed = false;
   let greetingTimer = null;
   // Wired during boot — see the send() definition. Lets a chip post
   // through the same path a typed message takes.
   let sendMessage = null;
-
-  function greetOffKey() { return "praxtalk_greet_off_" + widgetId; }
-  function isGreetingDismissed() {
-    try { return localStorage.getItem(greetOffKey()) === "1"; }
-    catch { return false; }
-  }
-  function markGreetingDismissed() {
-    try { localStorage.setItem(greetOffKey(), "1"); } catch {}
-  }
-  function greetSeenKey() { return "praxtalk_greet_seen_" + widgetId; }
-  function isGreetingSeenThisSession() {
-    try { return sessionStorage.getItem(greetSeenKey()) === "1"; }
-    catch { return false; }
-  }
-  function markGreetingSeen() {
-    try { sessionStorage.setItem(greetSeenKey(), "1"); } catch {}
-  }
 
   function hideGreeting() {
     if (greetingTimer) {
@@ -850,10 +834,9 @@ const SOURCE = /* javascript */ `(() => {
 
   function showGreeting() {
     greetingTimer = null;
-    if (!els.greeting || panelOpen || isGreetingDismissed()) return;
+    if (!els.greeting || panelOpen) return;
     els.greeting.classList.add("show");
     greetingVisible = true;
-    markGreetingSeen();
     refreshLauncherHint();
   }
 
@@ -862,7 +845,7 @@ const SOURCE = /* javascript */ `(() => {
   // creation, the inline identity card and Atlas all behave exactly as
   // they would for a typed message.
   function askQuickReply(text) {
-    setOpen(true); // hides + permanently dismisses the greeting
+    setOpen(true); // hides the greeting for this page view
     if (els.input) els.input.value = text;
     if (sendMessage) sendMessage();
     else if (els.input) els.input.focus(); // pre-boot: leave it composed
@@ -904,18 +887,16 @@ const SOURCE = /* javascript */ `(() => {
       }
     }
 
-    // Arm the countdown once — the second applyConfig pass must not
-    // restart it or double-show.
+    // Arm the countdown once per page load — the second applyConfig
+    // pass must not restart it or double-show.
     if (greetingArmed) return;
-    if (isGreetingDismissed() || isGreetingSeenThisSession()) return;
     greetingArmed = true;
     greetingTimer = setTimeout(showGreeting, GREETING_DELAY_MS);
   }
 
   if (els.greetingClose) {
     els.greetingClose.addEventListener("click", function () {
-      hideGreeting();
-      markGreetingDismissed();
+      hideGreeting(); // this page view only — it returns on the next load
     });
   }
   if (els.greetingOpen) {
