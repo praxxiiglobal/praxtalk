@@ -1646,19 +1646,54 @@ const SOURCE = /* javascript */ `(() => {
           (err) => console.error("[PraxTalk] typing subscription failed", err),
         );
       }
+      // Visitor-typing signal. Each ping carries the CURRENT contents of
+      // the input (capped) so the operator's console can preview what
+      // the visitor is about to send and have the answer ready. Throttled
+      // to one write per TYPING_THROTTLE_MS with a trailing send, so a
+      // burst of keystrokes costs a few writes and the LAST keystrokes
+      // always land. An emptied box sends "" so the preview clears; the
+      // server clears it on send as well.
+      const TYPING_THROTTLE_MS = 500;
+      const DRAFT_MAX = 500;
       let lastTypingPingAt = 0;
-      function pingVisitorTyping() {
+      let typingTrailer = null;
+      let lastSentDraft = null;
+      function cancelPendingTypingPing() {
+        if (typingTrailer) {
+          clearTimeout(typingTrailer);
+          typingTrailer = null;
+        }
+      }
+      function sendTypingNow() {
         if (!conversationId) return;
-        const now = Date.now();
-        if (now - lastTypingPingAt < 2000) return; // ~1 ping / 2s
-        lastTypingPingAt = now;
+        const draft = String(els.input.value || "").slice(0, DRAFT_MAX);
+        // Nothing to say: the box is empty and the server already knows.
+        if (draft === "" && lastSentDraft === "") return;
+        lastSentDraft = draft;
+        lastTypingPingAt = Date.now();
         client
           .mutation("typing:setVisitorTyping", {
             widgetId,
             visitorKey,
             conversationId,
+            draft,
           })
           .catch(() => {});
+      }
+      function pingVisitorTyping() {
+        if (!conversationId) return;
+        const wait = TYPING_THROTTLE_MS - (Date.now() - lastTypingPingAt);
+        if (wait <= 0) {
+          cancelPendingTypingPing();
+          sendTypingNow();
+          return;
+        }
+        if (!typingTrailer) {
+          typingTrailer = setTimeout(function () {
+            typingTrailer = null;
+            sendTypingNow();
+          }, wait);
+        }
       }
 
       async function startConversation(profile) {
@@ -1985,6 +2020,10 @@ const SOURCE = /* javascript */ `(() => {
           if (!conversationId) return;
         }
         els.input.value = "";
+        // Box is empty now — drop any queued draft ping; the server
+        // retires the preview itself when the message lands.
+        cancelPendingTypingPing();
+        lastSentDraft = "";
         els.list.appendChild(bubble("visitor", text));
         els.list.scrollTop = els.list.scrollHeight;
         visitorMessageCount++;

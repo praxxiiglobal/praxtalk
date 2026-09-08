@@ -1,4 +1,5 @@
 import { httpRouter } from "convex/server";
+import { LIMIT_PER_KEY_READ, LIMIT_PER_KEY_WRITE } from "./rateLimits";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -68,9 +69,19 @@ async function checkRateLimit(
   req: Request,
 ): Promise<Response | null> {
   const ip = clientIp(req);
-  const result = await ctx.runMutation(internal.rateLimits._checkAndRecord, {
-    ip,
-  });
+  let result: { allowed: boolean; retryAfterSeconds?: number };
+  try {
+    result = await ctx.runMutation(internal.rateLimits._checkAndRecord, {
+      ip,
+    });
+  } catch (err) {
+    // A limiter hiccup (write contention on the counter row, a transient
+    // backend error) must never turn a legitimate request into a 500.
+    // Fail open; the per-key limiter and the per-conversation flood
+    // guards still bound abuse, and the log line is the signal.
+    console.error("[rateLimits] per-IP check failed — failing open", err);
+    return null;
+  }
   if (result.allowed) return null;
   return new Response(
     JSON.stringify({
@@ -133,10 +144,25 @@ async function authenticate(
   // Per-API-key rate limit on top of per-IP. Audit S-12: a single
   // leaked key shouldn't be able to drain the workspace's quota
   // through a botnet of rotating IPs.
-  const keyLimit = await ctx.runMutation(
-    internal.rateLimits._checkAndRecordKey,
-    { apiKeyId: result._id, scope: result.scope },
-  );
+  let keyLimit: {
+    allowed: boolean;
+    retryAfterSeconds?: number;
+    limit: number;
+    remaining: number;
+  };
+  try {
+    keyLimit = await ctx.runMutation(internal.rateLimits._checkAndRecordKey, {
+      apiKeyId: result._id,
+      scope: result.scope,
+    });
+  } catch (err) {
+    // Same fail-open policy as checkRateLimit above (see the note in
+    // rateLimits.ts about counter-row contention under CRM polling).
+    console.error("[rateLimits] per-key check failed — failing open", err);
+    const limit =
+      result.scope === "read" ? LIMIT_PER_KEY_READ : LIMIT_PER_KEY_WRITE;
+    keyLimit = { allowed: true, limit, remaining: limit };
+  }
   if (!keyLimit.allowed) {
     return {
       error: new Response(

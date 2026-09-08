@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { isWithinBusinessHours } from "./lib/businessHours";
 import { fireEvent } from "./webhooks";
+import { clearVisitorDraft } from "./typing";
 
 // messages.systemKind for the "visitor collapsed the chat panel" notice
 // (see notifyWidgetClosed). Operator-facing only.
@@ -231,6 +232,9 @@ export const sendVisitorMessage = mutation({
         ? { firstVisitorMessageAt: now }
         : {}),
     });
+
+    // The text the operator was previewing just became a real message.
+    await clearVisitorDraft(ctx, args.conversationId);
 
     await fireEvent(ctx, brand.workspaceId, "message.created", {
       messageId,

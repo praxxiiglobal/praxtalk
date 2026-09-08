@@ -17,19 +17,37 @@ import type { Id } from "./_generated/dataModel";
 // whether that's recent enough to show dots (see TYPING_TTL_MS on the
 // clients). Storage is a single upserted row per conversation.
 
+// Longest visitor draft we keep. Long enough for any real question,
+// short enough that a scripted client can't park a blob on the row
+// that every operator console then re-fetches every second.
+const DRAFT_MAX = 500;
+
 async function stampTyping(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
   conversationId: Id<"conversations">,
   party: "visitor" | "operator",
+  // Visitor only. undefined = "widget didn't say" (older widget builds
+  // ping without it) → leave the stored draft alone. "" = the box was
+  // emptied → clear it. Anything else replaces it.
+  draft?: string,
 ): Promise<void> {
   const now = Date.now();
   const existing = await ctx.db
     .query("typingStates")
     .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
     .unique();
-  const patch =
+  const patch: {
+    visitorTypingAt?: number;
+    operatorTypingAt?: number;
+    visitorDraft?: string;
+  } =
     party === "visitor" ? { visitorTypingAt: now } : { operatorTypingAt: now };
+  if (party === "visitor" && draft !== undefined) {
+    const trimmed = draft.slice(0, DRAFT_MAX);
+    // patch() with an explicit undefined unsets the field.
+    patch.visitorDraft = trimmed.trim() ? trimmed : undefined;
+  }
   if (existing) {
     await ctx.db.patch(existing._id, patch);
   } else {
@@ -38,6 +56,21 @@ async function stampTyping(
       conversationId,
       ...patch,
     });
+  }
+}
+
+// Retire the stored draft once the message it previewed has been sent
+// (called from visitors.sendVisitorMessage). No-op when nothing's there.
+export async function clearVisitorDraft(
+  ctx: MutationCtx,
+  conversationId: Id<"conversations">,
+): Promise<void> {
+  const row = await ctx.db
+    .query("typingStates")
+    .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
+    .unique();
+  if (row && row.visitorDraft !== undefined) {
+    await ctx.db.patch(row._id, { visitorDraft: undefined });
   }
 }
 
@@ -52,6 +85,8 @@ export const setVisitorTyping = mutation({
     widgetId: v.string(),
     visitorKey: v.string(),
     conversationId: v.id("conversations"),
+    // Current contents of the visitor's input box (see stampTyping).
+    draft: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const brand = await ctx.db
@@ -64,7 +99,13 @@ export const setVisitorTyping = mutation({
     if (convo.brandId && convo.brandId !== brand._id) return null;
     const visitor = await ctx.db.get(convo.visitorId);
     if (!visitor || visitor.visitorKey !== args.visitorKey) return null;
-    await stampTyping(ctx, brand.workspaceId, args.conversationId, "visitor");
+    await stampTyping(
+      ctx,
+      brand.workspaceId,
+      args.conversationId,
+      "visitor",
+      args.draft,
+    );
     return null;
   },
 });
@@ -142,6 +183,7 @@ export const getTypingState = internalQuery({
   ): Promise<{
     visitorTypingAt: number | null;
     operatorTypingAt: number | null;
+    visitorDraft: string | null;
   } | null> => {
     const convo = await ctx.db.get(args.conversationId);
     if (!convo || convo.workspaceId !== args.workspaceId) return null;
@@ -154,6 +196,8 @@ export const getTypingState = internalQuery({
     return {
       visitorTypingAt: row?.visitorTypingAt ?? null,
       operatorTypingAt: row?.operatorTypingAt ?? null,
+      // Live preview of the visitor's unsent text (operator-facing).
+      visitorDraft: row?.visitorDraft ?? null,
     };
   },
 });
