@@ -1424,6 +1424,22 @@ export default defineSchema({
     lastSeenAt: v.number(),
     pageViews: v.number(),
     visitCount: v.number(),
+    // ── Navigator ──
+    // When currentUrl last changed (page load or SPA route change) —
+    // "on this page since". Unset on rows written before the field.
+    pageChangedAt: v.optional(v.number()),
+    // The visitor's path through the site this session, oldest first,
+    // capped at RECENT_PAGES_MAX (presence.ts). Starts over on a new
+    // session.
+    recentPages: v.optional(
+      v.array(
+        v.object({
+          url: v.string(),
+          title: v.optional(v.string()),
+          at: v.number(),
+        }),
+      ),
+    ),
   })
     .index("by_brand_visitor", ["brandId", "visitorKey"])
     .index("by_workspace_lastseen", ["workspaceId", "lastSeenAt"])

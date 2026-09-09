@@ -7,6 +7,7 @@ import {
 } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { visitorPageSnapshot, type VisitorPageSnapshot } from "./presence";
 
 // Typing indicators. Two parties can be typing on a conversation:
 //   • the visitor  — signalled from the chat widget (this file's
@@ -184,6 +185,7 @@ export const getTypingState = internalQuery({
     visitorTypingAt: number | null;
     operatorTypingAt: number | null;
     visitorDraft: string | null;
+    visitorPage: VisitorPageSnapshot | null;
   } | null> => {
     const convo = await ctx.db.get(args.conversationId);
     if (!convo || convo.workspaceId !== args.workspaceId) return null;
@@ -193,11 +195,19 @@ export const getTypingState = internalQuery({
         q.eq("conversationId", args.conversationId),
       )
       .unique();
+    // Navigator: rides this already-polled response so the CRM's open
+    // thread follows the visitor page by page at the typing cadence
+    // (1-3s) with no extra request.
+    const visitor = await ctx.db.get(convo.visitorId);
+    const visitorPage = visitor
+      ? await visitorPageSnapshot(ctx, visitor.brandId, visitor.visitorKey)
+      : null;
     return {
       visitorTypingAt: row?.visitorTypingAt ?? null,
       operatorTypingAt: row?.operatorTypingAt ?? null,
       // Live preview of the visitor's unsent text (operator-facing).
       visitorDraft: row?.visitorDraft ?? null,
+      visitorPage,
     };
   },
 });
