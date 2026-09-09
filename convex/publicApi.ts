@@ -3,6 +3,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getDefaultBrandId } from "./brands";
 import { fireEvent } from "./webhooks";
+import { visitorPageSnapshot, type VisitorPageSnapshot } from "./presence";
 
 /**
  * Public REST API helpers.
@@ -61,7 +62,10 @@ export const listConversations = internalQuery({
         const brand: Doc<"brands"> | null = c.brandId
           ? await ctx.db.get(c.brandId)
           : null;
-        return shapeConversation(c, visitor, brand);
+        const page = visitor
+          ? await visitorPageSnapshot(ctx, visitor.brandId, visitor.visitorKey)
+          : null;
+        return shapeConversation(c, visitor, brand, page);
       }),
     );
   },
@@ -79,7 +83,10 @@ export const getConversation = internalQuery({
     const brand: Doc<"brands"> | null = c.brandId
       ? await ctx.db.get(c.brandId)
       : null;
-    return shapeConversation(c, visitor, brand);
+    const page = visitor
+      ? await visitorPageSnapshot(ctx, visitor.brandId, visitor.visitorKey)
+      : null;
+    return shapeConversation(c, visitor, brand, page);
   },
 });
 
@@ -473,6 +480,7 @@ function shapeConversation(
   c: Doc<"conversations">,
   visitor: Doc<"visitors"> | null,
   brand: Doc<"brands"> | null,
+  page: VisitorPageSnapshot | null = null,
 ) {
   return {
     id: c._id,
@@ -497,6 +505,9 @@ function shapeConversation(
           phone: visitor.phone,
           ip: visitor.ip,
           location: visitor.location,
+          // Navigator: where this visitor is on the site right now
+          // (presence row), null if they never pinged presence.
+          currentPage: page,
         }
       : null,
     brand: brand

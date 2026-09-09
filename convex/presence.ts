@@ -4,6 +4,7 @@ import {
   internalQuery,
   mutation,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -19,6 +20,78 @@ const PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 const clip = (s: string | undefined, n: number) =>
   s === undefined ? undefined : String(s).slice(0, n);
+
+// ── Navigator ───────────────────────────────────────────────────
+// "Where is this visitor on the site right now, since when, and how
+// did they get there" — the strip a CRM shows under a chat. Kept as a
+// bounded trail on the presence row (last RECENT_PAGES_MAX pages of
+// the session) rather than a page-view log table: the row is already
+// rewritten every ~20s, and a dozen entries is what an operator
+// actually reads.
+const RECENT_PAGES_MAX = 12;
+
+type TrailEntry = { url: string; title?: string; at: number };
+
+const trailEntry = (
+  url: string,
+  title: string | undefined,
+  at: number,
+): TrailEntry => ({ url, ...(title ? { title } : {}), at });
+
+export type VisitorPageSnapshot = {
+  url: string;
+  title: string | null;
+  // When they landed on this url (page load or SPA route change).
+  since: number;
+  lastSeenAt: number;
+  tabVisible: boolean;
+  pageViews: number;
+  sessionStartedAt: number;
+  referrer: string | null;
+  landingUrl: string | null;
+  // Oldest first; the current page is the last entry.
+  trail: Array<{ url: string; title: string | null; at: number }>;
+};
+
+export function snapshotFromPresence(
+  r: Doc<"visitorPresence">,
+): VisitorPageSnapshot {
+  return {
+    url: r.currentUrl,
+    title: r.pageTitle ?? null,
+    since: r.pageChangedAt ?? r.sessionStartedAt,
+    lastSeenAt: r.lastSeenAt,
+    tabVisible: r.tabVisible !== false,
+    pageViews: r.pageViews,
+    sessionStartedAt: r.sessionStartedAt,
+    referrer: r.referrer ?? null,
+    landingUrl: r.landingUrl ?? null,
+    trail: (r.recentPages ?? []).map((p) => ({
+      url: p.url,
+      title: p.title ?? null,
+      at: p.at,
+    })),
+  };
+}
+
+// Snapshot for one browser on one brand — null when it has never
+// pinged presence (e.g. a conversation created over REST). Served on
+// GET /api/v1/typing (the CRM's 1-3s poll for the open thread), on the
+// conversation shapes (inbox rows), and in the conversation.created /
+// lead.created webhook payloads (CRM lead attribution).
+export async function visitorPageSnapshot(
+  ctx: QueryCtx | MutationCtx,
+  brandId: Id<"brands">,
+  visitorKey: string,
+): Promise<VisitorPageSnapshot | null> {
+  const row = await ctx.db
+    .query("visitorPresence")
+    .withIndex("by_brand_visitor", (q) =>
+      q.eq("brandId", brandId).eq("visitorKey", visitorKey),
+    )
+    .first();
+  return row ? snapshotFromPresence(row) : null;
+}
 
 // Public, widget-callable — authenticated the same way as the other
 // visitor mutations: a valid widgetId scopes everything to one brand,
@@ -104,13 +177,50 @@ export const ping = mutation({
         sessionStartedAt: now,
         pageViews: 1,
         visitCount: 1,
+        pageChangedAt: now,
+        recentPages: [trailEntry(patch.currentUrl, patch.pageTitle, now)],
       });
       return null;
     }
 
     const newSession = now - existing.lastSeenAt > SESSION_GAP_MS;
+    // Navigator bookkeeping. A new url (page load or SPA route change)
+    // extends the trail and restamps pageChangedAt; a new session
+    // starts the trail over. Same url with a title that arrived late
+    // (SPAs set document.title after the route lands) just fixes the
+    // last entry. Rows that predate the trail get seeded with where
+    // they already are.
+    const pageChanged =
+      newSession || existing.currentUrl !== patch.currentUrl;
+    let recentPages: TrailEntry[] = newSession
+      ? []
+      : (existing.recentPages ?? []);
+    if (pageChanged) {
+      recentPages = [
+        ...recentPages,
+        trailEntry(patch.currentUrl, patch.pageTitle, now),
+      ].slice(-RECENT_PAGES_MAX);
+    } else if (recentPages.length === 0) {
+      recentPages = [
+        trailEntry(
+          patch.currentUrl,
+          patch.pageTitle,
+          existing.pageChangedAt ?? existing.sessionStartedAt,
+        ),
+      ];
+    } else {
+      const last = recentPages[recentPages.length - 1];
+      if (patch.pageTitle && last.title !== patch.pageTitle) {
+        recentPages = [
+          ...recentPages.slice(0, -1),
+          { ...last, title: patch.pageTitle },
+        ];
+      }
+    }
     await ctx.db.patch(existing._id, {
       ...patch,
+      recentPages,
+      ...(pageChanged ? { pageChangedAt: now } : {}),
       ...(newSession
         ? {
             sessionStartedAt: now,
@@ -204,6 +314,14 @@ export const listActive = internalQuery({
         lastSeenAt: r.lastSeenAt,
         pageViews: r.pageViews,
         visitCount: r.visitCount,
+        // Navigator: when they landed on currentUrl, and the path
+        // (oldest first) they took this session.
+        pageChangedAt: r.pageChangedAt ?? null,
+        recentPages: (r.recentPages ?? []).map((p) => ({
+          url: p.url,
+          title: p.title ?? null,
+          at: p.at,
+        })),
         chatState,
         conversationId,
       });

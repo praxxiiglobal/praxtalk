@@ -5,6 +5,7 @@ import { requireOperator } from "./auth";
 import { getDefaultBrandId, hasBrandAccess } from "./brands";
 import { pushActivity } from "./notifications";
 import { fireEvent } from "./webhooks";
+import { visitorPageSnapshot, type VisitorPageSnapshot } from "./presence";
 
 const leadStatuses = [
   v.literal("new"),
@@ -261,6 +262,17 @@ export const create = mutation({
       updatedAt: now,
     });
 
+    // Page context for CRM attribution — the CRM's lead intake already
+    // reads pageUrl / referrer off this event and was charting chat
+    // leads as "Unspecified" for want of it. Absent for leads created
+    // by hand with no visitor behind them.
+    let page: VisitorPageSnapshot | null = null;
+    if (visitorId) {
+      const v = await ctx.db.get(visitorId);
+      if (v && v.workspaceId === workspaceId) {
+        page = await visitorPageSnapshot(ctx, v.brandId, v.visitorKey);
+      }
+    }
     await fireEvent(ctx, workspaceId, "lead.created", {
       leadId,
       conversationId,
@@ -270,6 +282,10 @@ export const create = mutation({
       phone: args.phone,
       location,
       status: args.status ?? "new",
+      pageUrl: page?.url,
+      pageTitle: page?.title ?? undefined,
+      referrer: page?.referrer ?? undefined,
+      landingUrl: page?.landingUrl ?? undefined,
     });
 
     await pushActivity(ctx, {

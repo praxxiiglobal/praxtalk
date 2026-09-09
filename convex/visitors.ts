@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { isWithinBusinessHours } from "./lib/businessHours";
 import { fireEvent } from "./webhooks";
 import { clearVisitorDraft } from "./typing";
+import { visitorPageSnapshot } from "./presence";
 
 // messages.systemKind for the "visitor collapsed the chat panel" notice
 // (see notifyWidgetClosed). Operator-facing only.
@@ -125,6 +126,9 @@ export const identifyAndStartConversation = mutation({
       createdAt: now,
     });
 
+    // Page context for CRM attribution ("which page / campaign did this
+    // chat start on") — from the presence row the widget keeps pinging.
+    const page = await visitorPageSnapshot(ctx, brand._id, args.visitorKey);
     await fireEvent(ctx, brand.workspaceId, "conversation.created", {
       conversationId,
       brandId: brand._id,
@@ -135,6 +139,10 @@ export const identifyAndStartConversation = mutation({
         phone: visitor.phone,
         ip: visitor.ip,
         location: visitor.location,
+        pageUrl: page?.url,
+        pageTitle: page?.title ?? undefined,
+        referrer: page?.referrer ?? undefined,
+        landingUrl: page?.landingUrl ?? undefined,
       },
     });
 

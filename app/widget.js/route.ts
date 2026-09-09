@@ -1760,6 +1760,41 @@ const SOURCE = /* javascript */ `(() => {
         // to-hidden flips the row to Idle without waiting a beat.
         void sendPresencePing();
       });
+      // SPA route changes (pushState / replaceState / back-forward /
+      // hash) don't reload the page, so until now the 20s interval was
+      // the only thing that noticed them and the operator's navigator
+      // lagged a whole tick behind the visitor. Hook them and ping at
+      // once (flagged as a page view), then again shortly after so a
+      // title the app sets post-navigation is captured too. Wrapped so
+      // a host page that locks down history can't break the widget.
+      try {
+        var presenceLastHref = location.href;
+        var presenceTitleTimer = null;
+        var onPresenceNavigation = function () {
+          if (location.href === presenceLastHref) return;
+          presenceLastHref = location.href;
+          presenceFirst = true; // counts as a page view
+          void sendPresencePing();
+          if (presenceTitleTimer) clearTimeout(presenceTitleTimer);
+          presenceTitleTimer = setTimeout(function () {
+            presenceTitleTimer = null;
+            void sendPresencePing();
+          }, 1500);
+        };
+        ["pushState", "replaceState"].forEach(function (method) {
+          var original = history[method];
+          if (typeof original !== "function") return;
+          history[method] = function () {
+            var result = original.apply(this, arguments);
+            setTimeout(onPresenceNavigation, 0);
+            return result;
+          };
+        });
+        window.addEventListener("popstate", onPresenceNavigation);
+        window.addEventListener("hashchange", onPresenceNavigation);
+      } catch (e) {
+        console.debug("[PraxTalk] navigation hook failed", e);
+      }
 
       // The "drop straight to chat" path (no pre-chat form). Used for
       // brand-new anonymous visitors and for the chooser's "chat here"
